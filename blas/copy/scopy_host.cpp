@@ -20,7 +20,7 @@
 #include <algorithm>
 #include <iterator>
 #include "acl/acl.h"
-#include "blas_api.h"
+#include "cann_ops_blas.h"
 
 using aclblasHandle = void *;
 
@@ -74,7 +74,7 @@ CopyTilingData CalTilingData(uint32_t totalEleNum, uint32_t vecCoreNum)
     } else {
         uint64_t blockNumEachCore;
         uint32_t remainBlock;
-        
+
         blockNumEachCore = totalBlockNum / vecCoreNum;
         remainBlock = totalBlockNum % vecCoreNum;
 

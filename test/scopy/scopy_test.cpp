@@ -20,7 +20,7 @@
 #include <algorithm>
 #include <iterator>
 #include "acl/acl.h"
-#include "blas_api.h"
+#include "cann_ops_blas.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
