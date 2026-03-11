@@ -10,10 +10,27 @@
 
 cmake_minimum_required(VERSION 3.16.0)
 
-project(ops_blas)
+project(ops_blas VERSION 1.0.0)
 
 # ========= 基本配置 =========
-set(SOC_VERSION ascend910b3)
+if(NOT DEFINED SOC_VERSION OR SOC_VERSION STREQUAL "")
+  set(SOC_VERSION ascend910b3)
+endif()
+string(TOLOWER "${SOC_VERSION}" SOC_VERSION_LOWER)
+# SOC_VERSION -> NPU_ARCH 映射（ascend910b->dav-2201, ascend950->dav-3101）
+if(SOC_VERSION_LOWER MATCHES "^ascend910b")
+  set(NPU_ARCH "dav-2201")
+elseif(SOC_VERSION_LOWER MATCHES "^ascend910_93")
+  set(NPU_ARCH "dav-2201")
+elseif(SOC_VERSION_LOWER MATCHES "^ascend950")
+  set(NPU_ARCH "dav-3101")
+elseif(SOC_VERSION_LOWER MATCHES "^ascend310p")
+  set(NPU_ARCH "dav-1101")
+else()
+  message(FATAL_ERROR "Unsupported SOC_VERSION: ${SOC_VERSION}. Supported: ascend910b*, ascend910_93*, ascend950*, ascend310p*")
+endif()
+message(STATUS "SOC_VERSION=${SOC_VERSION}, NPU_ARCH=${NPU_ARCH}")
+
 set(ASCEND_CANN_PACKAGE_PATH $ENV{ASCEND_HOME_PATH})
 set(RUN_MODE "npu" CACHE STRING "run mode: npu")
 set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type Release/Debug" FORCE)
@@ -63,7 +80,7 @@ target_include_directories(${OPS_BLASLT} PRIVATE
 )
 
 target_compile_options(${OPS_BLASLT} PRIVATE
-    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=dav-3101>
+    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH}>
 )
 
 # blas
@@ -89,7 +106,18 @@ target_include_directories(${OPS_BLAS} PRIVATE
 )
 
 target_compile_options(${OPS_BLAS} PRIVATE
-    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=dav-3101>
+    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH}>
+)
+
+# ========= 安装规则（CPack 打包时放入 lib64 和 include） =========
+install(TARGETS ${OPS_BLASLT} ${OPS_BLAS}
+    LIBRARY DESTINATION lib64
+)
+install(FILES
+    include/cann_ops_blas.h
+    include/cann_ops_blasLt.h
+    include/cann_ops_blas_common.h
+    DESTINATION include
 )
 
 # ========= 构建测试程序 =========
@@ -100,5 +128,5 @@ endif()
 
 if(ENABLE_PACKAGE)
     include(cmake/package.cmake)
-    pack()
+    pack(${SOC_VERSION})
 endif()
