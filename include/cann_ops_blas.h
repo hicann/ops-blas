@@ -12,3 +12,9 @@
 #include <cstdint>
 
 int aclblasScopy(float *x, float *y, const int64_t n, const int64_t incx, const int64_t incy, void *stream);
+
+// Symmetric packed matrix-vector multiply: z = alpha * A * x + beta * y
+// A is stored in packed symmetric row-major form with index: pos(i,j) = i + ((2*n - j + 1) * j) / 2
+int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
+				const float alpha, const float beta,
+				const int64_t n, const int64_t incx, const int64_t incy, void *stream);

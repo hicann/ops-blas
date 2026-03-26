@@ -6,6 +6,7 @@ cmake-build-debugindocker/
 # distribution and packaging
 build/
 build_out/
+out/
 output/
 dist/
 *.egg-info/
