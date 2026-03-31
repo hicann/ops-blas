@@ -23,7 +23,7 @@ if(SOC_VERSION_LOWER MATCHES "^ascend910b")
 elseif(SOC_VERSION_LOWER MATCHES "^ascend910_93")
   set(NPU_ARCH "dav-2201")
 elseif(SOC_VERSION_LOWER MATCHES "^ascend950")
-  set(NPU_ARCH "dav-3101")
+  set(NPU_ARCH "dav-3510")
 elseif(SOC_VERSION_LOWER MATCHES "^ascend310p")
   set(NPU_ARCH "dav-1101")
 else()
@@ -36,14 +36,14 @@ message(STATUS "SOC_VERSION=${SOC_VERSION}, NPU_ARCH=${NPU_ARCH}")
 function(get_soc_arch_dirs soc_version arch_dirs)
   string(TOLOWER "${soc_version}" soc_lower)
   set(dirs "")
-  
+
   if(soc_lower MATCHES "^ascend950")
     list(APPEND dirs "arch35")
   elseif(soc_lower MATCHES "^ascend310p")
     list(APPEND dirs "arch20")
   endif()
   # 其他 SOC 可以根据需要添加
-  
+
   set(${arch_dirs} ${dirs} PARENT_SCOPE)
 endfunction()
 
