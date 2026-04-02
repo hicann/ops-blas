@@ -44,3 +44,12 @@ int aclblasStrsv(aclblasHandle handle,
                  float *x,
                  int64_t incx);
 
+int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *y, float *z,
+				const float alpha, const float beta,
+				const int64_t n, const int64_t incx, const int64_t incy, void *stream);
+
+int aclblasTpmv(const float *aPacked, const float *x, float *y, 
+				const int64_t n, const int64_t incx, void *stream);
+
+int aclblasTbmv(const float *a, const int64_t lda, const float *x, float *y, 
+				const int64_t n, const int64_t k, const int64_t incx, void *stream);
