@@ -32,6 +32,20 @@ typedef enum aclblasStatus
 } aclblasStatus_t;
 typedef aclblasStatus_t aclblasLtStatus;
 
+/*! \brief Specifies whether the upper or lower triangular part of a matrix is used. */
+typedef enum aclblasFillMode
+{
+    ACLBLAS_UPPER = 121, /**< Upper triangular */
+    ACLBLAS_LOWER = 122  /**< Lower triangular */
+} aclblasFillMode_t;
+
+/*! \brief Specifies whether the diagonal elements are assumed to be unit or non-unit. */
+typedef enum aclblasDiagType
+{
+    ACLBLAS_NON_UNIT = 131, /**< Non-unit diagonal */
+    ACLBLAS_UNIT = 132      /**< Unit diagonal */
+} aclblasDiagType_t;
+
 #ifndef ACLBLAS_OPERATION_DECLARED
 #define ACLBLAS_OPERATION_DECLARED
 /*! \brief Used to specify whether the matrix is to be transposed or not (Fortran BLAS style). */

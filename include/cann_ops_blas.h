@@ -23,7 +23,7 @@ int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
 				const int64_t n, const int64_t incx, const int64_t incy, void *stream);
 
 // Rank-1 matrix update: A = alpha * x * y^T + A
-// A is an m¡Án matrix stored in row-major form with leading dimension lda
+// A is an mï¿½ï¿½n matrix stored in row-major form with leading dimension lda
 // x is a vector of length m with increment incx
 // y is a vector of length n with increment incy
 int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float *alpha,
@@ -31,3 +31,16 @@ int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float *alpha,
                float *y, int64_t incy,
                float *A, int64_t lda,
                void *stream);
+
+// Triangular packed matrix-vector solve: solve A * x = b
+// A is a triangular matrix (upper or lower), x is the solution vector
+int aclblasStrsv(aclblasHandle handle,
+                 aclblasFillMode uplo,
+                 aclblasOperation trans,
+                 aclblasDiagType diag,
+                 int64_t n,
+                 const float *A,
+                 int64_t lda,
+                 float *x,
+                 int64_t incx);
+
