@@ -10,6 +10,9 @@
 
 #pragma once
 #include <cstdint>
+#include "cann_ops_blas_common.h"
+
+using aclblasHandle = void *;
 
 int aclblasScopy(float *x, float *y, const int64_t n, const int64_t incx, const int64_t incy, void *stream);
 
@@ -18,3 +21,13 @@ int aclblasScopy(float *x, float *y, const int64_t n, const int64_t incx, const 
 int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
 				const float alpha, const float beta,
 				const int64_t n, const int64_t incx, const int64_t incy, void *stream);
+
+// Rank-1 matrix update: A = alpha * x * y^T + A
+// A is an m¡Án matrix stored in row-major form with leading dimension lda
+// x is a vector of length m with increment incx
+// y is a vector of length n with increment incy
+int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float *alpha,
+               const float *x, int64_t incx,
+               float *y, int64_t incy,
+               float *A, int64_t lda,
+               void *stream);

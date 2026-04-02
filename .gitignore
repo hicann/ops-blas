@@ -39,6 +39,9 @@ V*_onnx_plugin_model.onnx
 lib/
 kernel_meta/
 
+# dump output
+dump_output/
+
 # Jetbrain
 .idea
 cmake-build-debug
