@@ -53,3 +53,6 @@ int aclblasTpmv(const float *aPacked, const float *x, float *y,
 
 int aclblasTbmv(const float *a, const int64_t lda, const float *x, float *y, 
 				const int64_t n, const int64_t k, const int64_t incx, void *stream);
+
+int aclblasCdot(const float *x, const float *y, float *result,
+		const int64_t n, const int64_t isConj, void *stream);

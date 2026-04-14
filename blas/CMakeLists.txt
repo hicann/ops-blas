@@ -10,6 +10,23 @@
 
 cmake_minimum_required(VERSION 3.16)
 
+# ========= 配置不同 SOC 平台排除的算子 =========
+# 定义 ascend950 平台不参与编译的算子列表
+set(ASCEND950_EXCLUDED_OPS
+    "dot"      # 950 编译排除
+    CACHE INTERNAL "Operators excluded for ascend950 platform"
+)
+
+# 根据当前 SOC 版本确定要排除的算子列表
+set(EXCLUDED_OPS "")
+string(TOLOWER "${SOC_VERSION}" SOC_VERSION_LOWER)
+if(SOC_VERSION_LOWER MATCHES "^ascend950")
+    set(EXCLUDED_OPS ${ASCEND950_EXCLUDED_OPS})
+    if(EXCLUDED_OPS)
+        message(STATUS "Excluded operators for ascend950: ${EXCLUDED_OPS}")
+    endif()
+endif()
+
 # 收集当前目录下的基础源文件
 file(GLOB BASE_SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
@@ -18,20 +35,33 @@ set(OP_SRC_FILES "")
 file(GLOB children RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/*)
 foreach(child ${children})
     if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${child})
-        # 递归收集非架构特定源码，避免与 archXX 目录重复收集
-        file(GLOB_RECURSE dir_srcs ${CMAKE_CURRENT_SOURCE_DIR}/${child}/*.cpp)
-        foreach(src_file ${dir_srcs})
-            set(is_arch_specific FALSE)
-            foreach(arch_dir ${ARCH_SPECIFIC_DIRS})
-                if(src_file MATCHES "/${arch_dir}/")
-                    set(is_arch_specific TRUE)
-                    break()
-                endif()
-            endforeach()
-            if(NOT is_arch_specific)
-                list(APPEND OP_SRC_FILES ${src_file})
+        # 检查该算子是否在排除列表中
+        set(is_excluded FALSE)
+        foreach(excluded_op ${EXCLUDED_OPS})
+            if(child STREQUAL excluded_op)
+                set(is_excluded TRUE)
+                message(STATUS "Skipping operator '${child}' for ${SOC_VERSION}")
+                break()
             endif()
         endforeach()
+        
+        # 如果算子未被排除，则收集其源文件
+        if(NOT is_excluded)
+            # 递归收集非架构特定源码，避免与 archXX 目录重复收集
+            file(GLOB_RECURSE dir_srcs ${CMAKE_CURRENT_SOURCE_DIR}/${child}/*.cpp)
+            foreach(src_file ${dir_srcs})
+                set(is_arch_specific FALSE)
+                foreach(arch_dir ${ARCH_SPECIFIC_DIRS})
+                    if(src_file MATCHES "/${arch_dir}/")
+                        set(is_arch_specific TRUE)
+                        break()
+                    endif()
+                endforeach()
+                if(NOT is_arch_specific)
+                    list(APPEND OP_SRC_FILES ${src_file})
+                endif()
+            endforeach()
+        endif()
     endif()
 endforeach()
 
