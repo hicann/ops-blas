@@ -267,11 +267,11 @@ __aicore__ inline void muls_v(AscendC::LocalTensor<DType> dst,
                               uint16_t dstRepeatStride,
                               uint16_t srcRepeatStride)
 {
-    AscendC::Muls<DType, false>(
+    AscendC::Muls<DType, true>(
         dst,
         src0,
         src1,
-        (uint64_t)0,
+        (uint64_t)(256 / sizeof(DType)),
         repeat,
         AscendC::UnaryRepeatParams(dstBlockStride, srcBlockStride, dstRepeatStride, srcRepeatStride));
 }

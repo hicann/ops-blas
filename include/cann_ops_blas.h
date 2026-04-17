@@ -56,3 +56,29 @@ int aclblasTbmv(const float *a, const int64_t lda, const float *x, float *y,
 
 int aclblasCdot(const float *x, const float *y, float *result,
 		const int64_t n, const int64_t isConj, void *stream);
+
+// Sum of absolute values: result = sum(|x[i]|) for i = 0 to n-1
+int aclblasSasum(const float *x, float *result, const int64_t n, const int64_t incx, void *stream);
+
+// Index of maximum absolute value: result = argmax_i |x[i]|
+// Returns 1-based index following BLAS convention
+// dtypeFlag: 0 for real float, 1 for complex<float>
+int aclblasIamax(const float *x, int32_t *result, const int64_t n, const int64_t incx, 
+                 const uint32_t dtypeFlag, void *stream);
+
+// Column-wise complex multiplication: result[i, :] = vec[i] * mat[i, :]
+// mat: m x n complex matrix (stored as 2*m*n floats)
+// vec: m complex vector (stored as 2*m floats)
+// result: m x n complex matrix
+int aclblasColwiseMul(const float *mat, const float *vec, float *result,
+                      const int64_t m, const int64_t n, void *stream);
+
+// Euclidean norm: result = sqrt(sum(|x[i]|^2)) for i = 0 to n-1
+int aclblasSnrm2(float *x, float *result, const int64_t n, const int64_t incx, void *stream);
+
+
+// Complex matrix dot product: result[i,j] = matx[i,j] * maty[i,j] (element-wise complex multiplication)
+// matx, maty, result: m x n complex matrices (stored as 2*m*n floats)
+// Each complex number is stored as [real, imag] pairs
+int aclblasComplexMatDot(const float *matx, const float *maty, float *result,
+                         const int64_t m, const int64_t n, void *stream);

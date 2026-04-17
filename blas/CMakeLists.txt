@@ -14,6 +14,11 @@ cmake_minimum_required(VERSION 3.16)
 # 定义 ascend950 平台不参与编译的算子列表
 set(ASCEND950_EXCLUDED_OPS
     "dot"      # 950 编译排除
+    "colwise_mul"
+    "complex_mat_dot"
+    "iamax"
+    "nrm2"
+    "sasum"
     CACHE INTERNAL "Operators excluded for ascend950 platform"
 )
 
