@@ -19,6 +19,9 @@ set(ASCEND950_EXCLUDED_OPS
     "iamax"
     "nrm2"
     "sasum"
+    "rot"
+    "cgemv_batched"
+    "cgerc"
     CACHE INTERNAL "Operators excluded for ascend950 platform"
 )
 

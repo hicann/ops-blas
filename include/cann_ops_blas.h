@@ -10,6 +10,7 @@
 
 #pragma once
 #include <cstdint>
+#include <complex>
 #include "cann_ops_blas_common.h"
 
 using aclblasHandle = void *;
@@ -82,3 +83,42 @@ int aclblasSnrm2(float *x, float *result, const int64_t n, const int64_t incx, v
 // Each complex number is stored as [real, imag] pairs
 int aclblasComplexMatDot(const float *matx, const float *maty, float *result,
                          const int64_t m, const int64_t n, void *stream);
+
+// Complex vector rotation: applies a plane rotation to vectors x and y
+// x[i] = c*x[i] + s*y[i]
+// y[i] = c*y[i] - s*x[i] (original x[i])
+int aclblasCsrot(float *x, float *y, const int64_t n, const float c, const float s, void *stream);
+
+// Batched complex matrix-vector multiplication: y[i] = alpha * A[i] * x[i] + beta * y[i]
+// (or alpha * A[i]^T * x[i] + beta * y[i] or alpha * A[i]^H * x[i] + beta * y[i])
+// A: batch of m x n complex matrices (batchCount matrices)
+// x: batch of complex vectors (batchCount vectors)
+// y: batch of complex vectors (batchCount vectors)
+// alpha: complex scalar
+// lda: leading dimension of matrix A
+// beta: complex scalar
+// incx: increment for vector x
+// incy: increment for vector y
+// trans: 0 = N (normal), 1 = T (transpose), 2 = C (conjugate transpose)
+// dtype: 0 = half, 1 = float
+int aclblasCgemvBatched(const std::complex<float> *A, const std::complex<float> *x, std::complex<float> *y,
+                        const std::complex<float> &alpha, const int64_t lda,
+                        const std::complex<float> &beta, const int64_t incx, const int64_t incy,
+                        const int64_t batchCount, const int64_t m, const int64_t n,
+                        const int32_t trans,
+                        void *stream);
+
+// Complex rank-1 update: A = alpha * x * conj(y^T) + A
+// A: m x n complex matrix, data type: complex<float>
+// x: complex vector of length m, data type: complex<float>
+// y: complex vector of length n, data type: complex<float>
+// alpha: complex scalar, data type: complex<float>
+// lda: leading dimension of matrix A
+// incx: increment for vector x
+// incy: increment for vector y
+int aclblasCgerc(const int64_t m, const int64_t n,
+                 const std::complex<float> &alpha,
+                 const std::complex<float> *x, const int64_t incx,
+                 const std::complex<float> *y, const int64_t incy,
+                 std::complex<float> *A, const int64_t lda,
+                 void *stream);
