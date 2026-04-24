@@ -13,6 +13,7 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
+#include "../utils/aclblas_handle_internal.h"
 
 #define GM_ADDR uint8_t*
 
@@ -86,11 +87,17 @@ int aclblasStrsv(aclblasHandle handle,
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    int32_t deviceId = 0;
     aclrtContext currentCtx = nullptr;
     aclError aclRet = aclrtGetCurrentContext(&currentCtx);
     if (aclRet != ACL_SUCCESS || currentCtx == nullptr) {
         return ACLBLAS_STATUS_NOT_INITIALIZED;
+    }
+
+    // 从 handle 获取 stream
+    aclrtStream useStream = nullptr;
+    if (handle != nullptr) {
+        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        useStream = h->stream;
     }
 
     size_t aSize = static_cast<size_t>(n) * static_cast<size_t>(lda) * sizeof(float);
@@ -149,9 +156,9 @@ int aclblasStrsv(aclblasHandle handle,
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    strsv_kernel_do(aDevice, xDevice, tilingDevice, uplo, trans, diag, n, lda, tiling.useCoreNum, handle);
+    strsv_kernel_do(aDevice, xDevice, tilingDevice, uplo, trans, diag, n, lda, tiling.useCoreNum, useStream);
 
-    aclRet = aclrtSynchronizeStream(handle);
+    aclRet = aclrtSynchronizeStream(useStream);
     if (aclRet != ACL_SUCCESS) {
         aclrtFree(aDevice);
         aclrtFree(xDevice);

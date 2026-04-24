@@ -271,11 +271,42 @@ int32_t main(int32_t argc, char* argv[])
     aclrtSetDevice(deviceId);
     aclrtCreateStream(&stream);
 
-    auto ret = aclblasStrsv(nullptr, uplo, trans, diag,
+    // Handle integration test: verify aclblasStrsv works correctly with a real handle
+    void *handle = nullptr;
+    if (aclblasCreateHandle(&handle) != ACLBLAS_STATUS_SUCCESS) {
+        std::cout << "[FAIL] aclblasCreateHandle failed" << std::endl;
+        aclrtDestroyStream(stream);
+        aclrtResetDevice(deviceId);
+        aclFinalize();
+        return 1;
+    }
+
+    aclrtStream handleStream = nullptr;
+    if (aclrtCreateStream(&handleStream) != ACL_SUCCESS) {
+        std::cout << "[FAIL] aclrtCreateStream for handle failed" << std::endl;
+        aclblasDestroyHandle(handle);
+        aclrtDestroyStream(stream);
+        aclrtResetDevice(deviceId);
+        aclFinalize();
+        return 1;
+    }
+    if (aclblasSetStream(handle, handleStream) != ACLBLAS_STATUS_SUCCESS) {
+        std::cout << "[FAIL] aclblasSetStream failed" << std::endl;
+        aclrtDestroyStream(handleStream);
+        aclblasDestroyHandle(handle);
+        aclrtDestroyStream(stream);
+        aclrtResetDevice(deviceId);
+        aclFinalize();
+        return 1;
+    }
+
+    auto ret = aclblasStrsv(handle, uplo, trans, diag,
                               n, A.data(), lda, x.data(), incx);
     CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasStrsv failed. ERROR: %d\n", ret); return ret);
 
     aclrtDestroyStream(stream);
+    aclrtDestroyStream(handleStream);
+    aclblasDestroyHandle(handle);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
