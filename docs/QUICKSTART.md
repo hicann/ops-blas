@@ -22,10 +22,10 @@
 
 环境准备好后（注意软件与源码版本配套），进入环境并访问项目源码根目录，编译指定算子。
 
-通用编译命令格式：`bash build.sh --pkg --soc=<芯片版本> --op=<算子名>`。以Copy算子为例，编译命令如下：
+通用编译命令格式：`bash build.sh --pkg --soc=<芯片版本> --ops=<算子名>`。以Copy算子为例，编译命令如下：
 
 ```bash
-bash build.sh --pkg --soc=ascend950 --op=scopy
+bash build.sh --pkg --soc=ascend950 --ops=scopy
 ```
 
 若提示如下信息，说明编译成功。
@@ -36,17 +36,17 @@ Self-extractable archive "cann-ops-blas_${cann_version}_linux-${arch}.run" succe
 
 ### 2. 安装Copy算子包
 ```bash
-./build_out/cann-ops-blas-*linux*.run
+./build_out/cann-${soc_name}-ops-blas_${version}_linux-${arch}.run 
 ```
 
 ### 3. 快速验证：运行算子样例
 
-通用的运行命令格式：`bash build.sh --soc=<芯片版本> --op=<算子名> --run`。
+通用的运行命令格式：`bash build.sh --soc=<芯片版本> --ops=<算子名> --run`。
 
 以Copy为例，其提供了简单算子样例`test/scopy/scopy_test.cpp`，运行该样例验证算子功能是否正常。
 
 ```bash
-bash build.sh --pkg --soc=ascend950 --op=scopy --run
+bash build.sh --pkg --soc=ascend950 --ops=scopy --run
 ```
 预期输出：打印算子`Copy`的计算结果，表明算子已成功部署并正确执行。
 
@@ -92,17 +92,17 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
     先回到项目根目录，编译命令如下：
 
     ```bash
-    bash build.sh --pkg --soc=ascend950 --op=scopy
+    bash build.sh --pkg --soc=ascend950 --ops=scopy
     ```
 
 2. **重新安装**：
     ```bash
-    ./build_out/cann-ops-blas-*linux*.run
+    ./build_out/cann-*-ops-blas_*.run
     ```
 
 3. **重新验证**：
     ```bash
-    bash build.sh --soc=ascend950 --op=scopy --run
+    bash build.sh --soc=ascend950 --ops=scopy --run
     ```
 
 4. **成功标志**：输出结果精度比对成功。
@@ -150,7 +150,7 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
 
     调用Copy算子的test样例，生成可执行文件（scopy_test），该文件位于项目`ops-blas/build/test/scopy`目录。
     ```bash
-    bash build.sh --soc=ascend950 --op=scopy
+    bash build.sh --soc=ascend950 --ops=scopy
     ```
 
 -  **采集性能数据**
