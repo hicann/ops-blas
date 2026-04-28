@@ -79,6 +79,12 @@ typedef enum aclblasComputeType
     ACLBLAS_COMPUTE_32I_PEDANTIC = 10, /**< compute will be exactly 32-bit integer precision */
 } aclblasComputeType_t;
 
+typedef enum aclblasLogLevel {
+    ACLBLAS_LOG_LEVEL_DEBUG = 0,
+    ACLBLAS_LOG_LEVEL_INFO = 1,
+    ACLBLAS_LOG_LEVEL_ERROR = 2,
+} aclblasLogLevel_t;
+
 #ifdef __cplusplus
 }
 #endif
