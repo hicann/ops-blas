@@ -37,18 +37,18 @@ extern "C" {
  *         ACLBLAS_STATUS_NOT_INITIALIZED CANN 上下文未初始化
  *         ACLBLAS_STATUS_ALLOC_FAILED 内存分配失败
  */
-aclblasStatus_t aclblasCreateHandle(aclblasHandle_t *handle);
+aclblasStatus_t aclblasCreate(aclblasHandle_t *handle);
 
 /**
  * @brief 销毁 ops-blas handle
  *
- * 释放由 aclblasCreateHandle 创建的 handle 所占有的全部资源。
+ * 释放由 aclblasCreate 创建的 handle 所占有的全部资源。
  *
  * @param handle 要销毁的 handle（void*）
  * @return ACLBLAS_STATUS_SUCCESS 成功
  *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
  */
-aclblasStatus_t aclblasDestroyHandle(aclblasHandle_t handle);
+aclblasStatus_t aclblasDestroy(aclblasHandle_t handle);
 
 /**
  * @brief 设置 handle 的 stream

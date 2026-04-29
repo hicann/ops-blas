@@ -33,7 +33,7 @@ inline _aclblas_handle *ToInternal(aclblasHandle_t handle)
 
 extern "C" {
 
-aclblasStatus_t aclblasCreateHandle(aclblasHandle_t *handle)
+aclblasStatus_t aclblasCreate(aclblasHandle_t *handle)
 {
     if (handle == nullptr) {
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
@@ -53,7 +53,7 @@ aclblasStatus_t aclblasCreateHandle(aclblasHandle_t *handle)
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-aclblasStatus_t aclblasDestroyHandle(aclblasHandle_t handle)
+aclblasStatus_t aclblasDestroy(aclblasHandle_t handle)
 {
     if (handle == nullptr) {
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
