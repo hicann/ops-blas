@@ -16,6 +16,7 @@
 #include "cann_ops_blas_common.h"
 
 using aclblasHandle = void *;
+using aclblasLogCallback = void (*)(char*);
 
 typedef void* aclblasHandle_t;
 
@@ -95,6 +96,35 @@ aclblasStatus_t aclblasSetWorkspace(aclblasHandle_t handle, void *workspace, siz
  *         ACLBLAS_STATUS_INVALID_VALUE 参数无效
  */
 aclblasStatus_t aclblasGetVersion(aclblasHandle_t handle, int *version);
+
+/**
+ * @brief 配置日志接口
+ * @param logFile  日志文件名称，为空不输出
+ * @param logToStdOut 是否输出到标准流
+ * @param logToKdlls  是否输出到内核
+ * @param logLevel 日志级别
+ * @return ACLBLAS_STATUS_SUCCESS 成功
+ *         ACLBLAS_STATUS_INVALID_VALUE 参数无效
+ */
+aclblasStatus_t aclblasLoggerConfigure(const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel);
+
+/**
+ * @brief 设置日志回调函数
+ * @param handle  句柄
+ * @param userCallback 日志回调函数
+ * @return ACLBLAS_STATUS_SUCCESS 成功
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
+ */
+aclblasStatus_t aclblasSetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+
+/**
+ * @brief 获取日志回调函数
+ * @param handle  句柄
+ * @param userCallback 日志回调函数
+ * @return ACLBLAS_STATUS_SUCCESS 成功
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
+ */
+aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
 
 #ifdef __cplusplus
 }

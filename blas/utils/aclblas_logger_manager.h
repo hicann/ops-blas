@@ -18,7 +18,7 @@
 #include <acl/acl.h>
 #include <cstddef>
 
-#include "cann_ops_blas_logger.h"
+#include "cann_ops_blas.h"
 #include "aclblas_handle_internal.h"
 
 struct _aclblas_logger_configure {
