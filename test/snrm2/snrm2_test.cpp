@@ -40,7 +40,6 @@ uint32_t VerifyResult(float output, float golden)
     std::cout << "Output: " << output << std::endl;
     std::cout << "Golden: " << golden << std::endl;
 
-    // Use relative error for floating point comparison
     float relError = std::abs(output - golden) / std::abs(golden);
     constexpr float epsilon = 1e-5f;
 
@@ -51,6 +50,36 @@ uint32_t VerifyResult(float output, float golden)
         std::cout << "[Failed] Case accuracy is verification failed! Relative error: " << relError << std::endl;
         return 1;
     }
+}
+
+int32_t test_scnrm2()
+{
+    int32_t deviceId = 0;
+
+    constexpr uint32_t n = 8 * 1024;
+    constexpr float realVal = 1.5f;
+    constexpr float imagVal = 2.0f;
+
+    std::vector<std::complex<float>> x(n, std::complex<float>(realVal, imagVal));
+    float result = 0.0f;
+    int64_t incx = 1;
+
+    aclrtStream stream = nullptr;
+
+    aclInit(nullptr);
+    aclrtSetDevice(deviceId);
+    aclrtCreateStream(&stream);
+
+    auto ret = aclblasScnrm2(x.data(), &result, n, incx, stream);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasScnrm2 failed. ERROR: %d\n", ret); return ret);
+
+    aclrtDestroyStream(stream);
+    aclrtResetDevice(deviceId);
+    aclFinalize();
+
+    float golden = std::sqrt(n * (realVal * realVal + imagVal * imagVal));
+
+    return VerifyResult(result, golden);
 }
 
 int32_t main(int32_t argc, char *argv[])
@@ -76,8 +105,13 @@ int32_t main(int32_t argc, char *argv[])
     aclrtResetDevice(deviceId);
     aclFinalize();
 
-    // Calculate golden result: sqrt(n * x^2) = |x| * sqrt(n)
     float golden = std::abs(valueX) * std::sqrt(static_cast<float>(totalLength));
 
-    return VerifyResult(result, golden);
+    int snrm2_result = VerifyResult(result, golden);
+    if (snrm2_result != 0) {
+        return snrm2_result;
+    }
+
+    std::cout << "\n========== Testing scnrm2 ==========\n" << std::endl;
+    return test_scnrm2();
 }

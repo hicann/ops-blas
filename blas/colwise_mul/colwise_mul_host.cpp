@@ -21,14 +21,7 @@
 #include <algorithm>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-
-using aclblasHandle = void *;
-
-#define GM_ADDR uint8_t*
-
-extern void colwise_mul_kernel_do(GM_ADDR mat, GM_ADDR vec, GM_ADDR aug, GM_ADDR result,
-                                  GM_ADDR workSpace, GM_ADDR tilingGm,
-                                  uint32_t numBlocks, void *stream);
+#include "../utils/aclblas_kernel_do.h"
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 constexpr uint32_t DEFAULT_CUBE_NUM = 20;

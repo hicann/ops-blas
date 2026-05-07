@@ -46,6 +46,13 @@ typedef enum aclblasDiagType
     ACLBLAS_UNIT = 132      /**< Unit diagonal */
 } aclblasDiagType_t;
 
+/*! \brief Specifies whether the triangular matrix is on the left or right side of the multiplication. */
+typedef enum aclblasSideMode
+{
+    ACLBLAS_SIDE_LEFT = 141,  /**< Triangular matrix on the left side */
+    ACLBLAS_SIDE_RIGHT = 142  /**< Triangular matrix on the right side */
+} aclblasSideMode_t;
+
 #ifndef ACLBLAS_OPERATION_DECLARED
 #define ACLBLAS_OPERATION_DECLARED
 /*! \brief Used to specify whether the matrix is to be transposed or not (Fortran BLAS style). */

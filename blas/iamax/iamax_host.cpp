@@ -22,13 +22,9 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "../utils/aclblas_kernel_do.h"
 
 using aclblasHandle = void *;
-
-#define GM_ADDR uint8_t*
-
-extern void iamax_kernel_do(GM_ADDR x, GM_ADDR y, GM_ADDR workspace, GM_ADDR tiling,
-                            uint32_t numBlocks, void *stream);
 
 // Constants from original tiling implementation
 constexpr int32_t MAXNUMF32ELEEACHCORE = 23040;       // 实数超过这么多个，需要多轮循环处理

@@ -237,3 +237,171 @@ int aclblasCgerc(const int64_t m, const int64_t n,
                  const std::complex<float> *y, const int64_t incy,
                  std::complex<float> *A, const int64_t lda,
                  void *stream);
+
+int aclblasCcopy(std::complex<float> *x, std::complex<float> *y, const int64_t n, const int64_t incx, const int64_t incy, void *stream);
+
+
+// Real vector dot product: result = sum(x[i] * y[i]) for i = 0 to n-1
+int aclblasSdot(aclblasHandle handle, const float *x, const float *y, float *result,
+                const int64_t n, const int64_t incx, const int64_t incy);
+
+                // Complex Euclidean norm: result = sqrt(sum(|x[i]|^2)) for i = 0 to n-1
+// x: complex vector of length n (stored as 2*n floats)
+int aclblasScnrm2(std::complex<float> *x, float *result, const int64_t n, const int64_t incx, void *stream);
+
+// ========== CAL系列接口（向量缩放） ==========
+
+// 实数向量缩放: x = alpha * x
+// x: 实数向量，长度为n
+// alpha: 实数标量
+int aclblasSscal(aclblasHandle handle, float *x, const float alpha, const int64_t n, const int64_t incx);
+
+// 复数向量缩放（实数标量）: x = alpha * x
+// x: 复数向量，长度为n
+// alpha: 实数标量
+int aclblasCsscal(aclblasHandle handle, std::complex<float> *x, const float alpha, const int64_t n, const int64_t incx);
+
+// 复数向量缩放（复数标量）: x = alpha * x
+// x: 复数向量，长度为n
+// alpha: 复数标量
+int aclblasCscal(aclblasHandle handle, std::complex<float> *x, const std::complex<float> alpha,
+                 const int64_t n, const int64_t incx);
+
+// ========== SWAP系列接口（向量交换） ==========
+
+// 实数向量交换: x <-> y
+// x, y: 实数向量，长度为n
+int aclblasSswap(aclblasHandle handle, float *x, float *y, const int64_t n, const int64_t incx, const int64_t incy);
+
+// 复数向量交换: x <-> y
+// x, y: 复数向量（存储为float数组），长度为n
+int aclblasCswap(aclblasHandle handle, float *x, float *y, const int64_t n, const int64_t incx, const int64_t incy);
+
+// ========== AXPY系列接口（向量缩放加法） ==========
+
+// 复向量缩放加法: y = alpha * x + y
+// x: 输入复向量，长度为n
+// y: 输入/输出复向量，长度为n
+// alpha: 复数标量
+int aclblasCaxpy(aclblasHandle handle, const std::complex<float> *x, std::complex<float> *y,
+                 const std::complex<float> alpha, const int64_t n, const int64_t incx, const int64_t incy);
+
+// ========== GEMV系列接口（矩阵向量乘法） ==========
+
+// 复矩阵向量乘法: y = alpha * A * x + beta * y (或 A^T, A^H)
+// A: m x n 复矩阵
+// x: 复向量（长度为n当trans=N，长度为m当trans=T/C）
+// y: 复向量（长度为m当trans=N，长度为n当trans=T/C）
+// trans: 0=N, 1=T(转置), 2=C(共轭转置)
+int aclblasCgemv(aclblasHandle handle,
+                  aclblasOperation trans,
+                  const int64_t m, const int64_t n,
+                  const std::complex<float> &alpha,
+                  const std::complex<float> *A, const int64_t lda,
+                  const std::complex<float> *x, const int64_t incx,
+                  const std::complex<float> &beta,
+std::complex<float> *y, const int64_t incy,
+                   void *stream);
+
+// ========== TRMV系列接口（三角矩阵向量乘法） ==========
+
+// 实三角矩阵向量乘法: x = A * x 或 x = A^T * x
+// A: n阶三角矩阵（上三角或下三角）
+// x: n维向量
+// uplo: 上三角(ACLBLAS_FILL_MODE_UPPER)或下三角(ACLBLAS_FILL_MODE_LOWER)
+// trans: 不转置(ACLBLAS_OP_N)或转置(ACLBLAS_OP_T)
+// diag: 非单位对角线(ACLBLAS_DIAG_NON_UNIT)或单位对角线(ACLBLAS_DIAG_UNIT)
+int aclblasStrmv(aclblasHandle handle,
+                 aclblasFillMode uplo,
+                 aclblasOperation trans,
+                 aclblasDiagType diag,
+                 const int64_t n,
+                 const float *A, const int64_t lda,
+                 float *x, const int64_t incx,
+                 void *stream);
+
+// ========== SYR系列接口（对称矩阵秩更新） ==========
+
+// 实对称秩1更新: A = alpha * x * x^T + A
+// A: n阶对称矩阵（上三角或下三角）
+// x: n维向量
+// uplo: 上三角(ACLBLAS_UPPER)或下三角(ACLBLAS_LOWER)
+int aclblasSsyr(aclblasHandle handle,
+                aclblasFillMode uplo,
+                const int64_t n,
+                const float alpha,
+                const float *x, const int64_t incx,
+                float *A, const int64_t lda,
+                void *stream);
+
+// 实对称秩2更新: A = alpha * x * y^T + alpha * y * x^T + A
+// A: n阶对称矩阵（上三角或下三角）
+// x, y: n维向量
+// uplo: 上三角(ACLBLAS_UPPER)或下三角(ACLBLAS_LOWER)
+int aclblasSsyr2(aclblasHandle handle,
+                 aclblasFillMode uplo,
+                 const int64_t n,
+                 const float alpha,
+                 const float *x, const int64_t incx,
+                 const float *y, const int64_t incy,
+                 float *A, const int64_t lda,
+                 void *stream);
+
+// ========== GEMM系列接口（矩阵乘法） ==========
+
+// 批量复矩阵乘法: C[i] = A[i] * B[i] (batchCount个矩阵)
+// A: batchCount个m×k复矩阵
+// B: batchCount个k×n复矩阵
+// C: batchCount个m×n复矩阵
+int aclblasCgemmBatched(aclblasHandle handle,
+                         const int64_t m, const int64_t k, const int64_t n,
+                         const int64_t batchCount,
+                         const float *A, const int64_t lda,
+                         const float *B, const int64_t ldb,
+                         float *C, const int64_t ldc,
+                         void *stream);
+
+// 复矩阵乘法: C = alpha * op(A) * op(B) + beta * C
+// A: m×k 复矩阵（或k×m当transA=T/C）
+// B: k×n 复矩阵（或n×k当transB=T/C）
+// C: m×n 复矩阵
+// transA: 0=N, 1=T(转置), 2=C(共轭转置)
+// transB: 0=N, 1=T(转置), 2=C(共轭转置)
+// alpha, beta: 复数标量
+int aclblasCgemm(aclblasHandle handle,
+                 aclblasOperation transA, aclblasOperation transB,
+                 const int64_t m, const int64_t n, const int64_t k,
+                 const std::complex<float> *alpha,
+                 const float *A, const int64_t lda,
+                 const float *B, const int64_t ldb,
+                 const std::complex<float> *beta,
+                 float *C, const int64_t ldc,
+                 void *stream);
+
+// ========== TRMM系列接口（三角矩阵乘法） ==========
+
+// 实三角矩阵乘法: C = alpha * op(A) * op(B)
+// A: m×k 实三角矩阵（或k×m当transa=T）
+// B: k×n 实矩阵（或n×k当transb=T）
+// C: m×n 实矩阵
+// side: LEFT(A在左侧)或RIGHT(A在右侧)
+// uplo: 上三角(ACLBLAS_UPPER)或下三角(ACLBLAS_LOWER)
+// transa: 不转置(ACLBLAS_OP_N)或转置(ACLBLAS_OP_T)
+// transb: 不转置(ACLBLAS_OP_N)或转置(ACLBLAS_OP_T)
+// diag: 非单位对角线(ACLBLAS_NON_UNIT)或单位对角线(ACLBLAS_UNIT)
+int aclblasStrmm(aclblasHandle handle,
+                 aclblasSideMode side,
+                 aclblasFillMode uplo,
+                 aclblasOperation transa,
+                 aclblasOperation transb,
+                 aclblasDiagType diag,
+                 const int64_t m, const int64_t n, const int64_t k,
+                 const float alpha,
+                 const float *A, const int64_t lda,
+                 const float *B, const int64_t ldb,
+                 float *C, const int64_t ldc,
+                 void *stream);
+
+int aclblasCtrmv(aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
+                 aclblasDiagType_t diag, int64_t n,
+                 const float *A, int64_t lda, float *x, int64_t incx);

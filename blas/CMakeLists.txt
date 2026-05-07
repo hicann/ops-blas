@@ -22,6 +22,17 @@ set(ASCEND950_EXCLUDED_OPS
     "rot"
     "cgemv_batched"
     "cgerc"
+    "cal"
+    "caxpy"
+    "cgemm"
+    "cgemm_batched"
+    "cgemv"
+    "ctrmv"
+    "ssyr"
+    "ssyr2"
+    "strmm"
+    "strmv"
+    "swap"
     CACHE INTERNAL "Operators excluded for ascend950 platform"
 )
 

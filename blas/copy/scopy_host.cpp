@@ -14,20 +14,16 @@
  * \brief
  */
 
-#include <cstdint>
 #include <iostream>
 #include <vector>
+#include <cstdint>
 #include <algorithm>
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "../utils/aclblas_kernel_do.h"
 
 using aclblasHandle = void *;
-
-#define GM_ADDR uint8_t*
-
-extern void scopy_kernel_do(GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm,
-                            uint32_t numBlocks, void *stream);
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -121,6 +117,38 @@ int aclblasScopy(float *x, float *y, const int64_t n, const int64_t incx, const 
     aclrtMemcpy(tilingDevice, sizeof(CopyTilingData), &tiling, sizeof(CopyTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
 
     // scopy_kernel<<<numBlocks, nullptr, stream>>>(xDevice, yDevice, nullptr, tilingDevice);
+    scopy_kernel_do(xDevice, yDevice, nullptr, tilingDevice, numBlocks, stream);
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(yHost, totalByteSize, yDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+
+    aclrtFree(xDevice);
+    aclrtFree(yDevice);
+
+    return ACL_SUCCESS;
+}
+
+int aclblasCcopy(std::complex<float> *x, std::complex<float> *y, const int64_t n, const int64_t incx, const int64_t incy, void *stream)
+{
+    uint32_t numBlocks = 8;
+    uint64_t totalFloatNum = n * 2;
+    size_t totalByteSize = totalFloatNum * sizeof(float);
+
+    CopyTilingData tiling = CalTilingData(totalFloatNum, numBlocks);
+    uint8_t *xHost = reinterpret_cast<uint8_t *>(x);
+    uint8_t *yHost = reinterpret_cast<uint8_t *>(y);
+    uint8_t *xDevice = nullptr;
+    uint8_t *yDevice = nullptr;
+    uint8_t *tilingDevice = nullptr;
+
+    aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void **)&yDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void **)&tilingDevice, sizeof(CopyTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(xDevice, totalByteSize, xHost, totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(yDevice, totalByteSize, yHost, totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(tilingDevice, sizeof(CopyTilingData), &tiling, sizeof(CopyTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+
     scopy_kernel_do(xDevice, yDevice, nullptr, tilingDevice, numBlocks, stream);
     aclrtSynchronizeStream(stream);
 

@@ -21,13 +21,9 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "../../utils/aclblas_kernel_do.h"
 
 using aclblasHandle = void *;
-
-#define GM_ADDR uint8_t*
-
-extern void cdot_kernel_do(GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace, GM_ADDR tilingGm,
-                           uint32_t numBlocks, void *stream);
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;

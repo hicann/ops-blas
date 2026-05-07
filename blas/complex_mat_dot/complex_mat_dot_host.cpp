@@ -21,13 +21,7 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-
-using aclblasHandle = void *;
-
-#define GM_ADDR uint8_t*
-
-extern void complex_mat_dot_kernel_do(GM_ADDR matx, GM_ADDR maty, GM_ADDR aug, GM_ADDR result,
-                                      GM_ADDR tilingGm, uint32_t numBlocks, void *stream);
+#include "../utils/aclblas_kernel_do.h"
 
 constexpr uint32_t COMPLEX_NUM = 2;
 

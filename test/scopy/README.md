@@ -2,7 +2,12 @@
 
 ## 概述
 
-BLAS Scopy算子实现。
+BLAS Scopy算子实现，同时支持Ccopy复数向量复制。
+
+### 支持的接口
+
+- **aclblasScopy**: 实数向量复制，将x的数据拷贝到y
+- **aclblasCcopy**: 复数向量复制，复用scopy kernel实现
 
 ## 支持的产品
 
@@ -25,6 +30,22 @@ scopy算子实现了将x上的数据拷贝到y。对应的数学表达式为：
 ```
 y = x
 ```
+
+### aclblasScopy接口
+
+实数向量复制：
+```cpp
+int aclblasScopy(float *x, float *y, const int64_t n, const int64_t incx, const int64_t incy, void *stream);
+```
+
+### aclblasCcopy接口
+
+复数向量复制（复用scopy kernel）：
+```cpp
+int aclblasCcopy(std::complex<float> *x, std::complex<float> *y, const int64_t n, const int64_t incx, const int64_t incy, void *stream);
+```
+
+复数向量存储为连续的实部、虚部交替的float数组（2*n个float元素），直接调用scopy kernel处理2*n个float元素即可完成复数向量复制。
 - 算子规格：
   <table>
   <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="4" align="center">Add</td></tr>

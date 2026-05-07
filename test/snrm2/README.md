@@ -2,11 +2,16 @@
 
 ## 概述
 
-BLAS Snrm2算子实现。
+BLAS Snrm2算子实现，同时支持Scnrm2复数向量欧几里得范数计算。
 
 Snrm2(欧几里得范数)算子实现了计算向量的欧几里得范数（2-范数），是BLAS基础线性代数库中的核心算子之一。
 
 该算子计算L2范数，常用于向量长度计算、归一化和误差估计。
+
+### 支持的接口
+
+- **aclblasSnrm2**: 实数向量欧几里得范数
+- **aclblasScnrm2**: 复数向量欧几里得范数（复用snrm2 kernel）
 
 ## 支持的产品
 
@@ -31,9 +36,23 @@ result = sqrt(sum(|x[i]|^2)) for i = 0 to n-1
 ```
 
 对应的接口为：
-```
+```cpp
 int aclblasSnrm2(float *x, float *result, const int64_t n, const int64_t incx, void *stream);
 ```
+
+### aclblasScnrm2接口
+
+复数向量欧几里得范数（复用snrm2 kernel）：
+```cpp
+int aclblasScnrm2(std::complex<float> *x, float *result, const int64_t n, const int64_t incx, void *stream);
+```
+
+数学表达式：
+```
+result = sqrt(sum(|z[i]|^2)) = sqrt(sum(real[i]^2 + imag[i]^2))
+```
+
+复数向量存储为连续的实部、虚部交替的float数组（2*n个float元素），直接调用snrm2 kernel处理2*n个float元素即可完成复数向量范数计算。
 <table>
    <tr>
       <td rowspan="1" align="center">参数</td>

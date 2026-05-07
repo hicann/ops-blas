@@ -22,14 +22,9 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cgemv_batched_plan.h"
+#include "../utils/aclblas_kernel_do.h"
 
 using aclblasHandle = void *;
-
-#define GM_ADDR uint8_t*
-
-extern void cgemv_batched_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR mask, GM_ADDR y,
-                                    GM_ADDR workSpace, GM_ADDR tilingGm,
-                                    uint32_t numBlocks, void *stream);
 
 constexpr uint32_t MAX_CORE_CNT = 40;
 constexpr uint32_t WORKSPACE_SIZE = 16 * 1024 * 1024;
