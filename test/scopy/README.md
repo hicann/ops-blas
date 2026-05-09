@@ -35,17 +35,35 @@ y = x
 
 实数向量复制：
 ```cpp
-int aclblasScopy(float *x, float *y, const int64_t n, const int64_t incx, const int64_t incy, void *stream);
+int aclblasScopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const int64_t n, const int64_t incx, const int64_t incy);
 ```
+
+**参数说明：**
+- handle: aclblas句柄，用于管理stream和workspace
+- x: 输入向量x的device侧指针（uint8_t*类型）
+- y: 输出向量y的device侧指针（uint8_t*类型）
+- n: 向量长度
+- incx: x的步长
+- incy: y的步长
 
 ### aclblasCcopy接口
 
 复数向量复制（复用scopy kernel）：
 ```cpp
-int aclblasCcopy(std::complex<float> *x, std::complex<float> *y, const int64_t n, const int64_t incx, const int64_t incy, void *stream);
+int aclblasCcopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const int64_t n, const int64_t incx, const int64_t incy);
 ```
 
+**参数说明：**
+- handle: aclblas句柄，用于管理stream和workspace
+- x: 输入复数向量x的device侧指针（uint8_t*类型，实际存储为连续的实部、虚部交替的float数组，2*n个float元素）
+- y: 输出复数向量y的device侧指针（uint8_t*类型，实际存储为连续的实部、虚部交替的float数组，2*n个float元素）
+- n: 复数向量长度
+- incx: x的步长
+- incy: y的步长
+
 复数向量存储为连续的实部、虚部交替的float数组（2*n个float元素），直接调用scopy kernel处理2*n个float元素即可完成复数向量复制。
+
+**注意：** 接口参数x和y为device侧指针，调用前需要通过aclrtMalloc分配device内存，并通过aclrtMemcpy将数据从host侧拷贝到device侧。计算完成后需要通过aclrtMemcpy将结果从device侧拷回到host侧。
 - 算子规格：
   <table>
   <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="4" align="center">Add</td></tr>

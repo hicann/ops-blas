@@ -106,6 +106,7 @@ int32_t main(int32_t argc, char *argv[])
 {
     int32_t deviceId = 0;
     aclrtStream stream = nullptr;
+    aclblasHandle handle = nullptr;
 
     aclError ret = aclInit(nullptr);
     CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
@@ -115,45 +116,74 @@ int32_t main(int32_t argc, char *argv[])
     
     ret = aclrtCreateStream(&stream);
     CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); aclFinalize(); return ret);
+    
+    aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
 
-    // Test parameters
-    constexpr int64_t m = 4;  // rows
-    constexpr int64_t n = 4;  // columns (complex elements)
+    constexpr int64_t m = 4;
+    constexpr int64_t n = 4;
     constexpr int64_t incx = 1;
     constexpr int64_t incy = 1;
-    constexpr int64_t lda = m;  // leading dimension
+    constexpr int64_t lda = m;
     
-    // Alpha: complex scalar
-    std::complex<float> alpha(1.0f, 0.0f);  // alpha = 1.0 + 0.0i
+    std::complex<float> alpha(1.0f, 0.0f);
     
-    // Initialize x vector (m complex elements)
     std::vector<std::complex<float>> xHost(m);
     for (int64_t i = 0; i < m; i++) {
         xHost[i] = std::complex<float>(i + 1.0f, i + 0.5f);
     }
     
-    // Initialize y vector (n complex elements)
     std::vector<std::complex<float>> yHost(n);
     for (int64_t i = 0; i < n; i++) {
         yHost[i] = std::complex<float>(i + 2.0f, i + 1.5f);
     }
     
-    // Initialize A matrix (m x n complex elements)
     std::vector<std::complex<float>> AHost(m * n);
     for (int64_t i = 0; i < m * n; i++) {
         AHost[i] = std::complex<float>(i * 0.1f, i * 0.2f);
     }
     
-    // Compute golden result
     std::vector<std::complex<float>> goldenHost = AHost;
     computeGolden(goldenHost, xHost, yHost, alpha, m, n);
     
-    // Call cgerc
-    ret = aclblasCgerc(m, n, alpha, xHost.data(), incx, yHost.data(), incy, AHost.data(), lda, stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCgerc failed. ERROR: %d\n", ret); 
-              aclrtDestroyStream(stream); aclFinalize(); return ret);
+    size_t xSize = m * sizeof(std::complex<float>);
+    size_t ySize = n * sizeof(std::complex<float>);
+    size_t aSize = m * n * sizeof(std::complex<float>);
     
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
+    uint8_t* ADevice = nullptr;
+    
+    aclError aclRet = aclrtMalloc((void**)&xDevice, xSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void**)&yDevice, ySize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void**)&ADevice, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc ADevice failed. ERROR: %d\n", aclRet); return aclRet);
+    
+    aclRet = aclrtMemcpy(xDevice, xSize, xHost.data(), xSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(yDevice, ySize, yHost.data(), ySize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(ADevice, aSize, AHost.data(), aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy ADevice failed. ERROR: %d\n", aclRet); return aclRet);
+
+    ret = aclblasCgerc(handle, m, n, alpha, xDevice, incx, yDevice, incy, ADevice, lda);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgerc failed. ERROR: %d\n", ret); return ret);
+    
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+    
+    aclRet = aclrtMemcpy(AHost.data(), aSize, ADevice, aSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy AHost failed. ERROR: %d\n", aclRet); return aclRet);
+    
+    aclrtFree(xDevice);
+    aclrtFree(yDevice);
+    aclrtFree(ADevice);
+    
+    aclblasDestroy(handle);
     aclrtDestroyStream(stream);
+    aclrtResetDevice(deviceId);
     aclFinalize();
     
     return VerifyResult(AHost, goldenHost, "cgerc_test");

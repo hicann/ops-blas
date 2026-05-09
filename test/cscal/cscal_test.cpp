@@ -73,19 +73,36 @@ int32_t main(int32_t argc, char *argv[])
     std::vector<std::complex<float>> x(totalLength, valueX);
     int64_t incx = 1;
 
-    aclrtStream stream = nullptr;
-    aclblasHandle handle;
-
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
+
+    aclblasHandle_t handle = nullptr;
+    auto ret = aclblasCreate(&handle);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", ret); return ret);
+
+    aclrtStream stream = nullptr;
     aclrtCreateStream(&stream);
+    ret = aclblasSetStream(handle, stream);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    handle = stream;
+    uint8_t *xDevice = nullptr;
+    size_t totalByteSize = totalLength * sizeof(std::complex<float>);
+    aclError aclRet = aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    auto ret = aclblasCscal(handle, x.data(), alpha, totalLength, incx);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCscal failed. ERROR: %d\n", ret); return ret);
+    ret = aclblasCscal(handle, totalLength, alpha, xDevice, incx);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCscal failed. ERROR: %d\n", ret); return ret);
 
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(x.data(), totalByteSize, xDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x failed. ERROR: %d\n", aclRet); return aclRet);
+
+    aclrtFree(xDevice);
     aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

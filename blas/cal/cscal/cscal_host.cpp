@@ -22,8 +22,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../../utils/aclblas_kernel_do.h"
+#include "../../utils/aclblas_handle_internal.h"
 
-using aclblasHandle = void *;
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint32_t MAX_LENG_PER_UB_PROC = 6144;
 constexpr uint32_t ELEMENTS_EACH_COMPLEX64 = 2;
@@ -60,48 +71,46 @@ void CreateMaskData(uint32_t *maskData)
     }
 }
 
-int aclblasCscal(aclblasHandle handle, std::complex<float> *x, const std::complex<float> alpha,
-                 const int64_t n, const int64_t incx)
+aclblasStatus_t aclblasCscal(aclblasHandle handle, const int64_t n, const std::complex<float> alpha, uint8_t *x, const int64_t incx)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     uint32_t numBlocks = 40;
-
-    int32_t totalByteSize = n * sizeof(std::complex<float>);
-    int32_t deviceId = 0;
-
-    aclrtStream stream = static_cast<aclrtStream>(handle);
 
     float alphaReal = alpha.real();
     float alphaImag = alpha.imag();
 
     CscalTilingData tiling = CalTilingData(n, alphaReal, alphaImag);
-    uint8_t *xHost = reinterpret_cast<uint8_t *>(x);
-    uint8_t *xDevice = nullptr;
+    
     uint8_t *tilingDevice = nullptr;
     uint8_t *maskDevice = nullptr;
 
     uint32_t *maskHost = new uint32_t[MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64];
     CreateMaskData(maskHost);
 
-    aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(CscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&maskDevice, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
-                ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(CscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] maskHost; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(xDevice, totalByteSize, xHost, totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(CscalTilingData), &tiling, sizeof(CscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(maskDevice, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
+    aclRet = aclrtMalloc((void **)&maskDevice, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
+                ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(CscalTilingData), &tiling, sizeof(CscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice); aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    aclRet = aclrtMemcpy(maskDevice, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
                 maskHost, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
                 ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice); aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    cscal_kernel_do(xDevice, maskDevice, nullptr, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    cscal_kernel_do(x, maskDevice, nullptr, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice); aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(xHost, totalByteSize, xDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(xDevice);
     aclrtFree(tilingDevice);
     aclrtFree(maskDevice);
     delete[] maskHost;
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

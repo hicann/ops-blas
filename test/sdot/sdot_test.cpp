@@ -56,6 +56,8 @@ int32_t main(int32_t argc, char *argv[])
     int32_t deviceId = 0;
 
     constexpr uint32_t n = 8 * 1024;
+    constexpr int64_t incx = 1;
+    constexpr int64_t incy = 1;
 
     std::vector<float> x(n);
     std::vector<float> y(n);
@@ -71,18 +73,49 @@ int32_t main(int32_t argc, char *argv[])
         golden += x[i] * y[i];
     }
 
-    aclrtStream stream = nullptr;
-
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
-    aclrtCreateStream(&stream);
 
-    int64_t incx = 1;
-    int64_t incy = 1;
-    auto ret = aclblasSdot(stream, x.data(), y.data(), &result, n, incx, incy);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSdot failed. ERROR: %d\n", ret); return ret);
+    aclblasHandle_t handle = nullptr;
+    auto ret = aclblasCreate(&handle);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", ret); return ret);
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    ret = aclblasSetStream(handle, stream);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
+
+    uint8_t *xDevice = nullptr;
+    uint8_t *yDevice = nullptr;
+    uint8_t *resultDevice = nullptr;
+
+    size_t totalByteSize = n * sizeof(float);
+    aclError aclRet = aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void **)&yDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void **)&resultDevice, sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc resultDevice failed. ERROR: %d\n", aclRet); return aclRet);
+
+    aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(yDevice, totalByteSize, y.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
+
+    ret = aclblasSdot(handle, n, xDevice, incx, yDevice, incy, resultDevice);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSdot failed. ERROR: %d\n", ret); return ret);
+
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(&result, sizeof(float), resultDevice, sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy result failed. ERROR: %d\n", aclRet); return aclRet);
+
+    aclrtFree(xDevice);
+    aclrtFree(yDevice);
+    aclrtFree(resultDevice);
 
     aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

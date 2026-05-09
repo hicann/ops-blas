@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * Please refer to the License for details. You may not use this file in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
@@ -123,18 +123,56 @@ int TestCgemmBatched()
         CGoldenFlat[2 * i + 1] = CGolden[i].imag();
     }
 
-    aclrtStream stream = nullptr;
-    aclblasHandle handle;
-
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
+
+    aclblasHandle_t handle = nullptr;
+    auto ret = aclblasCreate(&handle);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", ret); return ret);
+
+    aclrtStream stream = nullptr;
     aclrtCreateStream(&stream);
-    handle = stream;
+    ret = aclblasSetStream(handle, stream);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    auto ret = aclblasCgemmBatched(handle, M, K, N, batchCount, AFlat.data(), K, BFlat.data(), N, CFlat.data(), N, stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCgemmBatched failed. ERROR: %d\n", ret); return ret);
+    constexpr std::complex<float> alpha(1.0f, 0.0f);
+    constexpr std::complex<float> beta(0.0f, 0.0f);
+    constexpr int64_t lda = K;
+    constexpr int64_t ldb = N;
+    constexpr int64_t ldc = N;
 
+    uint8_t *aDevice = nullptr;
+    uint8_t *bDevice = nullptr;
+    uint8_t *cDevice = nullptr;
+    size_t aByteSize = 2 * batchCount * M * K * sizeof(float);
+    size_t bByteSize = 2 * batchCount * K * N * sizeof(float);
+    size_t cByteSize = 2 * batchCount * M * N * sizeof(float);
+    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void **)&bDevice, bByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc bDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void **)&cDevice, cByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc cDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(aDevice, aByteSize, AFlat.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(bDevice, bByteSize, BFlat.data(), bByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy bDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(cDevice, cByteSize, CFlat.data(), cByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy cDevice failed. ERROR: %d\n", aclRet); return aclRet);
+
+    ret = aclblasCgemmBatched(handle, ACLBLAS_OP_N, ACLBLAS_OP_N, M, N, K, alpha, aDevice, lda, bDevice, ldb, beta, cDevice, ldc, batchCount);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemmBatched failed. ERROR: %d\n", ret); return ret);
+
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(CFlat.data(), cByteSize, cDevice, cByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy CFlat failed. ERROR: %d\n", aclRet); return aclRet);
+
+    aclrtFree(aDevice);
+    aclrtFree(bDevice);
+    aclrtFree(cDevice);
     aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

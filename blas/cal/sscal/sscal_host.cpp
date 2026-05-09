@@ -23,8 +23,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../../utils/aclblas_kernel_do.h"
+#include "../../utils/aclblas_handle_internal.h"
 
-using aclblasHandle = void *;
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -94,65 +105,53 @@ SscalTilingData CalTilingData(uint32_t totalEleNum, uint32_t vecCoreNum, float a
 }
 
 
-int aclblasSscal(aclblasHandle handle, float *x, const float alpha, const int64_t n, const int64_t incx)
+aclblasStatus_t aclblasSscal(aclblasHandle handle, const int64_t n, const float alpha, uint8_t *x, const int64_t incx)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     uint32_t numBlocks = 8;
-
-    size_t totalByteSize = n * sizeof(float);
-    int32_t deviceId = 0;
-
-    aclrtStream stream = static_cast<aclrtStream>(handle);
 
     SscalTilingData tiling = CalTilingData(n, numBlocks, alpha);
-    uint8_t *xHost = reinterpret_cast<uint8_t *>(x);
-    uint8_t *xDevice = nullptr;
+    
     uint8_t *tilingDevice = nullptr;
+    aclError aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(SscalTilingData), &tiling, sizeof(SscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(xDevice, totalByteSize, xHost, totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(SscalTilingData), &tiling, sizeof(SscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    sscal_kernel_do(x, nullptr, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    sscal_kernel_do(xDevice, nullptr, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
-
-    aclrtMemcpy(xHost, totalByteSize, xDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(xDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }
 
-int aclblasCsscal(aclblasHandle handle, std::complex<float> *x, const float alpha, const int64_t n, const int64_t incx)
+aclblasStatus_t aclblasCsscal(aclblasHandle handle, const int64_t n, const float alpha, uint8_t *x, const int64_t incx)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     uint32_t numBlocks = 8;
-
     uint32_t totalFloatNum = n * 2;
-    size_t totalByteSize = n * sizeof(std::complex<float>);
-    int32_t deviceId = 0;
-
-    aclrtStream stream = static_cast<aclrtStream>(handle);
 
     SscalTilingData tiling = CalTilingData(totalFloatNum, numBlocks, alpha);
-    uint8_t *xHost = reinterpret_cast<uint8_t *>(x);
-    uint8_t *xDevice = nullptr;
+    
     uint8_t *tilingDevice = nullptr;
+    aclError aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(SscalTilingData), &tiling, sizeof(SscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(xDevice, totalByteSize, xHost, totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(SscalTilingData), &tiling, sizeof(SscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    sscal_kernel_do(x, nullptr, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    sscal_kernel_do(xDevice, nullptr, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
-
-    aclrtMemcpy(xHost, totalByteSize, xDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(xDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

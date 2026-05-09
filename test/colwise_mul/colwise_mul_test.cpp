@@ -2,7 +2,7 @@
 * Copyright (c) 2026 Huawei Technologies Co., Ltd.
 * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 * CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use the License for the License.
+* Please refer to the License for details. You may not use this file except in compliance with the License.
 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 * See LICENSE in the root of the software repository for the full text of the License.
@@ -42,7 +42,7 @@ uint32_t VerifyResult(const float* output, const float* golden, size_t size, con
     
     for (size_t i = 0; i < size; i++) {
         if (std::abs(output[i] - golden[i]) > epsilon) {
-            if (errors < 5) {  // Only print first 5 errors
+            if (errors < 5) {
                 std::cout << "Mismatch at index " << i << ": output=" << output[i] 
                           << ", golden=" << golden[i] << std::endl;
             }
@@ -62,16 +62,21 @@ uint32_t VerifyResult(const float* output, const float* golden, size_t size, con
 int32_t main(int32_t argc, char *argv[])
 {
     int32_t deviceId = 0;
-    aclrtStream stream = nullptr;
 
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
-    aclrtCreateStream(&stream);
 
-    int ret = 0;
+    aclblasHandle_t handle = nullptr;
+    auto ret = aclblasCreate(&handle);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", ret); return ret);
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    ret = aclblasSetStream(handle, stream);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
     // Test: 2x3 complex matrix multiplied by 2-element complex vector
-    // Matrix (complex, stored as [real0, imag0, real1, imag1, ...]):
+    // Matrix (complex):
     // Row 0: (1+2i, 3+4i, 5+6i)
     // Row 1: (7+8i, 9+10i, 11+12i)
     // Vector (complex):
@@ -81,40 +86,64 @@ int32_t main(int32_t argc, char *argv[])
     // Row 0: (2+3i) * (1+2i, 3+4i, 5+6i) = (-4+7i, -6+17i, -8+27i)
     // Row 1: (4+5i) * (7+8i, 9+10i, 11+12i) = (-12+67i, -14+85i, -16+103i)
 
-    constexpr int64_t m = 2;  // rows
-    constexpr int64_t n = 3;  // columns (complex elements)
+    constexpr int64_t m = 2;
+    constexpr int64_t n = 3;
     
-    // Matrix: 2 rows, 3 complex columns
-    // Stored as: [r0_real0, r0_imag0, r0_real1, r0_imag1, r0_real2, r0_imag2, r1_real0, ...]
     std::vector<float> mat = {
-        1.0f, 2.0f,  3.0f, 4.0f,  5.0f, 6.0f,   // Row 0
-        7.0f, 8.0f,  9.0f, 10.0f, 11.0f, 12.0f  // Row 1
+        1.0f, 2.0f,  3.0f, 4.0f,  5.0f, 6.0f,
+        7.0f, 8.0f,  9.0f, 10.0f, 11.0f, 12.0f
     };
     
-    // Vector: 2 complex elements
     std::vector<float> vec = {
-        2.0f, 3.0f,  // vec[0] = 2+3i
-        4.0f, 5.0f   // vec[1] = 4+5i
+        2.0f, 3.0f,
+        4.0f, 5.0f
     };
     
-    std::vector<float> result(m * n * 2);  // Result matrix
+    std::vector<float> result(m * n * 2);
     
-    auto aclRet = aclblasColwiseMul(mat.data(), vec.data(), result.data(), m, n, stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclblasColwiseMul failed. ERROR: %d\n", aclRet); ret = 1);
-    
-    // Expected result
     std::vector<float> golden = {
-        -4.0f, 7.0f,   -6.0f, 17.0f,  -8.0f, 27.0f,   // Row 0
-        -12.0f, 67.0f, -14.0f, 85.0f, -16.0f, 103.0f  // Row 1
+        -4.0f, 7.0f,   -6.0f, 17.0f,  -8.0f, 27.0f,
+        -12.0f, 67.0f, -14.0f, 85.0f, -16.0f, 103.0f
     };
+
+    uint8_t *matDevice = nullptr;
+    uint8_t *vecDevice = nullptr;
+    uint8_t *resultDevice = nullptr;
+    size_t matByteSize = mat.size() * sizeof(float);
+    size_t vecByteSize = vec.size() * sizeof(float);
+    size_t resultByteSize = result.size() * sizeof(float);
+
+    aclError aclRet = aclrtMalloc((void **)&matDevice, matByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc matDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void **)&vecDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc vecDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void **)&resultDevice, resultByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc resultDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(matDevice, matByteSize, mat.data(), matByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy matDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(vecDevice, vecByteSize, vec.data(), vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy vecDevice failed. ERROR: %d\n", aclRet); return aclRet);
+
+    aclblasStatus_t statusRet = aclblasColwiseMul(handle, m, n, matDevice, vecDevice, resultDevice);
+    CHECK_RET(statusRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasColwiseMul failed. ERROR: %d\n", statusRet); return statusRet);
     
-    ret |= VerifyResult(result.data(), golden.data(), m * n * 2, "ColwiseMul Complex Test");
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(result.data(), resultByteSize, resultDevice, resultByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy result failed. ERROR: %d\n", aclRet); return aclRet);
+
+    int32_t testRet = VerifyResult(result.data(), golden.data(), m * n * 2, "ColwiseMul Complex Test");
+
+    aclrtFree(matDevice);
+    aclrtFree(vecDevice);
+    aclrtFree(resultDevice);
 
     aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
-    if (ret == 0) {
+    if (testRet == 0) {
         std::cout << "\n========================================" << std::endl;
         std::cout << "Test passed successfully!" << std::endl;
         std::cout << "========================================" << std::endl;
@@ -124,5 +153,5 @@ int32_t main(int32_t argc, char *argv[])
         std::cout << "========================================" << std::endl;
     }
 
-    return ret;
+    return testRet;
 }

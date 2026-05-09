@@ -22,8 +22,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
 
-using aclblasHandle = void *;
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr int64_t BASIC_DATA_PROC_CNT = 64;
 constexpr uint32_t ELEMENTS_EACH_COMPLEX64 = 2;
@@ -94,11 +105,13 @@ uint32_t CalCtrmvBlockDim(int64_t n, uint32_t coreNum)
     return static_cast<uint32_t>(groupDim);
 }
 
-int aclblasCtrmv(aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
-                 aclblasDiagType_t diag, int64_t n,
-                 const float *A, int64_t lda, float *x, int64_t incx)
+aclblasStatus_t aclblasCtrmv(aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
+                             aclblasDiagType_t diag, int64_t n,
+                             uint8_t *A, int64_t lda, uint8_t *x, int64_t incx)
 {
-    // Convert enum to int64 - consistent with sip ctrmv.cpp
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     int64_t uploLocal = (uplo == ACLBLAS_LOWER) ? 0 : 1;
     int64_t transLocal = -1;
     if (trans == ACLBLAS_OP_N) {
@@ -110,84 +123,55 @@ int aclblasCtrmv(aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_
     }
     int64_t diagLocal = (diag == ACLBLAS_NON_UNIT) ? 0 : 1;
 
-    // Calculate tiling data
     CtrmvTilingData tiling = CalCtrmvTilingData(uploLocal, transLocal, diagLocal, n, lda, incx);
 
-    // Calculate block dim
-    uint32_t coreNum = 8;  // Default for ascend910b
+    uint32_t coreNum = 8;
     uint32_t numBlocks = CalCtrmvBlockDim(n, coreNum);
 
-    // Create uplo mask matrix (plan)
     float *uploMatrixData = CreateCtrmvUploMatrix(uploLocal);
 
-    // Calculate sizes
-    // A: n * lda complex64 elements, each complex64 = 2 floats
-    size_t aByteSize = n * lda * ELEMENTS_EACH_COMPLEX64 * sizeof(float);
-    // x: n * incx complex64 elements (with stride)
-    size_t xByteSize = n * incx * ELEMENTS_EACH_COMPLEX64 * sizeof(float);
-    // uplo: N0 * N0 float elements
     size_t uploByteSize = N0 * N0 * sizeof(float);
-    // workspace: need enough space for all tiles
-    // Each tile stores M0 complex elements, total tiles = ceil(n/M0)
-    // Total workspace = ceil(n/M0) * M0 * 2 * sizeof(float)
     int64_t mTiles = (n + BASIC_DATA_PROC_CNT - 1) / BASIC_DATA_PROC_CNT;
     size_t workspaceSize = mTiles * BASIC_DATA_PROC_CNT * ELEMENTS_EACH_COMPLEX64 * sizeof(float);
-    // Ensure minimum workspace size
     if (workspaceSize < 1024) {
         workspaceSize = 1024;
     }
 
-    uint8_t *aHost = reinterpret_cast<uint8_t *>(const_cast<float *>(A));
-    uint8_t *xHost = reinterpret_cast<uint8_t *>(x);
     uint8_t *uploHost = reinterpret_cast<uint8_t *>(uploMatrixData);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
     uint8_t *uploDevice = nullptr;
     uint8_t *workspaceDevice = nullptr;
     uint8_t *tilingDevice = nullptr;
 
-    // Get stream from handle
-    void *stream = nullptr;
-    if (handle != nullptr) {
-        stream = handle;
-    }
+    aclError aclRet = aclrtMalloc((void **)&uploDevice, uploByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] uploMatrixData; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    // Allocate device memory
-    aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&uploDevice, uploByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    // Allocate tiling with 32-byte alignment padding
+    aclRet = aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(uploDevice); delete[] uploMatrixData; return ACLBLAS_STATUS_ALLOC_FAILED);
+
     size_t tilingSize = (sizeof(CtrmvTilingData) + 31) / 32 * 32;
-    aclrtMalloc((void **)&tilingDevice, tilingSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void **)&tilingDevice, tilingSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice); aclrtFree(uploDevice); delete[] uploMatrixData; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    // Initialize workspace to 0
     std::vector<uint8_t> workspaceHost(workspaceSize, 0);
-    aclrtMemcpy(workspaceDevice, workspaceSize, workspaceHost.data(), workspaceSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMemcpy(workspaceDevice, workspaceSize, workspaceHost.data(), workspaceSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(uploDevice); delete[] uploMatrixData; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    // Copy data to device
-    aclrtMemcpy(aDevice, aByteSize, aHost, aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(xDevice, xByteSize, xHost, xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(uploDevice, uploByteSize, uploHost, uploByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(CtrmvTilingData), &tiling, sizeof(CtrmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMemcpy(uploDevice, uploByteSize, uploHost, uploByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(uploDevice); delete[] uploMatrixData; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    // Execute kernel
-    ctrmv_kernel_do(aDevice, xDevice, uploDevice, workspaceDevice, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(CtrmvTilingData), &tiling, sizeof(CtrmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(uploDevice); delete[] uploMatrixData; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    // Copy result back
-    aclrtMemcpy(xHost, xByteSize, xDevice, xByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    ctrmv_kernel_do(A, x, uploDevice, workspaceDevice, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(uploDevice); delete[] uploMatrixData; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    // Free device memory
-    aclrtFree(aDevice);
-    aclrtFree(xDevice);
     aclrtFree(uploDevice);
     aclrtFree(workspaceDevice);
     aclrtFree(tilingDevice);
 
-    // Free host memory
     delete[] uploMatrixData;
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

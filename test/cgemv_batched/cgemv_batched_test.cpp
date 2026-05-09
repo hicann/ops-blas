@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * Please refer to the License for details. You may not use this file in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
@@ -31,12 +31,10 @@ using namespace std;
         printf(message, ##__VA_ARGS__); \
     } while (0)
 
-// Complex number multiplication
 complex<float> complexMul(const complex<float>& a, const complex<float>& b) {
     return a * b;
 }
 
-// Compute golden result for cgemv: y = alpha * A * x + beta * y
 void computeGolden(const vector<complex<float>>& A, const vector<complex<float>>& x,
                    vector<complex<float>>& y, int m, int n, int trans,
                    const complex<float>& alpha, const complex<float>& beta) {
@@ -45,20 +43,16 @@ void computeGolden(const vector<complex<float>>& A, const vector<complex<float>>
         complex<float> sum(0.0f, 0.0f);
         for (int j = 0; j < n; j++) {
             if (trans == 0) {
-                // Normal: y = A * x
                 sum += A[i * n + j] * x[j];
             } else if (trans == 1) {
-                // Transpose: y = A^T * x
                 sum += A[j * m + i] * x[j];
             } else {
-                // Conjugate transpose: y = A^H * x
                 sum += conj(A[j * m + i]) * x[j];
             }
         }
         yTemp[i] = sum;
     }
     
-    // Apply alpha and beta: y = alpha * yTemp + beta * y
     for (int i = 0; i < m; i++) {
         y[i] = alpha * yTemp[i] + beta * y[i];
     }
@@ -80,7 +74,6 @@ uint32_t VerifyResult(std::vector<complex<float>> &output, std::vector<complex<f
     printTensor(output, "Output");
     printTensor(golden, "Golden");
 
-    // Use relative error for floating point comparison
     constexpr float epsilon = 1e-3f;
     size_t errorCount = 0;
     float maxError = 0.0f;
@@ -107,47 +100,42 @@ uint32_t VerifyResult(std::vector<complex<float>> &output, std::vector<complex<f
 }
 
 int main() {
-    // Initialize ACL
     aclError ret = aclInit(nullptr);
     CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
 
     int32_t deviceId = 0;
-    aclrtContext context;
-    aclrtStream stream;
-
     ret = aclrtSetDevice(deviceId);
     CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); aclFinalize(); return ret);
 
-    ret = aclrtCreateContext(&context, deviceId);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateContext failed. ERROR: %d\n", ret); aclFinalize(); return ret);
+    aclblasHandle_t handle = nullptr;
+    auto blasRet = aclblasCreate(&handle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet); aclFinalize(); return blasRet);
 
+    aclrtStream stream = nullptr;
     ret = aclrtCreateStream(&stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); aclrtDestroyContext(context); aclFinalize(); return ret);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); aclblasDestroy(handle); aclFinalize(); return ret);
 
-    // Test parameters
+    blasRet = aclblasSetStream(handle, stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return blasRet);
+
     const int64_t batchCount = 3;
     const int64_t m = 32;
     const int64_t n = 32;
-    const int32_t trans = 0;  // Normal
+    const aclblasOperation_t trans = ACLBLAS_OP_N;
     
-    // Alpha and beta parameters
-    complex<float> alpha(1.0f, 0.0f);  // alpha = 1.0 + 0.0i
-    complex<float> beta(0.0f, 0.0f);   // beta = 0.0 + 0.0i
+    complex<float> alpha(1.0f, 0.0f);
+    complex<float> beta(0.0f, 0.0f);
     
-    // Leading dimension and increments
-    const int64_t lda = m;  // For row-major storage
+    const int64_t lda = m;
     const int64_t incx = 1;
     const int64_t incy = 1;
 
-    // Allocate host memory using complex<float>
     vector<complex<float>> AHost(batchCount * m * n);
     vector<complex<float>> xHost(batchCount * n);
     vector<complex<float>> yHost(batchCount * m);
     vector<complex<float>> yGolden(batchCount * m);
 
-    // Initialize test data
     for (int b = 0; b < batchCount; b++) {
-        // Initialize matrix A (m x n complex)
         for (int i = 0; i < m; i++) {
             for (int j = 0; j < n; j++) {
                 int idx = b * m * n + i * n + j;
@@ -155,20 +143,17 @@ int main() {
             }
         }
 
-        // Initialize vector x (n complex)
         for (int i = 0; i < n; i++) {
             int idx = b * n + i;
             xHost[idx] = complex<float>((i + b) * 0.2f, (i - b) * 0.2f);
         }
     }
 
-    // Compute golden result
     for (int b = 0; b < batchCount; b++) {
         vector<complex<float>> AComplex(m * n);
         vector<complex<float>> xComplex(n);
         vector<complex<float>> yComplex(m);
 
-        // Copy data for this batch
         for (int i = 0; i < m * n; i++) {
             AComplex[i] = AHost[b * m * n + i];
         }
@@ -176,24 +161,46 @@ int main() {
             xComplex[i] = xHost[b * n + i];
         }
 
-        // Compute y = alpha * A * x + beta * y
-        computeGolden(AComplex, xComplex, yComplex, m, n, trans, alpha, beta);
+        computeGolden(AComplex, xComplex, yComplex, m, n, 0, alpha, beta);
 
-        // Copy result
         for (int i = 0; i < m; i++) {
             yGolden[b * m + i] = yComplex[i];
         }
     }
 
-    // Call cgemv_batched
-    ret = aclblasCgemvBatched(AHost.data(), xHost.data(), yHost.data(),
-                              alpha, lda, beta, incx, incy,
-                              batchCount, m, n, trans, stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCgemvBatched failed. ERROR: %d\n", ret); 
-              aclrtDestroyStream(stream); aclrtDestroyContext(context); aclFinalize(); return ret);
+    uint8_t *aDevice = nullptr;
+    uint8_t *xDevice = nullptr;
+    uint8_t *yDevice = nullptr;
+    size_t aByteSize = batchCount * m * n * sizeof(complex<float>);
+    size_t xByteSize = batchCount * n * sizeof(complex<float>);
+    size_t yByteSize = batchCount * m * sizeof(complex<float>);
+    ret = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+    ret = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice); aclrtFree(xDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+    ret = aclrtMalloc((void **)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+    ret = aclrtMemcpy(aDevice, aByteSize, AHost.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+    ret = aclrtMemcpy(xDevice, xByteSize, xHost.data(), xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+    ret = aclrtMemcpy(yDevice, yByteSize, yHost.data(), yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
 
+    blasRet = aclblasCgemvBatched(handle, trans, m, n, alpha, aDevice, lda, xDevice, incx, beta, yDevice, incy, batchCount);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemvBatched failed. ERROR: %d\n", blasRet); 
+              aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return blasRet);
+
+    ret = aclrtSynchronizeStream(stream);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", ret); aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+    ret = aclrtMemcpy(yHost.data(), yByteSize, yDevice, yByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yHost failed. ERROR: %d\n", ret); aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+
+    aclrtFree(aDevice);
+    aclrtFree(xDevice);
+    aclrtFree(yDevice);
     aclrtDestroyStream(stream);
-    aclrtDestroyContext(context);
+    aclblasDestroy(handle);
     aclFinalize();
 
     return VerifyResult(yHost, yGolden);

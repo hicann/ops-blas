@@ -23,8 +23,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
 
-using aclblasHandle = void *;
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 // Constants from original tiling implementation
 constexpr int32_t MAXNUMF32ELEEACHCORE = 23040;       // 实数超过这么多个，需要多轮循环处理
@@ -216,61 +227,47 @@ IamaxTilingData CalIamaxTilingData(uint32_t n, uint32_t incx, uint32_t vecCoreNu
 }
 
 
-int aclblasIamax(const float *x, int32_t *result, const int64_t n, const int64_t incx, 
-                 const uint32_t dtypeFlag, void *stream)
+aclblasStatus_t aclblasIamax(aclblasHandle handle, const int64_t n, uint8_t *x, const int64_t incx, uint8_t *result)
 {
-    // Calculate mix core number for hardware
-    uint32_t needVecCoreNum = 1;  // Will be calculated in tiling
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
+    uint32_t needVecCoreNum = 1;
     uint32_t mixCoreNum = CeilA2B(needVecCoreNum, 2);
     if (mixCoreNum == 0) {
         mixCoreNum = 1;
     }
     uint32_t numBlocks = mixCoreNum;
 
-    // Calculate actual number of elements based on dtype
+    uint32_t dtypeFlag = 0;
     uint32_t actualN = n;
-    if (dtypeFlag == 1) {
-        // For complex, each complex number has 2 floats (real and imag)
-        actualN = n * 2;
-    }
-
-    size_t inputByteSize = actualN * sizeof(float);
-    size_t outputByteSize = sizeof(int32_t);
-    size_t workspaceSize = 16 * 1024 * 1024 + MAXVECTORNUM * GM_RESULT_LEN * BYTE_LEN_4;  // SYS_WORK_SPACE + workspace
 
     IamaxTilingData tiling = CalIamaxTilingData(n, incx, numBlocks, dtypeFlag);
     
-    // Update numBlocks based on tiling calculation
     numBlocks = CeilA2B(tiling.needVecCoreNum, 2);
     if (numBlocks == 0) {
         numBlocks = 1;
     }
 
-    uint8_t *xHost = reinterpret_cast<uint8_t *>(const_cast<float *>(x));
-    uint8_t *resultHost = reinterpret_cast<uint8_t *>(result);
-    uint8_t *xDevice = nullptr;
-    uint8_t *resultDevice = nullptr;
     uint8_t *workspaceDevice = nullptr;
     uint8_t *tilingDevice = nullptr;
+    size_t workspaceSize = 16 * 1024 * 1024 + MAXVECTORNUM * GM_RESULT_LEN * BYTE_LEN_4;
 
-    aclrtMalloc((void **)&xDevice, inputByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&resultDevice, outputByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(IamaxTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(xDevice, inputByteSize, xHost, inputByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(resultDevice, outputByteSize, resultHost, outputByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(IamaxTilingData), &tiling, sizeof(IamaxTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(IamaxTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    iamax_kernel_do(xDevice, resultDevice, workspaceDevice, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(IamaxTilingData), &tiling, sizeof(IamaxTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(resultHost, outputByteSize, resultDevice, outputByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    iamax_kernel_do(x, result, workspaceDevice, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtFree(xDevice);
-    aclrtFree(resultDevice);
     aclrtFree(workspaceDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

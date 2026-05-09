@@ -14,6 +14,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
+
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint32_t CORE_SPLIT_NUM = 128;
 constexpr uint32_t WORKSPACE_SIZE = 128 * 1024 * sizeof(float);
@@ -44,15 +57,17 @@ static float* CreateUploMatrix(int64_t uplo)
     return uploData;
 }
 
-int aclblasStrmv(aclblasHandle handle,
-                 aclblasFillMode uplo,
-                 aclblasOperation trans,
-                 aclblasDiagType diag,
-                 const int64_t n,
-                 const float *A, const int64_t lda,
-                 float *x, const int64_t incx,
-                 void *stream)
+aclblasStatus_t aclblasStrmv(aclblasHandle handle,
+                             aclblasFillMode uplo,
+                             aclblasOperation trans,
+                             aclblasDiagType diag,
+                             const int64_t n,
+                             uint8_t *A, const int64_t lda,
+                             uint8_t *x, const int64_t incx)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     uint32_t m0 = CORE_SPLIT_NUM;
     uint32_t m0TileNumOfM = (n + m0 - 1) / m0;
     uint32_t numBlocks = m0TileNumOfM;
@@ -70,52 +85,44 @@ int aclblasStrmv(aclblasHandle handle,
     tiling.m0 = m0;
 
     float* uploMatrix = CreateUploMatrix(uplo);
-
-    size_t matSize = n * n * sizeof(float);
-    size_t xSize = n * incx * sizeof(float);
-    size_t wkspSize = n * sizeof(float);
     size_t uploSize = 128 * 128 * sizeof(float);
+    size_t wkspSize = n * sizeof(float);
 
-    uint8_t* AHost = reinterpret_cast<uint8_t*>(const_cast<float*>(A));
-    uint8_t* xHost = reinterpret_cast<uint8_t*>(x);
     uint8_t* uploHost = reinterpret_cast<uint8_t*>(uploMatrix);
-
-    uint8_t* ADevice = nullptr;
-    uint8_t* xDevice = nullptr;
     uint8_t* uploDevice = nullptr;
-    uint8_t* outputDevice = nullptr;
     uint8_t* wkspDevice = nullptr;
     uint8_t* workSpaceDevice = nullptr;
     uint8_t* tilingDevice = nullptr;
 
-    aclrtMalloc((void**)&ADevice, matSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&xDevice, xSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&uploDevice, uploSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&outputDevice, xSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&wkspDevice, wkspSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&workSpaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&tilingDevice, sizeof(StrmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&uploDevice, uploSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(ADevice, matSize, AHost, matSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(xDevice, xSize, xHost, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(uploDevice, uploSize, uploHost, uploSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(StrmvTilingData), &tiling, sizeof(StrmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc((void**)&wkspDevice, wkspSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    strmv_kernel_do(ADevice, xDevice, uploDevice, outputDevice, wkspDevice,
-                    workSpaceDevice, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    aclRet = aclrtMalloc((void**)&workSpaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(xHost, xSize, outputDevice, xSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(StrmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtFree(ADevice);
-    aclrtFree(xDevice);
+    aclRet = aclrtMemcpy(uploDevice, uploSize, uploHost, uploSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(StrmvTilingData), &tiling, sizeof(StrmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    strmv_kernel_do(A, x, uploDevice, x, wkspDevice,
+                    workSpaceDevice, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_INTERNAL_ERROR);
+
     aclrtFree(uploDevice);
-    aclrtFree(outputDevice);
     aclrtFree(wkspDevice);
     aclrtFree(workSpaceDevice);
     aclrtFree(tilingDevice);
 
     delete[] uploMatrix;
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

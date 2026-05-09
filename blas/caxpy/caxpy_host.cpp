@@ -23,8 +23,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
 
-using aclblasHandle = void *;
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint32_t COMPLEX_NUM = 2;
 constexpr uint32_t K_FACTOR_4 = 4;
@@ -92,15 +103,12 @@ void GenMaskData(uint32_t *maskData)
     }
 }
 
-int aclblasCaxpy(aclblasHandle handle, const std::complex<float> *x, std::complex<float> *y,
-                 const std::complex<float> alpha, const int64_t n, const int64_t incx, const int64_t incy)
+aclblasStatus_t aclblasCaxpy(aclblasHandle handle, const int64_t n, const std::complex<float> alpha, uint8_t *x, int64_t incx, uint8_t *y, int64_t incy)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     uint32_t numBlocks = DEFAULT_VECTOR_NUM;
-
-    size_t totalByteSize = n * sizeof(std::complex<float>);
-    int32_t deviceId = 0;
-
-    aclrtStream stream = static_cast<aclrtStream>(handle);
 
     float alphaReal = alpha.real();
     float alphaImag = alpha.imag();
@@ -108,37 +116,32 @@ int aclblasCaxpy(aclblasHandle handle, const std::complex<float> *x, std::comple
     CaxpyTilingData tiling = CalTilingData(n, numBlocks, alphaReal, alphaImag);
 
     uint32_t maskSize = MAX_DATA_COUNT * sizeof(uint32_t) * COMPLEX_NUM;
-
-    uint8_t *xHost = reinterpret_cast<uint8_t *>(const_cast<std::complex<float> *>(x));
-    uint8_t *yHost = reinterpret_cast<uint8_t *>(y);
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
+    
     uint8_t *maskDevice = nullptr;
     uint8_t *tilingDevice = nullptr;
 
     uint32_t *maskHost = new uint32_t[MAX_DATA_COUNT * COMPLEX_NUM];
     GenMaskData(maskHost);
 
-    aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&yDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&maskDevice, maskSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(CaxpyTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void **)&maskDevice, maskSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] maskHost; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(xDevice, totalByteSize, xHost, totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(yDevice, totalByteSize, yHost, totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(maskDevice, maskSize, maskHost, maskSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(CaxpyTilingData), &tiling, sizeof(CaxpyTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(CaxpyTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice); delete[] maskHost; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    caxpy_kernel_do(xDevice, maskDevice, yDevice, nullptr, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    aclRet = aclrtMemcpy(maskDevice, maskSize, maskHost, maskSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(maskDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(yHost, totalByteSize, yDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(CaxpyTilingData), &tiling, sizeof(CaxpyTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(maskDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtFree(xDevice);
-    aclrtFree(yDevice);
+    caxpy_kernel_do(x, maskDevice, y, nullptr, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(maskDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
+
     aclrtFree(maskDevice);
     aclrtFree(tilingDevice);
     delete[] maskHost;
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

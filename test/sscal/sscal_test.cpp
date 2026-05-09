@@ -88,7 +88,7 @@ uint32_t VerifyCsscalResult(std::vector<std::complex<float>> &output, std::vecto
     return 0;
 }
 
-int32_t TestSscal(aclblasHandle handle)
+int32_t TestSscal(aclblasHandle handle, aclrtStream stream)
 {
     constexpr uint32_t totalLength = 8 * 2048;
     constexpr float valueX = 1.2f;
@@ -96,15 +96,28 @@ int32_t TestSscal(aclblasHandle handle)
     std::vector<float> x(totalLength, valueX);
     int64_t incx = 1;
 
+    uint8_t *xDevice = nullptr;
+    size_t totalByteSize = totalLength * sizeof(float);
+    aclError aclRet = aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+
     std::cout << "========== Testing aclblasSscal ==========" << std::endl;
-    auto ret = aclblasSscal(handle, x.data(), alpha, totalLength, incx);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSscal failed. ERROR: %d\n", ret); return ret);
+    auto ret = aclblasSscal(handle, totalLength, alpha, xDevice, incx);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSscal failed. ERROR: %d\n", ret); aclrtFree(xDevice); return ret);
+
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    aclRet = aclrtMemcpy(x.data(), totalByteSize, xDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    aclrtFree(xDevice);
 
     std::vector<float> golden(totalLength, valueX * alpha);
     return VerifySscalResult(x, golden);
 }
 
-int32_t TestCsscal(aclblasHandle handle)
+int32_t TestCsscal(aclblasHandle handle, aclrtStream stream)
 {
     constexpr uint32_t totalLength = 8 * 2048;
     constexpr std::complex<float> valueX(1.2f, 0.5f);
@@ -112,9 +125,22 @@ int32_t TestCsscal(aclblasHandle handle)
     std::vector<std::complex<float>> x(totalLength, valueX);
     int64_t incx = 1;
 
+    uint8_t *xDevice = nullptr;
+    size_t totalByteSize = totalLength * sizeof(std::complex<float>);
+    aclError aclRet = aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+
     std::cout << "========== Testing aclblasCsscal ==========" << std::endl;
-    auto ret = aclblasCsscal(handle, x.data(), alpha, totalLength, incx);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCsscal failed. ERROR: %d\n", ret); return ret);
+    auto ret = aclblasCsscal(handle, totalLength, alpha, xDevice, incx);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCsscal failed. ERROR: %d\n", ret); aclrtFree(xDevice); return ret);
+
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    aclRet = aclrtMemcpy(x.data(), totalByteSize, xDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    aclrtFree(xDevice);
 
     std::vector<std::complex<float>> golden(totalLength, valueX * alpha);
     return VerifyCsscalResult(x, golden);
@@ -123,31 +149,37 @@ int32_t TestCsscal(aclblasHandle handle)
 int32_t main(int32_t argc, char *argv[])
 {
     int32_t deviceId = 0;
-    aclrtStream stream = nullptr;
-    aclblasHandle handle;
 
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
-    aclrtCreateStream(&stream);
 
-    handle = stream;
+    aclblasHandle_t handle = nullptr;
+    auto ret = aclblasCreate(&handle);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", ret); return ret);
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    ret = aclblasSetStream(handle, stream);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
     int32_t result = 0;
     
-    result = TestSscal(handle);
+    result = TestSscal(handle, stream);
     if (result != 0) {
         std::cout << "[FAIL] Sscal test failed" << std::endl;
         aclrtDestroyStream(stream);
+        aclblasDestroy(handle);
         aclrtResetDevice(deviceId);
         aclFinalize();
         return result;
     }
     std::cout << "[PASS] Sscal test passed" << std::endl;
 
-    result = TestCsscal(handle);
+    result = TestCsscal(handle, stream);
     if (result != 0) {
         std::cout << "[FAIL] Csscal test failed" << std::endl;
         aclrtDestroyStream(stream);
+        aclblasDestroy(handle);
         aclrtResetDevice(deviceId);
         aclFinalize();
         return result;
@@ -155,6 +187,7 @@ int32_t main(int32_t argc, char *argv[])
     std::cout << "[PASS] Csscal test passed" << std::endl;
 
     aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

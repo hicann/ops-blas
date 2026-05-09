@@ -33,6 +33,7 @@
     do {                                \
         printf(message, ##__VA_ARGS__); \
     } while (0)
+
 uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
 {
     auto printTensor = [](std::vector<float> &tensor, const char *name) {
@@ -89,48 +90,110 @@ int32_t main(int32_t argc, char *argv[])
     constexpr uint32_t totalLength = 8 * 2048;
     constexpr float valueX = 1.2f;
     constexpr float valueY = 2.3f;
-    std::vector<float> x(totalLength, valueX);
-    std::vector<float> y(totalLength, valueY);
+    std::vector<float> xHost(totalLength, valueX);
+    std::vector<float> yHost(totalLength, valueY);
     int64_t incx = 1;
     int64_t incy = 1;
 
     size_t totalByteSize = totalLength * sizeof(float);
 
-    aclrtStream stream = nullptr;
-
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
-    aclrtCreateStream(&stream);
 
-    auto ret = aclblasScopy(x.data(), y.data(), totalLength, incx, incy, stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasScopy failed. ERROR: %d\n", ret); return ret);
+    aclblasHandle_t handle = nullptr;
+    aclblasStatus_t ret = aclblasCreate(&handle);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", ret); return ret);
 
+    aclrtStream stream = nullptr;
+    aclError aclRet = aclrtCreateStream(&stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", aclRet); aclblasDestroy(handle); return aclRet);
+
+    ret = aclblasSetStream(handle, stream);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); aclrtDestroyStream(stream); aclblasDestroy(handle); return ret);
+
+    uint8_t *xDevice = nullptr;
+    uint8_t *yDevice = nullptr;
+
+    aclRet = aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); aclrtDestroyStream(stream); aclblasDestroy(handle); return aclRet);
+
+    aclRet = aclrtMalloc((void **)&yDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); return aclRet);
+
+    aclRet = aclrtMemcpy(xDevice, totalByteSize, xHost.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); aclrtFree(yDevice); aclrtFree(xDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); return aclRet);
+
+    aclRet = aclrtMemcpy(yDevice, totalByteSize, yHost.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); aclrtFree(yDevice); aclrtFree(xDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); return aclRet);
+
+    ret = aclblasScopy(handle, xDevice, yDevice, totalLength, incx, incy);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasScopy failed. ERROR: %d\n", ret); aclrtFree(yDevice); aclrtFree(xDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); return ret);
+
+    aclrtSynchronizeStream(stream);
+
+    aclRet = aclrtMemcpy(yHost.data(), totalByteSize, yDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yHost failed. ERROR: %d\n", aclRet); aclrtFree(yDevice); aclrtFree(xDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); return aclRet);
+
+    aclrtFree(xDevice);
+    aclrtFree(yDevice);
     aclrtDestroyStream(stream);
-    aclrtResetDevice(deviceId);
-    aclFinalize();
+    aclblasDestroy(handle);
 
     std::vector<float> golden(totalLength, valueX);
-    uint32_t scopyResult = VerifyResult(y, golden);
-
-    aclInit(nullptr);
-    aclrtSetDevice(deviceId);
-    aclrtCreateStream(&stream);
+    uint32_t scopyResult = VerifyResult(yHost, golden);
 
     constexpr uint32_t complexLength = 4 * 1024;
     std::complex<float> valueComplexX(1.5f, 2.5f);
     std::complex<float> valueComplexY(3.0f, 4.0f);
-    std::vector<std::complex<float>> cx(complexLength, valueComplexX);
-    std::vector<std::complex<float>> cy(complexLength, valueComplexY);
+    std::vector<std::complex<float>> cxHost(complexLength, valueComplexX);
+    std::vector<std::complex<float>> cyHost(complexLength, valueComplexY);
 
-    ret = aclblasCcopy(cx.data(), cy.data(), complexLength, incx, incy, stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCcopy failed. ERROR: %d\n", ret); return ret);
+    size_t complexByteSize = complexLength * sizeof(std::complex<float>);
 
-    aclrtDestroyStream(stream);
+    aclblasHandle_t handle2 = nullptr;
+    ret = aclblasCreate(&handle2);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", ret); return ret);
+
+    aclrtStream stream2 = nullptr;
+    aclRet = aclrtCreateStream(&stream2);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", aclRet); aclblasDestroy(handle2); return aclRet);
+
+    ret = aclblasSetStream(handle2, stream2);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); aclrtDestroyStream(stream2); aclblasDestroy(handle2); return ret);
+
+    uint8_t *cxDevice = nullptr;
+    uint8_t *cyDevice = nullptr;
+
+    aclRet = aclrtMalloc((void **)&cxDevice, complexByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc cxDevice failed. ERROR: %d\n", aclRet); aclrtDestroyStream(stream2); aclblasDestroy(handle2); return aclRet);
+
+    aclRet = aclrtMalloc((void **)&cyDevice, complexByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc cyDevice failed. ERROR: %d\n", aclRet); aclrtFree(cxDevice); aclrtDestroyStream(stream2); aclblasDestroy(handle2); return aclRet);
+
+    aclRet = aclrtMemcpy(cxDevice, complexByteSize, cxHost.data(), complexByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy cxDevice failed. ERROR: %d\n", aclRet); aclrtFree(cyDevice); aclrtFree(cxDevice); aclrtDestroyStream(stream2); aclblasDestroy(handle2); return aclRet);
+
+    aclRet = aclrtMemcpy(cyDevice, complexByteSize, cyHost.data(), complexByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy cyDevice failed. ERROR: %d\n", aclRet); aclrtFree(cyDevice); aclrtFree(cxDevice); aclrtDestroyStream(stream2); aclblasDestroy(handle2); return aclRet);
+
+    ret = aclblasCcopy(handle2, cxDevice, cyDevice, complexLength, incx, incy);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCcopy failed. ERROR: %d\n", ret); aclrtFree(cyDevice); aclrtFree(cxDevice); aclrtDestroyStream(stream2); aclblasDestroy(handle2); return ret);
+
+    aclrtSynchronizeStream(stream2);
+
+    aclRet = aclrtMemcpy(cyHost.data(), complexByteSize, cyDevice, complexByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy cyHost failed. ERROR: %d\n", aclRet); aclrtFree(cyDevice); aclrtFree(cxDevice); aclrtDestroyStream(stream2); aclblasDestroy(handle2); return aclRet);
+
+    aclrtFree(cxDevice);
+    aclrtFree(cyDevice);
+    aclrtDestroyStream(stream2);
+    aclblasDestroy(handle2);
+
     aclrtResetDevice(deviceId);
     aclFinalize();
 
     std::vector<std::complex<float>> goldenComplex(complexLength, valueComplexX);
-    uint32_t ccopyResult = VerifyResultComplex(cy, goldenComplex);
+    uint32_t ccopyResult = VerifyResultComplex(cyHost, goldenComplex);
 
     return (scopyResult + ccopyResult);
 }

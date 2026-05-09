@@ -22,6 +22,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
+
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 constexpr uint32_t DEFAULT_CUBE_NUM = 20;
@@ -96,61 +109,46 @@ uint32_t* CreateAugColwiseMul()
     return augData;
 }
 
-int aclblasColwiseMul(const float *mat, const float *vec, float *result,
-                      const int64_t m, const int64_t n, void *stream)
+aclblasStatus_t aclblasColwiseMul(aclblasHandle handle, const int64_t m, const int64_t n, uint8_t *mat, uint8_t *vec, uint8_t *result)
 {
-    // For complex numbers, each element has 2 floats (real and imag)
-    uint32_t nFloats = n * 2;  // Number of floats per row
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
     
-    uint32_t numBlocks = 8;  // Use all AICores
-    
+    uint32_t nFloats = n * 2;
+    uint32_t numBlocks = 8;
+
     ColwiseMulTilingData tiling = CalColwiseMulTilingData(m, nFloats, numBlocks);
 
     uint32_t *aug = CreateAugColwiseMul();
-    
-    size_t matByteSize = m * nFloats * sizeof(float);
-    size_t vecByteSize = m * 2 * sizeof(float);  // m complex numbers
     size_t augByteSize = MAX_DATA_COUNT * sizeof(uint32_t);
-    size_t resultByteSize = m * nFloats * sizeof(float);
     size_t workspaceSize = 1024;
-    
-    uint8_t *matHost = reinterpret_cast<uint8_t *>(const_cast<float *>(mat));
-    uint8_t *vecHost = reinterpret_cast<uint8_t *>(const_cast<float *>(vec));
 
-    uint8_t *augHost = reinterpret_cast<uint8_t *>(aug);
-    uint8_t *resultHost = reinterpret_cast<uint8_t *>(result);
-    uint8_t *matDevice = nullptr;
-    uint8_t *vecDevice = nullptr;
-    uint8_t *augDevice = nullptr;  // Not used in this implementation
-    uint8_t *resultDevice = nullptr;
+    uint8_t *augDevice = nullptr;
     uint8_t *workspaceDevice = nullptr;
     uint8_t *tilingDevice = nullptr;
-    
-    aclrtMalloc((void **)&matDevice, matByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&vecDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&augDevice, augByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&resultDevice, resultByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(ColwiseMulTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    
-    aclrtMemcpy(matDevice, matByteSize, matHost, matByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(vecDevice, vecByteSize, vecHost, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
 
-    aclrtMemcpy(augDevice, augByteSize, augHost, augByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(resultDevice, resultByteSize, resultHost, resultByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(ColwiseMulTilingData), &tiling, sizeof(ColwiseMulTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    
-    colwise_mul_kernel_do(matDevice, vecDevice, augDevice, resultDevice, workspaceDevice, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
-    
-    aclrtMemcpy(resultHost, resultByteSize, resultDevice, resultByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-    
-    aclrtFree(matDevice);
-    aclrtFree(vecDevice);
+    aclError aclRet = aclrtMalloc((void **)&augDevice, augByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(augDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(ColwiseMulTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice); aclrtFree(augDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMemcpy(augDevice, augByteSize, aug, augByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(ColwiseMulTilingData), &tiling, sizeof(ColwiseMulTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    colwise_mul_kernel_do(mat, vec, augDevice, result, workspaceDevice, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
     aclrtFree(augDevice);
-    aclrtFree(resultDevice);
     aclrtFree(workspaceDevice);
     aclrtFree(tilingDevice);
-    
-    return ACL_SUCCESS;
+
+    return ACLBLAS_STATUS_SUCCESS;
 }

@@ -22,8 +22,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
 
-using aclblasHandle = void *;
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 // Tiling data structure from sip
 struct RotTilingData {
@@ -33,47 +44,37 @@ struct RotTilingData {
 };
 
 
-int aclblasCsrot(float *x, float *y, const int64_t n, const float c, const float s, void *stream)
+aclblasStatus_t aclblasCsrot(aclblasHandle handle, const int64_t n, uint8_t *x, const int64_t incx, uint8_t *y, const int64_t incy, const float c, const float s)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     uint32_t numBlocks = 8;
+    size_t workSpaceSize = 32;
 
-    size_t vectorByteSize = n * sizeof(float);
-    size_t workSpaceSize = 32;  // 32 bytes workspace
-
-    int32_t deviceId = 0;
-
-    // Prepare tiling data
     RotTilingData tiling;
     tiling.elementCount = static_cast<int32_t>(n);
     tiling.cosValue = c;
     tiling.sinValue = s;
 
-    uint8_t *xHost = reinterpret_cast<uint8_t *>(x);
-    uint8_t *yHost = reinterpret_cast<uint8_t *>(y);
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
     uint8_t *workSpaceDevice = nullptr;
     uint8_t *tilingDevice = nullptr;
 
-    aclrtMalloc((void **)&xDevice, vectorByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&yDevice, vectorByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&workSpaceDevice, workSpaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(RotTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void **)&workSpaceDevice, workSpaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(xDevice, vectorByteSize, xHost, vectorByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(yDevice, vectorByteSize, yHost, vectorByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(RotTilingData), &tiling, sizeof(RotTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(RotTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    csrot_kernel_do(xDevice, yDevice, workSpaceDevice, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(RotTilingData), &tiling, sizeof(RotTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(xHost, vectorByteSize, xDevice, vectorByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-    aclrtMemcpy(yHost, vectorByteSize, yDevice, vectorByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    csrot_kernel_do(x, y, workSpaceDevice, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtFree(xDevice);
-    aclrtFree(yDevice);
     aclrtFree(workSpaceDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

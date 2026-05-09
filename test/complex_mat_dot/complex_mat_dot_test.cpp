@@ -72,44 +72,72 @@ uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
 int32_t main(int32_t argc, char *argv[])
 {
     int32_t deviceId = 0;
+    aclrtStream stream = nullptr;
+    aclblasHandle handle = nullptr;
 
-    // Test with 4x4 complex matrix
     constexpr uint32_t m = 4;
     constexpr uint32_t n = 4;
-    constexpr uint32_t complexSize = m * n * 2;  // 2 floats per complex number
+    constexpr uint32_t complexSize = m * n * 2;
 
-    // Initialize input matrices with simple values
-    // matx: all elements are (1.0 + 2.0i)
-    // maty: all elements are (3.0 + 4.0i)
     std::vector<float> matx(complexSize);
     std::vector<float> maty(complexSize);
     std::vector<float> result(complexSize, 0.0f);
 
     for (uint32_t i = 0; i < m * n; i++) {
-        matx[i * 2] = 1.0f;      // real part
-        matx[i * 2 + 1] = 2.0f;  // imaginary part
-        maty[i * 2] = 3.0f;      // real part
-        maty[i * 2 + 1] = 4.0f;  // imaginary part
+        matx[i * 2] = 1.0f;
+        matx[i * 2 + 1] = 2.0f;
+        maty[i * 2] = 3.0f;
+        maty[i * 2 + 1] = 4.0f;
     }
-
-    aclrtStream stream = nullptr;
 
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
     aclrtCreateStream(&stream);
+    aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
 
-    auto ret = aclblasComplexMatDot(matx.data(), maty.data(), result.data(), m, n, stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasComplexMatDot failed. ERROR: %d\n", ret); return ret);
+    size_t dataSize = complexSize * sizeof(float);
+    
+    uint8_t* matxDevice = nullptr;
+    uint8_t* matyDevice = nullptr;
+    uint8_t* resultDevice = nullptr;
+    
+    aclError aclRet = aclrtMalloc((void**)&matxDevice, dataSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc matxDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void**)&matyDevice, dataSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc matyDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void**)&resultDevice, dataSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc resultDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    
+    aclRet = aclrtMemcpy(matxDevice, dataSize, matx.data(), dataSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy matxDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(matyDevice, dataSize, maty.data(), dataSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy matyDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(resultDevice, dataSize, result.data(), dataSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy resultDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
+    auto ret = aclblasComplexMatDot(handle, m, n, matxDevice, matyDevice, resultDevice);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasComplexMatDot failed. ERROR: %d\n", ret); return ret);
+    
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+    
+    aclRet = aclrtMemcpy(result.data(), dataSize, resultDevice, dataSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy result failed. ERROR: %d\n", aclRet); return aclRet);
+    
+    aclrtFree(matxDevice);
+    aclrtFree(matyDevice);
+    aclrtFree(resultDevice);
+    
+    aclblasDestroy(handle);
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
-    // Calculate golden result: (1+2i) * (3+4i) = (1*3 - 2*4) + (1*4 + 2*3)i = -5 + 10i
     std::vector<float> golden(complexSize);
     for (uint32_t i = 0; i < m * n; i++) {
-        golden[i * 2] = matx[i * 2] * maty[i * 2] - matx[i * 2 + 1] * maty[i * 2 + 1];      // real part: 1*3 - 2*4 = -5
-        golden[i * 2 + 1] = matx[i * 2] * maty[i * 2 + 1] + matx[i * 2 + 1] * maty[i * 2];  // imaginary part: 1*4 + 2*3 = 10
+        golden[i * 2] = matx[i * 2] * maty[i * 2] - matx[i * 2 + 1] * maty[i * 2 + 1];
+        golden[i * 2 + 1] = matx[i * 2] * maty[i * 2 + 1] + matx[i * 2 + 1] * maty[i * 2];
     }
 
     return VerifyResult(result, golden);

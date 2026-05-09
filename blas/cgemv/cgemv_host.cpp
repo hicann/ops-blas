@@ -15,6 +15,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
+
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint32_t MAX_CORE_CNT = 40;
 constexpr uint32_t WORKSPACE_SIZE = 16 * 1024 * 1024;
@@ -51,24 +64,19 @@ static uint32_t* CreateCgemvMask(int64_t m)
     return maskData;
 }
 
-int aclblasCgemv(aclblasHandle handle,
-                  aclblasOperation trans,
-                  const int64_t m, const int64_t n,
-                  const std::complex<float> &alpha,
-                  const std::complex<float> *A, const int64_t lda,
-                  const std::complex<float> *x, const int64_t incx,
-                  const std::complex<float> &beta,
-                  std::complex<float> *y, const int64_t incy,
-                  void *stream)
+aclblasStatus_t aclblasCgemv(aclblasHandle handle,
+                              aclblasOperation trans,
+                              const int64_t m, const int64_t n,
+                              const std::complex<float> &alpha,
+                              uint8_t *A, const int64_t lda,
+                              uint8_t *x, const int64_t incx,
+                              const std::complex<float> &beta,
+                              uint8_t *y, const int64_t incy)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     uint32_t numBlocks = 8;
-
-    int64_t actualM = (trans == ACLBLAS_OP_N) ? m : n;
-    int64_t actualN = (trans == ACLBLAS_OP_N) ? n : m;
-
-    size_t matSize = m * n * 2 * sizeof(float);
-    size_t xSize = actualN * 2 * sizeof(float);
-    size_t ySize = actualM * 2 * sizeof(float);
 
     CgemvTilingData tiling;
     tiling.transA = (int64_t)trans;
@@ -85,57 +93,42 @@ int aclblasCgemv(aclblasHandle handle,
 
     uint32_t* mask = CreateCgemvMask(m);
     size_t maskSize = MASK_OFFSET_BASE * 2 * sizeof(uint32_t);
-
     size_t workSpaceSize = WORKSPACE_SIZE;
 
-    uint8_t* AHost = reinterpret_cast<uint8_t*>(const_cast<std::complex<float>*>(A));
-    uint8_t* xHost = reinterpret_cast<uint8_t*>(const_cast<std::complex<float>*>(x));
-    uint8_t* yHost = reinterpret_cast<uint8_t*>(y);
-    uint8_t* maskHost = reinterpret_cast<uint8_t*>(mask);
-
-    uint8_t* ADevice = nullptr;
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    uint8_t* yInDevice = nullptr;
     uint8_t* maskDevice = nullptr;
     uint8_t* workSpaceDevice = nullptr;
     uint8_t* tilingDevice = nullptr;
 
-    aclrtMalloc((void**)&ADevice, matSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&xDevice, xSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&yDevice, ySize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&yInDevice, ySize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&maskDevice, maskSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&workSpaceDevice, workSpaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&tilingDevice, sizeof(CgemvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&maskDevice, maskSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] mask; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(ADevice, matSize, AHost, matSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(xDevice, xSize, xHost, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(yDevice, ySize, yHost, ySize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(yInDevice, ySize, yHost, ySize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(maskDevice, maskSize, maskHost, maskSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(CgemvTilingData), &tiling, sizeof(CgemvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc((void**)&workSpaceDevice, workSpaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice); delete[] mask; return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(CgemvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); aclrtFree(maskDevice); delete[] mask; return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMemcpy(maskDevice, maskSize, mask, maskSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(maskDevice); delete[] mask; return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(CgemvTilingData), &tiling, sizeof(CgemvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(maskDevice); delete[] mask; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     if (trans == ACLBLAS_OP_N) {
-        cgemv_no_trans_kernel_do(ADevice, xDevice, yInDevice, maskDevice, yDevice,
-                                 workSpaceDevice, tilingDevice, numBlocks, stream);
+        cgemv_no_trans_kernel_do(A, x, y, maskDevice, y,
+                                 workSpaceDevice, tilingDevice, numBlocks, useStream);
     } else {
-        cgemv_do_trans_kernel_do(ADevice, xDevice, yInDevice, maskDevice, yDevice,
-                                 workSpaceDevice, tilingDevice, numBlocks, stream);
+        cgemv_do_trans_kernel_do(A, x, y, maskDevice, y,
+                                 workSpaceDevice, tilingDevice, numBlocks, useStream);
     }
-    aclrtSynchronizeStream(stream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(maskDevice); delete[] mask; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(yHost, ySize, yDevice, ySize, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(ADevice);
-    aclrtFree(xDevice);
-    aclrtFree(yDevice);
-    aclrtFree(yInDevice);
     aclrtFree(maskDevice);
     aclrtFree(workSpaceDevice);
     aclrtFree(tilingDevice);
 
     delete[] mask;
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

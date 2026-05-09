@@ -22,8 +22,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
 
-using aclblasHandle = void *;
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 constexpr uint32_t DEFAULT_CUBE_NUM = 20;
@@ -100,75 +111,51 @@ uint32_t* CreateCgercOffset()
     return offsetData;
 }
 
-int aclblasCgerc(const int64_t m, const int64_t n,
-                 const std::complex<float> &alpha,
-                 const std::complex<float> *x, const int64_t incx,
-                 const std::complex<float> *y, const int64_t incy,
-                 std::complex<float> *A, const int64_t lda,
-                 void *stream)
+aclblasStatus_t aclblasCgerc(aclblasHandle handle, const int64_t m, const int64_t n, const std::complex<float> &alpha,
+                              uint8_t *x, const int64_t incx, uint8_t *y, const int64_t incy, uint8_t *A, const int64_t lda)
 {
-    // Extract alpha real and imaginary parts
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     float alphaReal = alpha.real();
     float alphaImag = alpha.imag();
     
-    uint32_t numBlocks = 8;  // Use all AICores
-    
+    uint32_t numBlocks = 8;
+
     CgercTilingData tiling = CalCgercTilingData(m, n, alphaReal, alphaImag, numBlocks);
-    
+
     uint32_t *offset = CreateCgercOffset();
-    
-    // Calculate sizes
-    // Complex numbers stored as [real, imag] pairs
-    size_t xByteSize = m * sizeof(std::complex<float>);  // m complex numbers
-    size_t yByteSize = n * sizeof(std::complex<float>);  // n complex numbers
-    size_t AByteSize = m * n * sizeof(std::complex<float>);  // m x n complex matrix
     size_t offsetByteSize = MAX_DATA_COUNT * 2 * sizeof(uint32_t);
     size_t workspaceSize = 1024;
-    
-    uint8_t *xHost = reinterpret_cast<uint8_t *>(const_cast<std::complex<float> *>(x));
-    uint8_t *yHost = reinterpret_cast<uint8_t *>(const_cast<std::complex<float> *>(y));
-    uint8_t *AHost = reinterpret_cast<uint8_t *>(A);
-    uint8_t *offsetHost = reinterpret_cast<uint8_t *>(offset);
-    
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
-    uint8_t *ADevice = nullptr;
+
     uint8_t *offsetDevice = nullptr;
     uint8_t *workspaceDevice = nullptr;
     uint8_t *tilingDevice = nullptr;
-    
-    // Allocate device memory
-    aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&ADevice, AByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&offsetDevice, offsetByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(CgercTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    
-    // Copy inputs to device
-    aclrtMemcpy(xDevice, xByteSize, xHost, xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(yDevice, yByteSize, yHost, yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(ADevice, AByteSize, AHost, AByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(offsetDevice, offsetByteSize, offsetHost, offsetByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(CgercTilingData), &tiling, sizeof(CgercTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    
-    // Launch kernel
-    cgerc_kernel_do(xDevice, yDevice, offsetDevice, ADevice, workspaceDevice, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
-    
-    // Copy output back to host
-    aclrtMemcpy(AHost, AByteSize, ADevice, AByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-    
-    // Free device memory
-    aclrtFree(xDevice);
-    aclrtFree(yDevice);
-    aclrtFree(ADevice);
+
+    aclError aclRet = aclrtMalloc((void **)&offsetDevice, offsetByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(offsetDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(CgercTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice); aclrtFree(offsetDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMemcpy(offsetDevice, offsetByteSize, offset, offsetByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(offsetDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(CgercTilingData), &tiling, sizeof(CgercTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(offsetDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    cgerc_kernel_do(x, y, offsetDevice, A, workspaceDevice, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(offsetDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
     aclrtFree(offsetDevice);
     aclrtFree(workspaceDevice);
     aclrtFree(tilingDevice);
-    
-    // Free host memory
+
     delete[] offset;
-    
-    return ACL_SUCCESS;
+
+    return ACLBLAS_STATUS_SUCCESS;
 }

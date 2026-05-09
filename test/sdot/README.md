@@ -33,20 +33,62 @@ result = x · y = Σ(x[i] * y[i])  for i = 0 to n-1
 
 对应的接口为：
 ```
-int aclblasSdot(aclblasHandle handle, const float *x, const float *y, float *result,
-                const int64_t n, const int64_t incx, const int64_t incy);
+aclblasStatus_t aclblasSdot(aclblasHandle handle, const int64_t n, uint8_t *x, const int64_t incx,
+                              uint8_t *y, const int64_t incy, uint8_t *result);
 ```
 <table>
    <tr>
       <td rowspan="1" align="center">参数</td>
       <td colspan="4" align="center">sdot 参数说明</td>
    </tr>
-   <tr>
-      <td rowspan="6" align="center">参数列表</td>
+<tr>
+      <td rowspan="8" align="center">参数列表</td>
       <td align="center">Param.</td>
       <td align="center">Memory</td>
       <td align="center">in/out</td>
       <td align="center">含义</td>
+   </tr>
+   <tr>
+      <td align="center">handle</td>
+      <td align="center"></td>
+      <td align="center">in</td>
+      <td align="center">ACL BLAS句柄，通过handle管理stream和workspace。</td>
+   </tr>
+   <tr>
+      <td align="center">n</td>
+      <td align="center"></td>
+      <td align="center">in</td>
+      <td align="center">实数向量的元素个数。</td>
+   </tr>
+   <tr>
+      <td align="center">x</td>
+      <td align="center">device</td>
+      <td align="center">in</td>
+      <td align="center">实数向量指针（device侧uint8_t*），包含 n 个float元素。</td>
+   </tr>
+   <tr>
+      <td align="center">incx</td>
+      <td align="center"></td>
+      <td align="center">in</td>
+      <td align="center">向量x的步长。</td>
+   </tr>
+   <tr>
+      <td align="center">y</td>
+      <td align="center">device</td>
+      <td align="center">in</td>
+      <td align="center">实数向量指针（device侧uint8_t*），包含 n 个float元素。</td>
+   </tr>
+   <tr>
+      <td align="center">incy</td>
+      <td align="center"></td>
+      <td align="center">in</td>
+      <td align="center">向量y的步长。</td>
+   </tr>
+   <tr>
+      <td align="center">result</td>
+      <td align="center">device</td>
+      <td align="center">out</td>
+      <td align="center">实数结果指针（device侧uint8_t*），包含 1 个float元素。</td>
    </tr>
    <tr>
       <td align="center">handle</td>

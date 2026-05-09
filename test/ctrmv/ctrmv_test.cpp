@@ -2,7 +2,7 @@
 * Copyright (c) 2026 Huawei Technologies Co., Ltd.
 * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 * CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
+* Please refer to the License for details. You may not use this file in compliance with the License.
 * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 * See LICENSE in the root of the software repository for the full text of the License.
@@ -37,7 +37,6 @@
 uint32_t VerifyResult(const float* output, const float* golden, size_t size, const char* test_name, float epsilon = 1e-3f)
 {
     std::cout << "\n========== " << test_name << " ==========" << std::endl;
-    // Print partial output and golden values for inspection
     size_t printCnt = size < 8 ? size : 8;
     std::cout << "output: ";
     for (size_t i = 0; i < printCnt; ++i) std::cout << output[i] << " ";
@@ -64,9 +63,6 @@ uint32_t VerifyResult(const float* output, const float* golden, size_t size, con
     }
 }
 
-// Golden computation for ctrmv: x_out = op(A) * x
-// A is stored in column-major (Fortran) order as complex64 (pairs of float)
-// In column-major: A[i][j] is at index j * lda + i
 void ComputeCtrmvGolden(const float *A, const float *x, float *golden,
                          int64_t n, int64_t lda, int64_t incx,
                          aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag)
@@ -78,21 +74,21 @@ void ComputeCtrmvGolden(const float *A, const float *x, float *golden,
             if (trans == ACLBLAS_OP_N) {
                 bool isValid = (uplo == ACLBLAS_LOWER) ? (j <= i) : (j >= i);
                 if (isValid) {
-                    int64_t aIdx = j * lda + i;  // column-major: A[i][j] at j*lda+i
+                    int64_t aIdx = j * lda + i;
                     a_op = std::complex<float>(A[aIdx * 2], A[aIdx * 2 + 1]);
                     if (diag == ACLBLAS_UNIT && i == j) a_op = std::complex<float>(1.0f, 0.0f);
                 }
             } else if (trans == ACLBLAS_OP_T) {
                 bool isValidT = (uplo == ACLBLAS_LOWER) ? (i <= j) : (i >= j);
                 if (isValidT) {
-                    int64_t aIdxT = i * lda + j;  // column-major, transposed: A[j][i] at i*lda+j
+                    int64_t aIdxT = i * lda + j;
                     a_op = std::complex<float>(A[aIdxT * 2], A[aIdxT * 2 + 1]);
                     if (diag == ACLBLAS_UNIT && i == j) a_op = std::complex<float>(1.0f, 0.0f);
                 }
-            } else {  // ACLBLAS_OP_C
+            } else {
                 bool isValidC = (uplo == ACLBLAS_LOWER) ? (i <= j) : (i >= j);
                 if (isValidC) {
-                    int64_t aIdxC = i * lda + j;  // column-major, conjugate transposed: A[j][i] at i*lda+j
+                    int64_t aIdxC = i * lda + j;
                     a_op = std::conj(std::complex<float>(A[aIdxC * 2], A[aIdxC * 2 + 1]));
                     if (diag == ACLBLAS_UNIT && i == j) a_op = std::complex<float>(1.0f, 0.0f);
                 }
@@ -109,97 +105,122 @@ void ComputeCtrmvGolden(const float *A, const float *x, float *golden,
 
 int32_t main(int32_t argc, char *argv[])
 {
-    int32_t deviceId = 1;
-    aclrtStream stream = nullptr;
+    int32_t deviceId = 0;
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
+
+    aclblasHandle_t handle = nullptr;
+    auto blasRet = aclblasCreate(&handle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet); return blasRet);
+
+    aclrtStream stream = nullptr;
     aclrtCreateStream(&stream);
-
-    aclblasHandle handle;
-
-    handle = stream;
+    blasRet = aclblasSetStream(handle, stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet); return blasRet);
 
     int ret = 0;
 
-    // Test case: Lower triangular, N (non-transpose), Non-Unit diagonal
-    // Following BLAS convention: A is stored in column-major (Fortran) order
-    // In column-major: A[i][j] is at index j * lda + i
     constexpr int64_t n = 4;
     constexpr int64_t lda = 4;
     constexpr int64_t incx = 1;
 
-    // Create lower triangular matrix A in column-major (Fortran) order
-    // A(i,j) = (1+2i) for j <= i, 0 otherwise
     std::vector<float> A(n * lda * 2, 0.0f);
     for (int64_t i = 0; i < n; i++) {
         for (int64_t j = 0; j <= i; j++) {
-            int64_t aIdx = j * lda + i;  // column-major: A[i][j] at j*lda+i
-            A[aIdx * 2] = 1.0f;          // real = 1
-            A[aIdx * 2 + 1] = 2.0f;      // imag = 2
+            int64_t aIdx = j * lda + i;
+            A[aIdx * 2] = 1.0f;
+            A[aIdx * 2 + 1] = 2.0f;
         }
     }
 
-    // Create x vector: x[i] = (i, i) (matching sip example)
     std::vector<float> x(n * incx * 2, 0.0f);
     for (int64_t i = 0; i < n; i++) {
-        x[i * incx * 2] = static_cast<float>(i + 0.1);      // real
-        x[i * incx * 2 + 1] = static_cast<float>(i + 1.1);  // imag
+        x[i * incx * 2] = static_cast<float>(i + 0.1);
+        x[i * incx * 2 + 1] = static_cast<float>(i + 1.1);
     }
 
-    // Compute golden
     std::vector<float> golden(n * incx * 2, 0.0f);
     ComputeCtrmvGolden(A.data(), x.data(), golden.data(), n, lda, incx,
                        ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT);
 
-    // Run NPU computation
-    std::vector<float> x_npu = x;
-    std::vector<float> A_npu = A;
-    auto aclRet = aclblasCtrmv(handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
-                                n, A_npu.data(), lda, x_npu.data(), incx);
-    if (aclRet == ACL_SUCCESS) {
-        ret |= VerifyResult(x_npu.data(), golden.data(), n * incx * 2, "Ctrmv Lower N NonUnit (n=4)");
+    uint8_t *aDevice = nullptr;
+    uint8_t *xDevice = nullptr;
+    size_t aByteSize = n * lda * 2 * sizeof(float);
+    size_t xByteSize = n * incx * 2 * sizeof(float);
+    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(xDevice, xByteSize, x.data(), xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
+
+    blasRet = aclblasCtrmv(handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
+                            n, aDevice, lda, xDevice, incx);
+    if (blasRet == ACLBLAS_STATUS_SUCCESS) {
+        aclRet = aclrtSynchronizeStream(stream);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); ret = 1);
+        aclRet = aclrtMemcpy(x.data(), xByteSize, xDevice, xByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x failed. ERROR: %d\n", aclRet); ret = 1);
+        ret |= VerifyResult(x.data(), golden.data(), n * incx * 2, "Ctrmv Lower N NonUnit (n=4)");
     } else {
-        LOG_PRINT("aclblasCtrmv failed. ERROR: %d\n", aclRet);
+        LOG_PRINT("aclblasCtrmv failed. ERROR: %d\n", blasRet);
         ret = 1;
     }
 
-    // Test case 2: Upper triangular, N, Unit diagonal
-    // A is stored in column-major (Fortran) order
+    aclrtFree(aDevice);
+    aclrtFree(xDevice);
+
     std::vector<float> A2(n * lda * 2, 0.0f);
     for (int64_t i = 0; i < n; i++) {
         for (int64_t j = i; j < n; j++) {
-            int64_t aIdx = j * lda + i;  // column-major: A[i][j] at j*lda+i
-            A2[aIdx * 2] = 1.0f;         // real = 1
-            A2[aIdx * 2 + 1] = 2.0f;     // imag = 2
+            int64_t aIdx = j * lda + i;
+            A2[aIdx * 2] = 1.0f;
+            A2[aIdx * 2 + 1] = 2.0f;
         }
     }
 
     std::vector<float> x2(n * incx * 2, 0.0f);
     for (int64_t i = 0; i < n; i++) {
-        x2[i * incx * 2] = static_cast<float>(i + 0.1);      // real
-        x2[i * incx * 2 + 1] = static_cast<float>(i + 1.1);  // imag
+        x2[i * incx * 2] = static_cast<float>(i + 0.1);
+        x2[i * incx * 2 + 1] = static_cast<float>(i + 1.1);
     }
 
     std::vector<float> golden2(n * incx * 2, 0.0f);
     ComputeCtrmvGolden(A2.data(), x2.data(), golden2.data(), n, lda, incx,
                        ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_UNIT);
 
-    std::vector<float> x2_npu = x2;
-    std::vector<float> A2_npu = A2;
-    aclRet = aclblasCtrmv(handle, ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_UNIT,
-                           n, A2_npu.data(), lda, x2_npu.data(), incx);
-    if (aclRet == ACL_SUCCESS) {
-        ret |= VerifyResult(x2_npu.data(), golden2.data(), n * incx * 2, "Ctrmv Upper N Unit (n=4)");
+    uint8_t *a2Device = nullptr;
+    uint8_t *x2Device = nullptr;
+    aclRet = aclrtMalloc((void **)&a2Device, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc a2Device failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMalloc((void **)&x2Device, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc x2Device failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(a2Device, aByteSize, A2.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy a2Device failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(x2Device, xByteSize, x2.data(), xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x2Device failed. ERROR: %d\n", aclRet); return aclRet);
+
+    blasRet = aclblasCtrmv(handle, ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_UNIT,
+                           n, a2Device, lda, x2Device, incx);
+    if (blasRet == ACLBLAS_STATUS_SUCCESS) {
+        aclRet = aclrtSynchronizeStream(stream);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); ret = 1);
+        aclRet = aclrtMemcpy(x2.data(), xByteSize, x2Device, xByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x2 failed. ERROR: %d\n", aclRet); ret = 1);
+        ret |= VerifyResult(x2.data(), golden2.data(), n * incx * 2, "Ctrmv Upper N Unit (n=4)");
     } else {
-        LOG_PRINT("aclblasCtrmv failed. ERROR: %d\n", aclRet);
+        LOG_PRINT("aclblasCtrmv failed. ERROR: %d\n", blasRet);
         ret = 1;
     }
 
+    aclrtFree(a2Device);
+    aclrtFree(x2Device);
     aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
     aclrtResetDevice(deviceId);
     aclFinalize();
-
-    handle = nullptr;
     
     if (ret == 0) {
         std::cout << "\n========================================" << std::endl;

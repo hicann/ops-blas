@@ -22,6 +22,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
+
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint32_t COMPLEX_NUM = 2;
 
@@ -91,53 +104,40 @@ uint32_t* CreateAugComplexMatDot()
     return augData;
 }
 
-int aclblasComplexMatDot(const float *matx, const float *maty, float *result,
-                         const int64_t m, const int64_t n, void *stream)
+aclblasStatus_t aclblasComplexMatDot(aclblasHandle handle, const int64_t m, const int64_t n, uint8_t *matx, uint8_t *maty, uint8_t *result)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     uint32_t numBlocks = 8;
-
-    // Each complex number has 2 floats (real and imaginary parts)
-    size_t matrixByteSize = m * n * 2 * sizeof(float);  // 2*m*n floats for complex matrix
-    size_t augByteSize = MAX_DATA_COUNT * sizeof(uint32_t);
-
-    int32_t deviceId = 0;
 
     ComplexMatDotTilingData tiling;
     CalTilingData(tiling, m, n, numBlocks);
     uint32_t *aug = CreateAugComplexMatDot();
 
-    uint8_t *matxHost = reinterpret_cast<uint8_t *>(const_cast<float *>(matx));
-    uint8_t *matyHost = reinterpret_cast<uint8_t *>(const_cast<float *>(maty));
-    uint8_t *augHost = reinterpret_cast<uint8_t *>(aug);
-    uint8_t *resultHost = reinterpret_cast<uint8_t *>(result);
-    uint8_t *matxDevice = nullptr;
-    uint8_t *matyDevice = nullptr;
+    size_t augByteSize = MAX_DATA_COUNT * sizeof(uint32_t);
+
     uint8_t *augDevice = nullptr;
-    uint8_t *resultDevice = nullptr;
     uint8_t *tilingDevice = nullptr;
 
-    aclrtMalloc((void **)&matxDevice, matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&matyDevice, matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&augDevice, augByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&resultDevice, matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(ComplexMatDotTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void **)&augDevice, augByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(matxDevice, matrixByteSize, matxHost, matrixByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(matyDevice, matrixByteSize, matyHost, matrixByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(resultDevice, matrixByteSize, resultHost, matrixByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(augDevice, augByteSize, augHost, augByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(ComplexMatDotTilingData), &tiling, sizeof(ComplexMatDotTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(ComplexMatDotTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(augDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    complex_mat_dot_kernel_do(matxDevice, matyDevice, augDevice, resultDevice, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    aclRet = aclrtMemcpy(augDevice, augByteSize, aug, augByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(resultHost, matrixByteSize, resultDevice, matrixByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(ComplexMatDotTilingData), &tiling, sizeof(ComplexMatDotTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtFree(matxDevice);
-    aclrtFree(matyDevice);
+    complex_mat_dot_kernel_do(matx, maty, augDevice, result, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
     aclrtFree(augDevice);
-    aclrtFree(resultDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

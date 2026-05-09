@@ -14,6 +14,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
+
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr uint32_t CORE_NUM = 8;
 constexpr uint32_t WORKSPACE_SIZE = 1024 * 1024;
@@ -56,77 +69,57 @@ static uint32_t ConvertDiagType(aclblasDiagType diag)
     return 0;
 }
 
-int aclblasStrmm(aclblasHandle handle,
-                 aclblasSideMode side,
-                 aclblasFillMode uplo,
-                 aclblasOperation transa,
-                 aclblasOperation transb,
-                 aclblasDiagType diag,
-                 const int64_t m, const int64_t n, const int64_t k,
-                 const float alpha,
-                 const float *A, const int64_t lda,
-                 const float *B, const int64_t ldb,
-                 float *C, const int64_t ldc,
-                 void *stream)
+aclblasStatus_t aclblasStrmm(aclblasHandle handle,
+                             aclblasSideMode side,
+                             aclblasFillMode uplo,
+                             aclblasOperation trans,
+                             aclblasDiagType diag,
+                             const int64_t m, const int64_t n, const float alpha,
+                             uint8_t *A, const int64_t lda,
+                             uint8_t *B, const int64_t ldb,
+                             uint8_t *C, const int64_t ldc)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+
     StrmmTilingData tiling;
     tiling.side = ConvertSideMode(side);
     tiling.uplo = ConvertFillMode(uplo);
-    tiling.transa = ConvertOperation(transa);
-    tiling.transb = ConvertOperation(transb);
+    tiling.transa = ConvertOperation(trans);
+    tiling.transb = 0;  // Always N for strmm
     tiling.diag = ConvertDiagType(diag);
     tiling.m = m;
     tiling.n = n;
-    tiling.k = k;
+    tiling.k = (side == ACLBLAS_SIDE_LEFT) ? m : n;  // k depends on side
     tiling.lessFlag = 0;
     tiling.alpha = alpha;
 
-    int64_t aRows = (transa == ACLBLAS_OP_N) ? m : k;
-    int64_t aCols = (transa == ACLBLAS_OP_N) ? k : m;
-    int64_t bRows = (transb == ACLBLAS_OP_N) ? k : n;
-    int64_t bCols = (transb == ACLBLAS_OP_N) ? n : k;
-
-    size_t aSize = aRows * aCols * sizeof(float);
-    size_t bSize = bRows * bCols * sizeof(float);
-    size_t cSize = m * n * sizeof(float);
-
-    uint8_t* AHost = reinterpret_cast<uint8_t*>(const_cast<float*>(A));
-    uint8_t* BHost = reinterpret_cast<uint8_t*>(const_cast<float*>(B));
-    uint8_t* CHost = reinterpret_cast<uint8_t*>(C);
-
-    uint8_t* ADevice = nullptr;
-    uint8_t* BDevice = nullptr;
-    uint8_t* CDevice = nullptr;
     uint8_t* workspaceDevice = nullptr;
     uint8_t* workSpaceDevice = nullptr;
     uint8_t* tilingDevice = nullptr;
 
-    aclrtMalloc((void**)&ADevice, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&BDevice, bSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&CDevice, cSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&workspaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&workSpaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&tilingDevice, sizeof(StrmmTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&workspaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclrtMemcpy(ADevice, aSize, AHost, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(BDevice, bSize, BHost, bSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(CDevice, cSize, CHost, cSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(StrmmTilingData), &tiling, sizeof(StrmmTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc((void**)&workSpaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(StrmmTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(StrmmTilingData), &tiling, sizeof(StrmmTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     uint32_t numBlocks = CORE_NUM;
 
-    strmm_kernel_do(ADevice, BDevice, CDevice, workspaceDevice,
-                    workSpaceDevice, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    strmm_kernel_do(A, B, C, workspaceDevice,
+                    workSpaceDevice, tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclrtMemcpy(CHost, cSize, CDevice, cSize, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(ADevice);
-    aclrtFree(BDevice);
-    aclrtFree(CDevice);
     aclrtFree(workspaceDevice);
     aclrtFree(workSpaceDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

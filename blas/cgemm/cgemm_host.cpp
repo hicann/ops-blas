@@ -15,6 +15,19 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "../utils/aclblas_kernel_do.h"
+#include "../utils/aclblas_handle_internal.h"
+
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
 
 constexpr int64_t PAD_NUM = 128;
 constexpr int64_t M0 = 128;
@@ -52,16 +65,18 @@ static int64_t ConvertTransType(aclblasOperation trans)
     return KERNEL_OP_N;
 }
 
-int aclblasCgemm(aclblasHandle handle,
-                 aclblasOperation transA, aclblasOperation transB,
-                 const int64_t m, const int64_t n, const int64_t k,
-                 const std::complex<float> *alpha,
-                 const float *A, const int64_t lda,
-                 const float *B, const int64_t ldb,
-                 const std::complex<float> *beta,
-                 float *C, const int64_t ldc,
-                 void *stream)
+aclblasStatus_t aclblasCgemm(aclblasHandle handle,
+                              aclblasOperation transA, aclblasOperation transB,
+                              const int64_t m, const int64_t n, const int64_t k,
+                              const std::complex<float> &alpha,
+                              uint8_t *A, const int64_t lda,
+                              uint8_t *B, const int64_t ldb,
+                              const std::complex<float> &beta,
+                              uint8_t *C, const int64_t ldc)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+    
     int64_t kernelTransA = ConvertTransType(transA);
     int64_t kernelTransB = ConvertTransType(transB);
     
@@ -81,19 +96,15 @@ int aclblasCgemm(aclblasHandle handle,
     tiling.ldc = ldc;
     tiling.ldaPad = ldaPad;
     tiling.ldbPad = ldbPad;
-    tiling.alphaReal = alpha->real();
-    tiling.alphaImag = alpha->imag();
-    tiling.betaReal = beta->real();
-    tiling.betaImag = beta->imag();
+    tiling.alphaReal = alpha.real();
+    tiling.alphaImag = alpha.imag();
+    tiling.betaReal = beta.real();
+    tiling.betaImag = beta.imag();
     
     int64_t aRows = (transA == ACLBLAS_OP_N) ? m : k;
     int64_t aCols = (transA == ACLBLAS_OP_N) ? k : m;
     int64_t bRows = (transB == ACLBLAS_OP_N) ? k : n;
     int64_t bCols = (transB == ACLBLAS_OP_N) ? n : k;
-    
-    size_t aSize = aRows * aCols * 2 * sizeof(float);
-    size_t bSize = bRows * bCols * 2 * sizeof(float);
-    size_t cSize = m * n * 2 * sizeof(float);
     
     int64_t aPadSizeCount = (transA == ACLBLAS_OP_N) ?
         (ldaPad * (k + K0 - 1) / K0 * K0) :
@@ -109,13 +120,6 @@ int aclblasCgemm(aclblasHandle handle,
     
     size_t workspaceSize = 16 * 1024 * 1024;
     
-    uint8_t* AHost = reinterpret_cast<uint8_t*>(const_cast<float*>(A));
-    uint8_t* BHost = reinterpret_cast<uint8_t*>(const_cast<float*>(B));
-    uint8_t* CHost = reinterpret_cast<uint8_t*>(C);
-    
-    uint8_t* ADevice = nullptr;
-    uint8_t* BDevice = nullptr;
-    uint8_t* CDevice = nullptr;
     uint8_t* A_rDevice = nullptr;
     uint8_t* A_iDevice = nullptr;
     uint8_t* B_rDevice = nullptr;
@@ -127,38 +131,48 @@ int aclblasCgemm(aclblasHandle handle,
     uint8_t* workspaceDevice = nullptr;
     uint8_t* tilingDevice = nullptr;
     
-    aclrtMalloc((void**)&ADevice, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&BDevice, bSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&CDevice, cSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&A_rDevice, aPadSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&A_iDevice, aPadSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&B_rDevice, bPadSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&B_iDevice, bPadSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&C_rrDevice, cResultSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&C_riDevice, cResultSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&C_irDevice, cResultSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&C_iiDevice, cResultSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&tilingDevice, sizeof(CgemmTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&A_rDevice, aPadSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&A_iDevice, aPadSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&B_rDevice, bPadSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&B_iDevice, bPadSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&C_rrDevice, cResultSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(B_iDevice); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&C_riDevice, cResultSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(C_rrDevice); aclrtFree(B_iDevice); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&C_irDevice, cResultSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(C_riDevice); aclrtFree(C_rrDevice); aclrtFree(B_iDevice); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&C_iiDevice, cResultSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(C_irDevice); aclrtFree(C_riDevice); aclrtFree(C_rrDevice); aclrtFree(B_iDevice); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(C_iiDevice); aclrtFree(C_irDevice); aclrtFree(C_riDevice); aclrtFree(C_rrDevice); aclrtFree(B_iDevice); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(CgemmTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice); aclrtFree(C_iiDevice); aclrtFree(C_irDevice); aclrtFree(C_riDevice); aclrtFree(C_rrDevice); aclrtFree(B_iDevice); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
     
-    aclrtMemcpy(ADevice, aSize, AHost, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(BDevice, bSize, BHost, bSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(CDevice, cSize, CHost, cSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(CgemmTilingData), &tiling, sizeof(CgemmTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(CgemmTilingData), &tiling, sizeof(CgemmTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(C_iiDevice); aclrtFree(C_irDevice); aclrtFree(C_riDevice); aclrtFree(C_rrDevice); aclrtFree(B_iDevice); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
     
     uint32_t numBlocks = 8;
     
-    cgemm_kernel_do(ADevice, BDevice, A_rDevice, A_iDevice,
+    cgemm_kernel_do(A, B, A_rDevice, A_iDevice,
                     B_rDevice, B_iDevice, C_rrDevice, C_riDevice,
-                    C_irDevice, C_iiDevice, CDevice, workspaceDevice,
-                    tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+                    C_irDevice, C_iiDevice, C, workspaceDevice,
+                    tilingDevice, numBlocks, useStream);
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); aclrtFree(C_iiDevice); aclrtFree(C_irDevice); aclrtFree(C_riDevice); aclrtFree(C_rrDevice); aclrtFree(B_iDevice); aclrtFree(B_rDevice); aclrtFree(A_iDevice); aclrtFree(A_rDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
     
-    aclrtMemcpy(CHost, cSize, CDevice, cSize, ACL_MEMCPY_DEVICE_TO_HOST);
-    
-    aclrtFree(ADevice);
-    aclrtFree(BDevice);
-    aclrtFree(CDevice);
     aclrtFree(A_rDevice);
     aclrtFree(A_iDevice);
     aclrtFree(B_rDevice);
@@ -170,5 +184,5 @@ int aclblasCgemm(aclblasHandle handle,
     aclrtFree(workspaceDevice);
     aclrtFree(tilingDevice);
     
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }
