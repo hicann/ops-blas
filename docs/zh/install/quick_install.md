@@ -13,26 +13,25 @@
 
 |  安装方式  |  使用说明  |  使用场景  |
 | ----- | ------ | ------ |
-|  WebIDE  | 一站式开发平台，提供在线直接运行的昇腾环境，无需手动安装。<br>当前可提供单机算力，**默认安装最新商发版CANN包**。 | 适用于没有昇腾设备的开发者。|
+|  CANNLab  | 一站式开发平台，提供在线直接运行的昇腾环境，无需手动安装。<br>当前可提供单机算力，**默认安装最新商发版CANN包**。 | 适用于没有昇腾设备的开发者。|
 |  Docker  | Docker镜像是一种高效部署方式，已预集成CANN包和必备依赖。<br>当前仅适用于Atlas A2系列产品，OS仅支持Ubuntu操作系统。**默认安装最新商发版CANN包**。 |适用有昇腾设备，需要快速搭建环境的开发者。|
-|  手动安装  | - |适用有昇腾设备，想体验手动安装CANN包或体验最新master分支能力的开发者。|
+|  手动安装  | 手动安装CANN包和基础依赖，灵活性高。 |适用有昇腾设备，想体验手动安装CANN包或体验最新master分支能力的开发者。|
 
-### 方式1：WebIDE环境
+### 方式1：CANNLab
 
-对于无昇腾设备的开发者，可直接使用WebIDE开发平台，即“**一站式开发平台**”，该平台为您提供在线可直接运行的昇腾环境，环境中已安装必备的驱动固件、软件包和依赖，无需手动安装。
+对于无昇腾设备的开发者，可直接使用CANNLab云开发环境，即“**一站式开发平台**”，该平台为您提供在线可直接运行的昇腾环境，环境中已安装必备的驱动固件、软件包和依赖，无需手动安装。
 
-> **说明**：环境默认安装最新商发版CANN包，源码下载时注意与软件配套。更多关于开发平台的介绍请参考[WebIDE指导](https://gitcode.com/org/cann/discussions/54)。
+> **说明**：环境默认安装最新商发版CANN包，源码下载时注意与软件配套。更多关于开发平台的介绍请参考[CANNLab指导](https://gitcode.com/org/cann/discussions/54)。
 
-1. 进入开源项目，单击“`云开发`”按钮，使用已认证过的华为云账号登录。若未注册或认证，请根据页面提示进行注册和认证。
+1. 进入开源项目，单击“`CANNLab`”按钮，使用已认证过的华为云账号登录。若未注册或认证，请根据页面提示进行注册和认证。
 
-   <img src="../figures/cloudIDE.png" alt="云平台"  width="750px" height="90px">
+   <img src="../figures/cloudIDE.png" alt="云平台"  width="750px" height="85px">
 
 2. 根据页面提示创建NPU环境并配置规格，启动云开发环境后，单击“`连接 > WebIDE`”进入一站式开发平台。
   
    当前开源项目资源默认在`/mnt/workspace/gitCode/${gitCode_id}`目录下，\$\{gitCode\_id\}表示开发者个人gitCode账号。
 
    <img src="../figures/webIDE.png" alt="云平台"  width="1000px" height="150px">
-
 
 ### 方式2：Docker部署
 
@@ -87,33 +86,7 @@ docker run --name cann_container --device /dev/davinci0 --device /dev/davinci_ma
 
 对于有昇腾设备的开发者，若您想手动搭建昇腾环境，请参考下述步骤。
 
-#### 前置依赖
-
-请先确保编译环境的基础库依赖已安装，注意满足版本号要求。
-
-- python >= 3.7.0（建议版本 <= 3.10）
-- gcc >= 7.3.0
-- cmake >= 3.16.0
-- pigz（可选，安装后可提升打包速度，建议版本 >= 2.4）
-- dos2unix
-- gawk
-- make
-- patch
-- googletest（仅执行UT时依赖，建议版本 [release-1.11.0](https://github.com/google/googletest/releases/tag/release-1.11.0)）
-
-上述依赖可通过项目根目录install\_deps.sh一键安装，命令如下，若遇到不支持系统，请参考该文件自行适配。
-
-```bash
-bash install_deps.sh
-```
-
-安装完上述依赖后，可通过项目根目录requirements.txt继续安装python三方库依赖，命令如下。
-
-```bash
-pip3 install -r requirements.txt
-```
-
-#### 软件安装
+#### 安装软件
 
 - **场景1：体验master版本能力或基于master版本进行开发**
 
@@ -154,6 +127,43 @@ pip3 install -r requirements.txt
 
     请访问[CANN官网下载中心](https://www.hiascend.com/cann/download)，选择发布版本（仅支持CANN 8.5.0及后续版本），并根据产品型号和环境架构下载对应包，最后参考网页提供的命令完成安装。
 
+#### 安装基础依赖
+ 	 
+本项目基础依赖如下，注意满足版本号要求。
+
+- python >= 3.7.0（建议版本 <= 3.10）
+- gcc >= 7.3.0
+- cmake >= 3.16.0
+- pigz（可选，安装后可提升打包速度，建议版本 >= 2.4）
+- dos2unix
+- make
+- patch
+- googletest（仅执行UT时依赖，建议版本 [release-1.11.0](https://github.com/google/googletest/releases/tag/release-1.11.0)）
+
+上述依赖可通过项目脚本一键安装，操作步骤如下：
+
+1. 下载源码。
+
+    下载与CANN版本配套的分支源码，命令如下，\$\{tag\_version\}替换为分支标签名。
+
+    ```bash
+    git clone -b ${tag_version} https://gitcode.com/cann/ops-blas.git
+    ```
+    
+2. 安装依赖。
+
+    先通过项目根目录install\_deps.sh一键安装上述依赖，命令如下，若遇到不支持系统，请参考该文件自行适配。
+
+    ```bash
+    bash install_deps.sh
+    ```
+    
+    安装完后，再通过项目根目录requirements.txt继续安装python三方库依赖，命令如下。
+
+    ```bash
+    pip3 install -r requirements.txt
+    ```
+
 ## 环境验证
 
 安装完CANN包后，需验证环境和驱动是否正常。
@@ -184,19 +194,3 @@ source /usr/local/Ascend/cann/set_env.sh
 # 指定路径安装
 # source ${install_path}/cann/set_env.sh
 ```
-
-## 源码下载
-
-通过如下命令下载项目源码，\$\{tag\_version\}请替换为版本分支标签名，源码版本与CANN版本配套关系参见[release仓库](https://gitcode.com/cann/release-management)。
-
-```bash
-# 下载项目对应分支源码
-git clone -b ${tag_version} https://gitcode.com/cann/ops-blas.git
-```
-
-对于WebIDE或Docker环境，已默认提供最新商发版本的项目源码，如需获取其他版本的源码，也需通过上述命令下载源码。
-
-> [!NOTE] 注意
->
-> - gitcode平台在使用HTTPS协议的时候要配置并使用个人访问令牌代替登录密码进行克隆，推送等操作。
-> - 若您的编译环境无法访问网络，无法通过git指令下载代码，请先在联网环境中下载源码，再手动上传至目标环境。

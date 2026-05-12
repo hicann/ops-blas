@@ -1,46 +1,49 @@
 # ops-blas
 
 ## 🔥Latest News
+
+- [2026/05] blas目录新增[cgemm](blas/cgemm/)、[cgemm_batched](blas/cgemm_batched/)、[cgemv_batched](blas/cgemv_batched/)、[complex_mat_dot](blas/complex_mat_dot/)、[colwise_mul](blas/colwise_mul/)、[trsv](blas/trsv/)等计算接口。
 - [2026/03] ops-blas项目上线，提供BLAS计算的API以及现代灵活接口aclBLASLt。
 
 ## 🚀概述
+
 ops-blas是[CANN](https://hiascend.com/software/cann) （Compute Architecture for Neural Networks）算子库中提供高性能线性代数计算以及轻量化GEMM调用的算子库。
 
-## ⚡️快速入门
-若您希望**从零到一快速体验**项目能力，请访问下述简易教程。
+## 📌版本配套
 
-1. [环境部署](docs/zh/install/quick_install.md)：介绍基础环境搭建，包括软件包和三方依赖的获取和安装、源码下载等。
+当前仓库已验证通过的社区版 CANN Toolkit 如下：
 
-   >  **说明**：本步骤是QuickStart和各类教程的操作前提，请先完成基础环境搭建。
-2. [QuickStart](docs/QUICKSTART.md)：提供快速上手本项目能力的指南，包括编译部署、算子调用/开发/调试等核心能力。
+| CANN 版本 | 时间戳 | 验证结果 | 下载链接 |
+| --- | --- | --- | --- |
+| `9.0.0` | `20260422000325096` | ✅ PASS | [aarch64](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/legacy/20260422000325096/Ascend-cann-toolkit_9.0.0_linux-aarch64.run) / [x86_64](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/legacy/20260422000325096/Ascend-cann-toolkit_9.0.0_linux-x86_64.run) |
+| `9.0.0` | `20260325000325538` | ✅ PASS | [aarch64](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/legacy/20260325000325538/aarch64/) / [x86_64](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/legacy/20260325000325538/x86_64/) |
+
+请根据实际 CPU 架构，从上述链接目录中自行选择对应的 `.run` 安装包。
+
+## 🛠️环境准备
+
+[环境部署](docs/zh/install/quick_install.md)是体验本项目能力的前提，请先完成NPU驱动、CANN包安装等，确保环境正常。
+
+## ⬇️源码下载
+
+环境准备好后，下载与CANN版本配套的分支源码，命令如下，\$\{tag\_version\}替换为分支标签名。
+ 	 
+> 说明：若环境中已存在配套分支源码，**可跳过本步骤**，例如CANNLab默认已提供最新商发版CANN对应的源码。
+
+```bash
+git clone -b ${tag_version} https://gitcode.com/cann/ops-blas.git
+```
+
+说明：对于CANNLab云开发环境，已默认提供最新商发CANN版本配套的源码，如需获取其他版本源码，参考上述命令获取。
 
 ## 📖学习教程
 
-若您已学习**环境部署和QuickStart**，对本项目有一定认知，并希望**深入了解和体验项目**，请访问下述详细教程。
-
-1. [接口列表](docs/zh/api_list.md)：提供全量API信息，方便您查看aclblas和aclblasLt接口的分类和功能。
-
-
-## 🔍目录结构
-ops-blas仓关键目录结构如下。
-```
-ops-blas
-├── docs                # 项目文档介绍
-├── examples            # 端到端算子开发和调用示例
-├── include             # 对外头文件
-├── scripts             # 脚本目录
-├── blasLt              # blasLt主体源代码目录
-├── blas                # blas主体源代码目录
-│   ├── utils           # 公共函数
-│   ├── dot             # 向量点积算子实现
-│   ├── gemv            # 一般矩阵向量乘法算子实现
-│   ├──  ...            # 其他算子实现
-│   └── CMakeLists.txt  # 算子编译配置文件
-├── tests               # 测试代码
-```
+- [快速入门](docs/QUICKSTART.md)：从零开始快速体验项目核心基础能力，涵盖源码编译、算子调用、开发与调试等操作。
 
 ## 💬相关信息
 
+- [目录结构](docs/zh/install/dir_structure.md)
+- [接口列表](docs/zh/api_list.md)
 - [贡献指南](CONTRIBUTING.md)
 - [安全声明](SECURITY.md)
 - [许可证](LICENSE)
