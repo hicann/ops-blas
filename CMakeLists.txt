@@ -37,12 +37,15 @@ function(get_soc_arch_dirs soc_version arch_dirs)
   string(TOLOWER "${soc_version}" soc_lower)
   set(dirs "")
 
-  if(soc_lower MATCHES "^ascend950")
+  if(soc_lower MATCHES "^ascend910b")
+    list(APPEND dirs "arch22")
+  elseif(soc_lower MATCHES "^ascend910_93")
+    list(APPEND dirs "arch22")
+  elseif(soc_lower MATCHES "^ascend950")
     list(APPEND dirs "arch35")
   elseif(soc_lower MATCHES "^ascend310p")
     list(APPEND dirs "arch20")
   endif()
-  # 其他 SOC 可以根据需要添加
 
   set(${arch_dirs} ${dirs} PARENT_SCOPE)
 endfunction()
@@ -55,6 +58,10 @@ message(STATUS "SOC_ARCH_DIRS=${SOC_ARCH_DIRS}")
 set(ARCH_SPECIFIC_DIRS arch35 arch20 CACHE INTERNAL "Architecture specific directories")
 
 set(ASCEND_CANN_PACKAGE_PATH $ENV{ASCEND_HOME_PATH})
+
+include(cmake/asc_devkit_version.cmake)
+ops_blas_detect_asc_devkit_version()
+
 set(RUN_MODE "npu" CACHE STRING "run mode: npu")
 set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type Release/Debug" FORCE)
 set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/out" CACHE STRING "install path" FORCE)
@@ -62,21 +69,10 @@ set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/out" CACHE STRING "install p
 # 外部传参
 option(ENABLE_PACKAGE "Enable build package" OFF)
 
-# ========= 查找 ascendc cmake =========
-# if(EXISTS ${ASCEND_CANN_PACKAGE_PATH}/tools/tikcpp/ascendc_kernel_cmake)
-#     set(ASCENDC_CMAKE_DIR ${ASCEND_CANN_PACKAGE_PATH}/tools/tikcpp/ascendc_kernel_cmake)
-# elseif(EXISTS ${ASCEND_CANN_PACKAGE_PATH}/compiler/tikcpp/ascendc_kernel_cmake)
-#     set(ASCENDC_CMAKE_DIR ${ASCEND_CANN_PACKAGE_PATH}/compiler/tikcpp/ascendc_kernel_cmake)
-# elseif(EXISTS ${ASCEND_CANN_PACKAGE_PATH}/ascendc_devkit/tikcpp/samples/cmake)
-#     set(ASCENDC_CMAKE_DIR ${ASCEND_CANN_PACKAGE_PATH}/ascendc_devkit/tikcpp/samples/cmake)
-# else()
-#     message(FATAL_ERROR "ascendc_kernel_cmake does not exist.")
-# endif()
+# 引入 ops-tensor
+include(cmake/third_party/ops-tensor.cmake)
 
-# include(${ASCENDC_CMAKE_DIR}/ascendc.cmake)
-
-# ========= 构建动态库 =========
-# blasLt
+# ========= 构建 blasLt 动态库 =========
 set(ALL_BLASLT_SRC_FILES "")
 set(OPS_BLASLT ops_blasLt)
 find_package(ASC REQUIRED)
@@ -100,13 +96,39 @@ target_include_directories(${OPS_BLASLT} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base/
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/
     ./include
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/utils
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include/kernel
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include/tiling
+    ${OPTENSOR_INCLUDE_DIR}
+    "${OPTENSOR_INCLUDE_DIR}/tensor_api"
 )
+set(_OPS_BLAS_ASC_ROOT "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/asc")
+if(EXISTS "${_OPS_BLAS_ASC_ROOT}/include")
+  target_include_directories(${OPS_BLASLT} PRIVATE
+    "${_OPS_BLAS_ASC_ROOT}"
+    "${_OPS_BLAS_ASC_ROOT}/include"
+    "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include"
+  )
+endif()
+
+if(ENABLE_BLASLT_MXFP8)
+  set_source_files_properties(
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul_mxfp8/arch35/matmul_mxfp8_host.cpp
+    PROPERTIES LANGUAGE CXX)
+endif()
+target_compile_features(${OPS_BLASLT} PRIVATE cxx_std_17)
 
 target_compile_options(${OPS_BLASLT} PRIVATE
     $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH}>
 )
 
-# blas
+target_link_directories(${OPS_BLASLT} PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/lib64")
+target_link_libraries(
+  ${OPS_BLASLT}
+  PRIVATE ascendc_runtime ascendcl runtime register error_manager profapi ge_common_base unified_dlog mmpa dl
+          ascend_dump c_sec)
+
+# ========= 构建 blas 动态库 =========
 set(ALL_BLAS_SRC_FILES "")
 set(OPS_BLAS ops_blas)
 

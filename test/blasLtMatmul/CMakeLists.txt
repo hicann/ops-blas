@@ -22,6 +22,7 @@ target_compile_definitions(blasLtMatmul_test PRIVATE
 target_compile_options(blasLtMatmul_test PRIVATE
     -g
 )
+target_compile_features(blasLtMatmul_test PRIVATE cxx_std_17)
 target_include_directories(blasLtMatmul_test PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     $ENV{LINUX_INCLUDE_PATH}

@@ -81,16 +81,12 @@ for arg in "$@"; do
             echo "  bash build.sh --ops=scopy,blasLtMatmul --run  # 编译并运行多个算子"
             echo "  bash build.sh --pkg                           # 编译并打包run包"
             echo "  bash build.sh --pkg --soc=ascend950           # 打包指定SOC的run包"
+            echo "  bash build.sh --pkg --soc=ascend950 --ops=scopy --run  # 编译指定算子打包并运行测试"
             exit 1
             ;;
     esac
 done
 
-# 校验 --run 和 --pkg 不能同时使用
-if [ "${RUN_TEST}" == "ON" ] && [ "${ENABLE_PACKAGE}" == "TRUE" ]; then
-  print_error "--run cannot be used with --pkg"
-  exit 1
-fi
 
 # 如果 --run 单独使用（没有指定算子），自动发现所有测试目录
 if [ "${RUN_TEST}" == "ON" ] && [ -z "${BUILD_OPS}" ]; then
