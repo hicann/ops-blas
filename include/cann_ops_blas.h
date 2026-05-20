@@ -292,3 +292,39 @@ aclblasStatus_t aclblasStrmm(aclblasHandle handle,
 aclblasStatus_t aclblasCtrmv(aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
                              aclblasDiagType_t diag, int64_t n,
                              uint8_t *A, int64_t lda, uint8_t *x, int64_t incx);
+
+/**
+ * @brief 带状矩阵向量乘（SGBMV）
+ *
+ * 计算 y = alpha * op(A) * x + beta * y，其中 A 为 M x N 带状矩阵
+ *
+ * @param handle aclblas 句柄
+ * @param trans  op(A) 操作类型（N=不转置，T=转置，C=共轭转置）
+ * @param m      矩阵 A 的行数
+ * @param n      矩阵 A 的列数
+ * @param kl     次对角线数
+ * @param ku     超对角线数
+ * @param alpha  标量系数
+ * @param A      带状矩阵，紧凑存储格式 (KL+KU+1) x N（列主序）
+ * @param lda    A 的前导维度（>= KL+KU+1）
+ * @param x      输入向量
+ * @param incx   x 元素步长
+ * @param beta   标量系数
+ * @param y      输入/输出向量
+ * @param incy   y 元素步长
+ * @return ACLBLAS_STATUS_SUCCESS 成功，或错误状态码
+ */
+aclblasStatus_t aclblasSgbmv(aclblasHandle handle,
+                             aclblasOperation_t trans,
+                             int m,
+                             int n,
+                             int kl,
+                             int ku,
+                             const float *alpha,
+                             const float *A,
+                             int lda,
+                             const float *x,
+                             int incx,
+                             const float *beta,
+                             float *y,
+                             int incy);
