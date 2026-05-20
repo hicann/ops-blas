@@ -9,17 +9,6 @@
 
 ops-blas是[CANN](https://hiascend.com/software/cann) （Compute Architecture for Neural Networks）算子库中提供高性能线性代数计算以及轻量化GEMM调用的算子库。
 
-## 📌版本配套
-
-当前仓库已验证通过的社区版 CANN Toolkit 如下：
-
-| CANN 版本 | 时间戳 | 验证结果 | 下载链接 |
-| --- | --- | --- | --- |
-| `9.0.0` | `20260422000325096` | ✅ PASS | [aarch64](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/legacy/20260422000325096/Ascend-cann-toolkit_9.0.0_linux-aarch64.run) / [x86_64](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/legacy/20260422000325096/Ascend-cann-toolkit_9.0.0_linux-x86_64.run) |
-| `9.0.0` | `20260325000325538` | ✅ PASS | [aarch64](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/legacy/20260325000325538/aarch64/) / [x86_64](https://ascend.devcloud.huaweicloud.com/artifactory/cann-run-mirror/software/legacy/20260325000325538/x86_64/) |
-
-请根据实际 CPU 架构，从上述链接目录中自行选择对应的 `.run` 安装包。
-
 ## 🛠️环境准备
 
 [环境部署](docs/zh/install/quick_install.md)是体验本项目能力的前提，请先完成NPU驱动、CANN包安装等，确保环境正常。
