@@ -375,6 +375,43 @@ install_patch() {
     fi
 }
 
+install_googletest() {
+    echo -e "\n==== Checking googletest ===="
+    local req_ver="1.11.0"
+
+    if [[ -f "/usr/local/include/gtest/gtest.h" ]] || [[ -f "/usr/include/gtest/gtest.h" ]] || [[ -n "${HOMEBREW_PREFIX}" && -f "${HOMEBREW_PREFIX}/include/gtest/gtest.h" ]]; then
+        echo "googletest has been installed"
+        return
+    fi
+
+    echo "Installing googletest (release-${req_ver})..."
+    local gtest_tmp_dir
+    gtest_tmp_dir=$(mktemp -d)
+
+    case "$OS" in
+        debian|rhel|euler)
+            run_command wget -q "https://github.com/google/googletest/archive/refs/tags/release-${req_ver}.tar.gz" -O "${gtest_tmp_dir}/googletest.tar.gz"
+            run_command tar -xzf "${gtest_tmp_dir}/googletest.tar.gz" -C "${gtest_tmp_dir}"
+            run_command cmake -S "${gtest_tmp_dir}/googletest-release-${req_ver}" -B "${gtest_tmp_dir}/build" -DCMAKE_INSTALL_PREFIX=/usr/local
+            run_command cmake --build "${gtest_tmp_dir}/build" -j$(nproc 2>/dev/null || echo 4)
+            run_command sudo cmake --install "${gtest_tmp_dir}/build"
+            run_command sudo ldconfig
+            ;;
+        macos)
+            run_command brew install googletest
+            ;;
+    esac
+
+    rm -rf "${gtest_tmp_dir}"
+
+    if [[ -f "/usr/local/include/gtest/gtest.h" ]] || [[ -f "/usr/include/gtest/gtest.h" ]] || [[ -n "${HOMEBREW_PREFIX}" && -f "${HOMEBREW_PREFIX}/include/gtest/gtest.h" ]]; then
+        echo "googletest installed successfully"
+    else
+        echo "googletest installation failed"
+        exit 1
+    fi
+}
+
 check_dependencies_silent() {
     local args=("$@")
     local check_pkgz="false"
@@ -478,6 +515,7 @@ main() {
     install_pigz
     install_dos2unix
     install_patch
+    install_googletest
 
     echo -e "===================================================="
     echo "All dependencies installed successfully!"
