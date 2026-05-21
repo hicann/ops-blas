@@ -102,3 +102,9 @@ void cswap_kernel_do(GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm,
 
 void gbmv_kernel_do(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace, GM_ADDR tilingGm,
                     uint32_t numBlocks, void *stream);
+
+void stpttr_kernel_do(GM_ADDR aPacked, GM_ADDR aFull, GM_ADDR workSpace,
+                      GM_ADDR tilingGm, uint32_t numBlocks, void *stream);
+
+void strttp_kernel_do(GM_ADDR a, GM_ADDR ap, GM_ADDR tilingGm,
+                      uint32_t numBlocks, void *stream);

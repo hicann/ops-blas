@@ -328,3 +328,9 @@ aclblasStatus_t aclblasSgbmv(aclblasHandle handle,
                              const float *beta,
                              float *y,
                              int incy);
+
+aclblasStatus_t aclblastpttr(aclblasHandle_t handle, aclblasFillMode_t uplo,
+                              int n, const float *AP, float *A, int lda);
+
+aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo,
+                              int n, const float *A, int lda, float *AP);
