@@ -45,8 +45,11 @@ Self-extractable archive "cann-ops-blas_${cann_version}_linux-${arch}.run" succe
 编译成功后，run包存放于项目根目录的build_out目录下。
 
 ### 2. 安装Copy算子包
+
+> **说明**：run包必须通过`--install`参数执行安装，不带参数仅显示帮助信息不会安装。可通过`--install-path=<路径>`指定安装目录，默认安装路径：root用户为`/usr/local/Ascend`，普通用户为`~/Ascend`。
+
 ```bash
-./build_out/cann-${soc_name}-ops-blas_${version}_linux-${arch}.run 
+./build_out/cann-${soc_name}-ops-blas_${version}_linux-${arch}.run --install
 ```
 
 ### 3. 快速验证：运行算子样例
@@ -107,7 +110,7 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
 
 2. **重新安装**：
     ```bash
-    ./build_out/cann-*-ops-blas_*.run
+    ./build_out/cann-*-ops-blas_*.run --install
     ```
 
 3. **重新验证**：
