@@ -22,11 +22,21 @@
 
 环境准备好后（注意软件与源码版本配套），进入环境并访问项目源码根目录，编译指定算子。
 
-通用编译命令格式：`bash build.sh --pkg --soc=<芯片版本> --ops=<算子名>`。以Copy算子为例，编译命令如下：
+通用编译命令格式：`bash build.sh --pkg --soc=${soc_version} --ops=<算子名>`。以Copy算子为例，编译命令如下：
 
 ```bash
-bash build.sh --pkg --soc=ascend950 --ops=scopy
+bash build.sh --pkg --soc=${soc_version} --ops=scopy
 ```
+
+${soc_version}设置方法如下：
+
+访问[CANN下载中心](https://www.hiascend.com/cann/download)，根据页面提示复制硬件查询命令，在当前环境中执行，返回芯片ID信息，再回填到官网按Enter键获取产品名，产品名对应的${soc_version}取值如下，请按实际场景传参。
+
+- Atlas A2 训练系列产品/Atlas A2 推理系列产品：取值为ascend910b
+- Atlas A3 训练系列产品/Atlas A3 推理系列产品：取值为ascend910_93
+- 950系列产品：取值为ascend950
+
+<img src="./zh/figures/socInfo.png" alt="芯片版本" width="800px" height="160px">
 
 若提示如下信息，说明编译成功。
 ```bash
@@ -41,12 +51,12 @@ Self-extractable archive "cann-ops-blas_${cann_version}_linux-${arch}.run" succe
 
 ### 3. 快速验证：运行算子样例
 
-通用的运行命令格式：`bash build.sh --soc=<芯片版本> --ops=<算子名> --run`。
+通用的运行命令格式：`bash build.sh --soc=${soc_version} --ops=<算子名> --run`。
 
 以Copy为例，其提供了简单算子样例`test/scopy/scopy_test.cpp`，运行该样例验证算子功能是否正常。
 
 ```bash
-bash build.sh --pkg --soc=ascend950 --ops=scopy --run
+bash build.sh --pkg --soc=${soc_version} --ops=scopy --run
 ```
 预期输出：打印算子`Copy`的计算结果，表明算子已成功部署并正确执行。
 
@@ -92,7 +102,7 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
     先回到项目根目录，编译命令如下：
 
     ```bash
-    bash build.sh --pkg --soc=ascend950 --ops=scopy
+    bash build.sh --pkg --soc=${soc_version} --ops=scopy
     ```
 
 2. **重新安装**：
@@ -102,7 +112,7 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
 
 3. **重新验证**：
     ```bash
-    bash build.sh --soc=ascend950 --ops=scopy --run
+    bash build.sh --soc=${soc_version} --ops=scopy --run
     ```
 
 4. **成功标志**：输出结果精度比对成功。
@@ -150,7 +160,7 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
 
     调用Copy算子的test样例，生成可执行文件（scopy_test），该文件位于项目`ops-blas/build/test/scopy`目录。
     ```bash
-    bash build.sh --soc=ascend950 --ops=scopy
+    bash build.sh --soc=${soc_version} --ops=scopy
     ```
 
 -  **采集性能数据**
