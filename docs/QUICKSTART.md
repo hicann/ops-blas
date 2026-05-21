@@ -2,7 +2,7 @@
 
 ## 使用须知
 
-本指南旨在帮助您快速上手CANN和`ops-blas`算子仓的使用。为方便快速了解算子开发全流程，将以**Copy**算子为实践对象，其源文件位于`ops-blas/blas/copy`，具体操作流程如下：
+本指南旨在帮助您快速上手CANN和`ops-blas`算子仓的使用。为方便快速了解算子开发全流程，将以**scopy**算子为实践对象，其源文件位于`ops-blas/blas/copy`，具体操作流程如下：
 
 1. **[环境部署](zh/install/quick_install.md)**：完成软件包安装和源码下载，此处不再赘述。快速入门场景下，**推荐WebIDE或Docker环境**，安装操作简单。
 
@@ -18,11 +18,11 @@
 
 本阶段目的是**快速体验项目标准流程**，验证环境能否成功进行算子源码编译、打包、安装和运行。
 
-### 1. 编译Copy算子
+### 1. 编译scopy算子
 
 环境准备好后（注意软件与源码版本配套），进入环境并访问项目源码根目录，编译指定算子。
 
-通用编译命令格式：`bash build.sh --pkg --soc=${soc_version} --ops=<算子名>`。以Copy算子为例，编译命令如下：
+通用编译命令格式：`bash build.sh --pkg --soc=<芯片版本> --ops=<算子名>`。以scopy算子为例，编译命令如下：
 
 ```bash
 bash build.sh --pkg --soc=${soc_version} --ops=scopy
@@ -44,10 +44,9 @@ Self-extractable archive "cann-ops-blas_${cann_version}_linux-${arch}.run" succe
 ```
 编译成功后，run包存放于项目根目录的build_out目录下。
 
-### 2. 安装Copy算子包
+### 2. 安装scopy算子包
 
 > **说明**：run包必须通过`--install`参数执行安装，不带参数仅显示帮助信息不会安装。可通过`--install-path=<路径>`指定安装目录，默认安装路径：root用户为`/usr/local/Ascend`，普通用户为`~/Ascend`。
-
 ```bash
 ./build_out/cann-${soc_name}-ops-blas_${version}_linux-${arch}.run --install
 ```
@@ -56,12 +55,12 @@ Self-extractable archive "cann-ops-blas_${cann_version}_linux-${arch}.run" succe
 
 通用的运行命令格式：`bash build.sh --soc=${soc_version} --ops=<算子名> --run`。
 
-以Copy为例，其提供了简单算子样例`test/scopy/scopy_test.cpp`，运行该样例验证算子功能是否正常。
+以scopy算子为例，其提供了简单算子样例`test/scopy/scopy_test.cpp`，运行该样例验证算子功能是否正常。
 
 ```bash
 bash build.sh --pkg --soc=${soc_version} --ops=scopy --run
 ```
-预期输出：打印算子`Copy`的计算结果，表明算子已成功部署并正确执行。
+预期输出：打印算子`scopy`的计算结果，表明算子已成功部署并正确执行。
 
 ```
 Running scopy_test...
@@ -70,12 +69,18 @@ Golden: 1.2 1.2 1.2 1.2 1.2 1.2 1.2 1.2 ...
 [Success] Case accuracy is verification passed.
 ```
 
+> **提示**：若已完成编译且仅需重新验证功能，可直接运行已编译的二进制文件，无需再次编译。编译完成后，测试二进制文件位于`build/test/<算子名>/<算子名>_test`，例如scopy算子的测试文件为`build/test/scopy/scopy_test`，直接执行即可：
+>
+> ```bash
+> ./build/test/scopy/scopy_test
+> ```
+
 ## 二、算子开发
 
-本阶段目的是对已成功运行的Copy算子尝试**修改核函数代码**。
+本阶段目的是对已成功运行的scopy算子尝试**修改核函数代码**。
 
 ### 1. 修改Kernel实现
-找到Copy算子的核心kernel实现文件`blas/copy/scopy_kernel.cpp`，尝试修改算子中的DataCopy操作：
+找到scopy算子的核心kernel实现文件`blas/copy/scopy_kernel.cpp`，尝试修改算子中的DataCopy操作：
 
 ```cpp
 template <typename T>
@@ -127,7 +132,7 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
     ```
 
 ## 三、算子调试
-本阶段以Copy为例，在算子中添加打印并采集算子性能数据，以便后续问题分析定位。
+本阶段以scopy算子为例，在算子中添加打印并采集算子性能数据，以便后续问题分析定位。
 
 ### 1. 打印
 算子如果出现执行失败、精度异常等问题，添加打印进行问题分析和定位。
@@ -161,14 +166,14 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
 
 -  **生成可执行文件**
 
-    调用Copy算子的test样例，生成可执行文件（scopy_test），该文件位于项目`ops-blas/build/test/scopy`目录。
+    调用scopy算子的test样例，生成可执行文件（scopy_test），该文件位于项目`ops-blas/build/test/scopy`目录。
     ```bash
     bash build.sh --soc=${soc_version} --ops=scopy
     ```
 
 -  **采集性能数据**
 
-    进入Copy算子可执行文件目录`ops-blas/build/test/scopy`，执行如下命令：
+    进入scopy算子可执行文件目录`ops-blas/build/test/scopy`，执行如下命令：
 
     ```bash
     msprof --application="./scopy_test"
