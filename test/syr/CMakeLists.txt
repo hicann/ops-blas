@@ -8,16 +8,25 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
 
-add_executable(ssyr_test
-    ssyr_test.cpp
+# Determine which test source and executable to build based on current SOC architecture
+if("arch35" IN_LIST SOC_ARCH_DIRS)
+    set(SYR_TEST_SRC syr_test.cpp)
+elseif("arch22" IN_LIST SOC_ARCH_DIRS)
+    set(SYR_TEST_SRC syr_a2_test.cpp)
+else()
+    set(SYR_TEST_SRC syr_test.cpp)
+endif()
+
+add_executable(syr_test
+    ${SYR_TEST_SRC}
 )
 
-target_include_directories(ssyr_test PRIVATE
+target_include_directories(syr_test PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     $ENV{LINUX_INCLUDE_PATH}
 )
 
-target_link_libraries(ssyr_test PRIVATE
+target_link_libraries(syr_test PRIVATE
     ${OPS_BLAS}
     $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
 )

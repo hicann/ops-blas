@@ -1,0 +1,95 @@
+/**
+ * Copyright (c) 2025 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+#include <cstdint>
+#include <iostream>
+#include <algorithm>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+#include "../../utils/aclblas_kernel_do.h"
+#include "../../utils/aclblas_handle_internal.h"
+
+#define CHECK_RET(cond, return_expr) \
+  do {                               \
+    if (!(cond)) {                   \
+      return_expr;                   \
+    }                                \
+  } while (0)
+
+#define LOG_PRINT(message, ...)     \
+  do {                              \
+    printf(message, ##__VA_ARGS__); \
+  } while (0)
+
+constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
+constexpr uint32_t WORKSPACE_SIZE = 1024;
+
+struct SsyrTilingData {
+    uint32_t uplo;
+    uint32_t n;
+    float alpha;
+    uint32_t coreNum;
+};
+
+aclblasStatus_t aclblasSsyr(aclblasHandle handle,
+                             aclblasFillMode uplo,
+                             const int n,
+                             const float *alpha,
+                             const float *x, const int incx,
+                             float *A, const int lda)
+{
+    if (n == 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    if (n < 0 || lda < std::max(1, n) || incx == 0 ||
+        alpha == nullptr || x == nullptr || A == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+
+    float alphaVal = 0.0f;
+    aclError aclRet = aclrtMemcpy(&alphaVal, sizeof(float), alpha, sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy alpha failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    uint32_t vecCoreNum = DEFAULT_VECTOR_NUM;
+
+    SsyrTilingData tiling;
+    tiling.uplo = (uplo == ACLBLAS_UPPER) ? 1 : 0;
+    tiling.n = static_cast<uint32_t>(n);
+    tiling.alpha = alphaVal;
+    tiling.coreNum = vecCoreNum;
+
+    uint8_t* workSpaceDevice = nullptr;
+    uint8_t* tilingDevice = nullptr;
+
+    aclRet = aclrtMalloc((void**)&workSpaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(SsyrTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(SsyrTilingData), &tiling, sizeof(SsyrTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    ssyr_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float *>(x)),
+                   reinterpret_cast<GM_ADDR>(A),
+                   workSpaceDevice, tilingDevice, vecCoreNum, useStream);
+
+    aclRet = aclrtSynchronizeStream(useStream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    aclrtFree(workSpaceDevice);
+    aclrtFree(tilingDevice);
+
+    return ACLBLAS_STATUS_SUCCESS;
+}

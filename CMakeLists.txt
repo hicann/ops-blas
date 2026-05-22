@@ -55,7 +55,7 @@ get_soc_arch_dirs(${SOC_VERSION} SOC_ARCH_DIRS)
 message(STATUS "SOC_ARCH_DIRS=${SOC_ARCH_DIRS}")
 
 # 定义所有支持的架构特定目录（全局唯一定义）
-set(ARCH_SPECIFIC_DIRS arch35 arch20 CACHE INTERNAL "Architecture specific directories")
+set(ARCH_SPECIFIC_DIRS arch35 arch22 arch20 CACHE INTERNAL "Architecture specific directories")
 
 set(ASCEND_CANN_PACKAGE_PATH $ENV{ASCEND_HOME_PATH})
 
@@ -148,6 +148,7 @@ target_include_directories(${OPS_BLAS} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base/
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/
     ./include
+    ${CMAKE_CURRENT_LIST_DIR}/blas
 )
 
 target_compile_options(${OPS_BLAS} PRIVATE

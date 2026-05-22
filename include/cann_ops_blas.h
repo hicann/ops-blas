@@ -240,10 +240,10 @@ aclblasStatus_t aclblasStrmv(aclblasHandle handle,
 
 aclblasStatus_t aclblasSsyr(aclblasHandle handle,
                             aclblasFillMode uplo,
-                            const int64_t n,
-                            const float alpha,
-                            uint8_t *x, const int64_t incx,
-                            uint8_t *A, const int64_t lda);
+                            const int n,
+                            const float *alpha,
+                            const float *x, const int incx,
+                            float *A, const int lda);
 
 aclblasStatus_t aclblasSsyr2(aclblasHandle handle,
                              aclblasFillMode uplo,
