@@ -164,6 +164,15 @@ int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *
 				const float alpha, const float beta,
 				const int64_t n, const int64_t incx, const int64_t incy, void *stream);
 
+
+// Symmetric band matrix-vector multiply: y = alpha * A * x + beta * y
+// A is a symmetric band matrix with k sub- and super-diagonals
+// stored in (k+1) x n array in column-major format
+aclblasStatus_t aclblasSsbmv(aclblasHandle handle,
+                 aclblasFillMode uplo, int n, int k, const float *alpha,
+                 const float *A, int lda, const float *x, int incx, const float *beta,
+                 float *y, int incy);
+
 int aclblasTpmv(const float *aPacked, const float *x, float *y, 
 				const int64_t n, const int64_t incx, void *stream);
 
