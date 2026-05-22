@@ -42,6 +42,44 @@ version_ge() {
     return 0
 }
 
+debian_gcc_pkg_available() {
+    local ver="$1"
+    apt-cache show "gcc-${ver}" &>/dev/null || return 1
+    local candidate
+    candidate=$(apt-cache policy "gcc-${ver}" 2>/dev/null | awk '/Candidate:/ {print $2}')
+    [[ -n "$candidate" && "$candidate" != "(none)" ]]
+}
+
+install_gcc_debian() {
+    local req_ver="$1"
+    run_command sudo $PKG_MANAGER update
+    run_command sudo $PKG_MANAGER install -y gcc g++ build-essential
+
+    if command -v gcc &> /dev/null; then
+        local curr_ver
+        curr_ver=$(gcc --version | awk '/^gcc/ {print $NF}')
+        if version_ge "$curr_ver" "$req_ver"; then
+            echo "GCC installed via gcc/g++ packages ($curr_ver)"
+            return 0
+        fi
+    fi
+
+    echo "Trying versioned GCC packages (gcc >= ${req_ver})..."
+    local ver
+    for ver in 14 13 12 11 10 9 8 7; do
+        if ! debian_gcc_pkg_available "$ver"; then
+            continue
+        fi
+        run_command sudo $PKG_MANAGER install -y "gcc-${ver}" "g++-${ver}"
+        run_command sudo update-alternatives --install /usr/bin/gcc gcc "/usr/bin/gcc-${ver}" "$((ver * 10))" \
+            --slave /usr/bin/g++ g++ "/usr/bin/g++-${ver}"
+        return 0
+    done
+
+    echo "No GCC package found that meets version >= ${req_ver}. Please install manually."
+    exit 1
+}
+
 detect_os() {
     # OS detection, supports debian (uses apt), rhel (uses dnf or yum), macos
     if [[ "$(uname -s)" == "Linux" ]]; then
@@ -181,10 +219,7 @@ install_gcc() {
     echo "Installing GCC..."
     case "$OS" in
         debian)
-            run_command sudo $PKG_MANAGER update
-            run_command sudo $PKG_MANAGER install -y gcc-9 g++-9
-            run_command sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 90 \
-                --slave /usr/bin/g++ g++ /usr/bin/g++-9
+            install_gcc_debian "$req_ver"
             ;;
         rhel)
             if grep -q "release 7" /etc/redhat-release; then
