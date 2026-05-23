@@ -13,7 +13,7 @@
 
 #include <cstdint>
 #include "kernel_operator.h"
-#include "../strttp_tiling_data.h"
+#include "strttp_tiling_data.h"
 
 using namespace AscendC;
 

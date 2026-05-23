@@ -50,6 +50,10 @@ print_error() {
   echo
 }
 
+print_skip() {
+  echo -e "\033[33m[SKIP] ${1}\033[0m"
+}
+
 # 支持的 SOC 版本
 # 按字符串长度从长到短排序，避免前缀匹配时出错
 SUPPORT_COMPUTE_UNIT_SHORT=("ascend910_93" "ascend910b" "ascend950" "ascend310p")
@@ -197,13 +201,34 @@ if [ "${RUN_TEST}" == "ON" ]; then
 
     FAILED_OPS=()
     PASSED_OPS=()
+    SKIPPED_OPS=()
+
+    # 读取 CMake 配置阶段生成的 skip 清单
+    declare -A SKIP_REASON_MAP=()
+    SKIPPED_FILE="${BUILD_DIR}/test/skipped_tests.list"
+    if [ -f "${SKIPPED_FILE}" ]; then
+        while IFS='|' read -r skip_op skip_reason || [ -n "${skip_op}" ]; do
+            [ -z "${skip_op}" ] && continue
+            SKIP_REASON_MAP["${skip_op}"]="${skip_reason}"
+        done < "${SKIPPED_FILE}"
+    fi
 
     for op in "${OP_ARRAY[@]}"; do
         TEST_BIN="${BUILD_DIR}/test/${op}/${op}_test"
+
+        # 当前 SOC 不支持该算子时，直接标记为 skip，避免误报 fail/error
+        if [ -n "${SKIP_REASON_MAP[${op}]+x}" ]; then
+            echo ""
+            echo "========== Skipping ${op}_test =========="
+            print_skip "${op}_test: not supported on SOC '${SOC_VERSION}' (${SKIP_REASON_MAP[${op}]})"
+            SKIPPED_OPS+=("${op}")
+            continue
+        fi
+
         echo ""
         echo "========== Running ${op}_test =========="
         if [ ! -f "${TEST_BIN}" ]; then
-            echo "[ERROR] Test binary not found: ${TEST_BIN}"
+            print_error "Test binary not found: ${TEST_BIN} (build may have failed)"
             FAILED_OPS+=("${op}")
             continue
         fi
@@ -226,8 +251,9 @@ if [ "${RUN_TEST}" == "ON" ]; then
     echo ""
     echo "========================================"
     echo "Test Summary:"
-    echo "  Passed: ${#PASSED_OPS[@]} - ${PASSED_OPS[*]}"
-    echo "  Failed: ${#FAILED_OPS[@]} - ${FAILED_OPS[*]}"
+    echo "  Passed:  ${#PASSED_OPS[@]} - ${PASSED_OPS[*]}"
+    echo "  Skipped: ${#SKIPPED_OPS[@]} - ${SKIPPED_OPS[*]} (not supported on ${SOC_VERSION})"
+    echo "  Failed:  ${#FAILED_OPS[@]} - ${FAILED_OPS[*]}"
     echo "========================================"
 
     if [ ${#FAILED_OPS[@]} -gt 0 ]; then

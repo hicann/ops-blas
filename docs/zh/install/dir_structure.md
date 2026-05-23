@@ -13,23 +13,24 @@
 
 ```text
 ├── cmake                                               # 工程辅助 CMake 脚本（版本、打包、第三方获取等）
-│   ├── package.cmake                                   # CPack/安装包相关逻辑（ENABLE_PACKAGE 时使用）
+│   ├── test.cmake                                      # 测试 target 注册
+│   ├── package.cmake                                   # CPack/安装包相关逻辑
 │   ├── version.cmake
 │   ├── makeself.cmake
-│   └── third_party                                     # 第三方工具脚本（如 makeself-fetch）
-├── blas                                                # aclBLAS（经典 BLAS）算子源码目录
+│   └── third_party                                     # 第三方工具脚本
+├── blas                                                # aclBLAS 算子源码目录
 │   ├── CMakeLists.txt                                  # blas 源文件收集、平台排除与架构子目录参与规则
 │   ├── common                                          # 算子公共头文件与工具（类型、迭代器、内存与布局等）
-│   ├── utils                                           # Host 侧公共实现（句柄、日志、kernel 派发等）
+│   │   └── helper                                      # Host 侧辅助实现与 kernel 工具头文件（句柄、日志、pipe/tiling 工具等）
 │   └── ${op_name}                                      # 单个 BLAS 相关能力目录，${op_name} 为小写目录名
-│       ├── ${routine}_host.cpp                         # Host 侧：参数检查、任务下发、与 ACL 交互等；${routine} 为实际 BLAS 例程前缀（如 s、c），可能与目录名不同
-│       ├── ${routine}_kernel.cpp                       # Device 侧：ASC/Ascend C 核函数入口（若存在）
+│       ├── ${routine}_host.cpp                         # Host 侧：参数检查、任务下发等，${routine} 为实际 BLAS 例程前缀
+│       ├── ${routine}_kernel.cpp                       # Device 侧：Ascend C 核函数入口
 │       ├── kernel                                      # 可选，核函数按场景拆分子目录（如 trans/no_trans 多个 *kernel*.cpp）
 │       │   ├── ${routine}_${variant}_kernel.cpp
 │       │   └── ...
 │       ├── ${impl_headers}.h                           # 可选，kernel 实现或计划类头文件（如 batched 的 plan、utils）
 │       └── ${arch_dir}                                 # 可选，面向特定架构的源码（如 arch35），由 SOC 配置决定是否编译
-├── blasLt                                              # aclBLASLt（高层 GEMM 等）源码目录
+├── blasLt                                              # aclBLASLt 源码目录
 │   ├── CMakeLists.txt
 │   ├── aclblasLt.cpp                                   # BLASLt 侧入口与对外逻辑
 │   └── ${feature_dir}                                  # 能力子目录，如 matmul（核函数、工具头文件等）
@@ -42,10 +43,10 @@
 ├── docs                                                # 项目文档
 │   ├── QUICKSTART.md                                   # 快速入门
 │   └── zh
-│       ├── api_list.md                                 # 接口列表（中文）
+│       ├── api_list.md                                 # 接口列表
 │       └── install
 │           ├── quick_install.md                        # 环境部署
-│           └── dir_structure.md                        # 本文档
+│           └── dir_structure.md                        # 目录结构
 ├── scripts                                             # 辅助脚本（打包安装说明、版本信息生成等）
 │   ├── package
 │   └── util
@@ -53,14 +54,15 @@
 │   ├── CMakeLists.txt                                  # 按 TEST_NAMES 批量 add_subdirectory
 │   └── ${op_name}
 │       ├── CMakeLists.txt
-│       ├── ${test_entry}.cpp                           # 可执行测试源文件，命名多为 ${routine}_test.cpp
+│       ├── ${test_entry}.cpp                           # 可执行测试源文件（根目录，所有 SOC 均编译）
+│       ├── ${arch_dir}                                 # 可选，架构专用测试源（如 arch35），由 --soc 对应 SOC_ARCH_DIRS 决定是否编译
 │       └── README.md                                   # 可选，本算子测试说明
 ├── CMakeLists.txt                                      # 工程入口：ops_blas / ops_blasLt 库、安装规则、可选测试与打包
 ├── CONTRIBUTING.md                                     # 贡献指南
 ├── LICENSE                                             # 开源许可证
 ├── README.md                                           # 项目总览
 ├── SECURITY.md                                         # 安全声明
-├── build.sh                                            # 编译脚本（可选）
-├── install_deps.sh                                     # 依赖安装脚本（可选）
+├── build.sh                                            # 编译脚本
+├── install_deps.sh                                     # 依赖安装脚本
 └── ...
 ```

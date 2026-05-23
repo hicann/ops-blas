@@ -13,7 +13,7 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "../utils/aclblas_handle_internal.h"
+#include "../common/helper/aclblas_handle_internal.h"
 
 #define GM_ADDR uint8_t*
 

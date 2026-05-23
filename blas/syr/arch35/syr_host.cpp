@@ -20,8 +20,8 @@
 #include <vector>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "../../utils/aclblas_handle_internal.h"
-#include "../../utils/aclblas_kernel_do.h"
+#include "common/helper/aclblas_handle_internal.h"
+#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "syr_tiling_data.h"
 
 static SyrTilingData CalSyrTilingData(int64_t n, int64_t lda, uint32_t uplo, uint32_t coreNum)

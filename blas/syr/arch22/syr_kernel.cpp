@@ -9,10 +9,10 @@
  */
 
 #include "kernel_operator.h"
-#include "../../common/common.h"
-#include "../../common/iterator.h"
-#include "../../common/simd.h"
-#include "../../common/mem.h"
+#include "common/helper/kernel_utils.h"
+#include "common/iterator/iterator.h"
+#include "common/compute/simd.h"
+#include "common/memory/mem.h"
 #include <type_traits>
 
 #if __DAV_C220_VEC__

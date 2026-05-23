@@ -138,10 +138,6 @@ int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
 				const float alpha, const float beta,
 				const int64_t n, const int64_t incx, const int64_t incy, void *stream);
 
-// Rank-1 matrix update: A = alpha * x * y^T + A
-// A is an m��n matrix stored in row-major form with leading dimension lda
-// x is a vector of length m with increment incx
-// y is a vector of length n with increment incy
 int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float *alpha,
                const float *x, int64_t incx,
                float *y, int64_t incy,
@@ -272,13 +268,6 @@ aclblasStatus_t aclblasCgemmBatched(aclblasHandle handle,
                                      uint8_t *C, const int64_t ldc,
                                      const int64_t batchCount);
 
-// 复矩阵乘法: C = alpha * op(A) * op(B) + beta * C
-// A: m×k 复矩阵（或k×m当transA=T/C）
-// B: k×n 复矩阵（或n×k当transB=T/C）
-// C: m×n 复矩阵
-// transA: 0=N, 1=T(转置), 2=C(共轭转置)
-// transB: 0=N, 1=T(转置), 2=C(共轭转置)
-// alpha, beta: 复数标量
 aclblasStatus_t aclblasCgemm(aclblasHandle handle,
                               aclblasOperation transA, aclblasOperation transB,
                               const int64_t m, const int64_t n, const int64_t k,

@@ -69,6 +69,13 @@ static_assert(ACLBLAS_OP_T == 112, "Inconsistent declaration of ACLBLAS_OP_T");
 static_assert(ACLBLAS_OP_C == 113, "Inconsistent declaration of ACLBLAS_OP_C");
 #endif // ACLBLAS_OPERATION_DECLARED
 
+/*! \brief Single-precision complex scalar used by aclblas. */
+typedef struct aclblasComplex
+{
+    float real;
+    float imag;
+} aclblasComplex;
+
 /*! \brief The compute type to be used. Currently only used with GemmEx.
  *  Note that support for compute types is largely dependent on backend. */
 typedef enum aclblasComputeType

@@ -1,13 +1,12 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
  * \file tpmv.asc
@@ -21,13 +20,9 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "common/kernel_launch/aclblas_kernel_do.h"
 
-using aclblasHandle = void *;
-
-#define GM_ADDR uint8_t*
-
-extern void tpmv_kernel_do(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm,
-                            uint32_t numBlocks, void *stream);
+using aclblasHandle = void*;
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -36,7 +31,7 @@ constexpr uint32_t MAX_CORE_NUM = 50;
 constexpr uint32_t TILE_SIZE = 128;
 constexpr uint32_t MAX_TILE_TASK = 8192;
 
-struct tpmvTilingData {
+struct tbmvTilingData {
     uint32_t n;
     uint32_t k;
     uint32_t lda;
@@ -50,9 +45,10 @@ struct tpmvTilingData {
     uint32_t taskStep[MAX_CORE_NUM];
 };
 
-tpmvTilingData CalTilingData(uint32_t totalRows, uint32_t totalDias, uint32_t lda, uint32_t vecCoreNum, int64_t incx)
+tbmvTilingData CalTbmvTilingData(
+    uint32_t totalRows, uint32_t totalDias, uint32_t lda, uint32_t vecCoreNum, int64_t incx)
 {
-    tpmvTilingData tilingData{};
+    tbmvTilingData tilingData{};
     tilingData.n = totalRows;
     tilingData.k = totalDias;
     tilingData.lda = lda;
@@ -94,31 +90,34 @@ tpmvTilingData CalTilingData(uint32_t totalRows, uint32_t totalDias, uint32_t ld
     return tilingData;
 }
 
-int aclblasTbmv(const float *a, const int64_t lda, const float *x, float *y, 
-				const int64_t n, const int64_t k, const int64_t incx, void *stream)
+int aclblasTbmv(
+    const float* a, const int64_t lda, const float* x, float* y, const int64_t n, const int64_t k, const int64_t incx,
+    void* stream)
 {
     constexpr uint32_t numBlocks = 8;
     const size_t vecByteSize = static_cast<size_t>(n) * sizeof(float);
     const size_t matrixByteSize = static_cast<size_t>(k + 1) * static_cast<size_t>(lda) * sizeof(float);
 
-    tpmvTilingData tiling = CalTilingData(static_cast<uint32_t>(n), static_cast<uint32_t>(k + 1),
-        static_cast<uint32_t>(lda), numBlocks, incx);
+    tbmvTilingData tiling = CalTbmvTilingData(
+        static_cast<uint32_t>(n), static_cast<uint32_t>(k + 1), static_cast<uint32_t>(lda), numBlocks, incx);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
-    uint8_t *tilingDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
+    uint8_t* tilingDevice = nullptr;
 
-    aclrtMalloc((void **)&aDevice, matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&xDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&yDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(tpmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&aDevice, matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&xDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&yDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&tilingDevice, sizeof(tbmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
 
     aclrtMemcpy(aDevice, matrixByteSize, a, matrixByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(xDevice, vecByteSize, x, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(tpmvTilingData), &tiling, sizeof(tpmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(tilingDevice, sizeof(tbmvTilingData), &tiling, sizeof(tbmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
 
-    tpmv_kernel_do(aDevice, xDevice, yDevice, nullptr, tilingDevice, numBlocks, stream);
+    aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    tbmv_kernel_do(aDevice, xDevice, yDevice, nullptr, tilingDevice, numBlocks, stream);
     aclrtSynchronizeStream(stream);
 
     aclrtMemcpy(y, vecByteSize, yDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
@@ -130,4 +129,3 @@ int aclblasTbmv(const float *a, const int64_t lda, const float *x, float *y,
 
     return ACL_SUCCESS;
 }
-

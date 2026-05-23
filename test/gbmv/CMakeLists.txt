@@ -8,30 +8,4 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
 
-add_executable(gbmv_test
-    gbmv_test.cpp
-)
-
-target_include_directories(gbmv_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    $ENV{LINUX_INCLUDE_PATH}
-)
-
-target_link_libraries(gbmv_test PRIVATE
-    ${OPS_BLAS}
-    $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
-)
-
-add_executable(gbmv_perf_test
-    gbmv_perf_test.cpp
-)
-
-target_include_directories(gbmv_perf_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    $ENV{LINUX_INCLUDE_PATH}
-)
-
-target_link_libraries(gbmv_perf_test PRIVATE
-    ${OPS_BLAS}
-    $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
-)
+ops_blas_add_tests(${OPS_BLAS} gbmv_test gbmv_perf_test)

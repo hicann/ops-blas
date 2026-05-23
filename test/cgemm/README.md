@@ -167,9 +167,9 @@ int aclblasCgemm(aclblasHandle handle,
 - 算子实现： 
 
     本算子为AIC+AIV混编算子，采用流水线并行设计：
-    - AIV端（Vector Core）：执行ascblasCgemmPre进行虚实分离，将复数矩阵拆分为实部矩阵和虚部矩阵
-    - AIC端（Cube Core）：执行4次实矩阵乘法ascblasSmatmul，计算结果的实部和虚部
-    - AIV端（Vector Core）：执行ascblasCgemmFinal进行虚实合并，组装最终复数结果
+    - AIV端（Vector Core）：执行CgemmPre进行虚实分离，将复数矩阵拆分为实部矩阵和虚部矩阵
+    - AIC端（Cube Core）：执行4次实矩阵乘法Smatmul，计算结果的实部和虚部
+    - AIV端（Vector Core）：执行CgemmFinal进行虚实合并，组装最终复数结果
     
     同步机制：
     - 使用FftsCrossCoreSync进行AIC和AIV之间的同步

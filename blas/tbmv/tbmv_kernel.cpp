@@ -1,12 +1,12 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 #ifndef TPMV_KERNEL_H
 #define TPMV_KERNEL_H
@@ -24,7 +24,7 @@ constexpr uint32_t UB_BYTENUM_PER_BLOCK = 32;
 constexpr uint32_t UB_BYTENUM_PER_REPEAT = 256;
 
 template <typename T>
-struct TbmvTilingDataDevice {    
+struct TbmvTilingDataDevice {
     uint32_t n;
     uint32_t k;
     uint32_t lda;
@@ -93,11 +93,11 @@ __aicore__ inline void TbmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, G
     vecIdx = GetBlockIdx();
     ParseTilingData(tilingGm);
 
-    xGM.SetGlobalBuffer((__gm__ T *)x, this->n);
-    yGM.SetGlobalBuffer((__gm__ T *)y, this->n);
-    aGM.SetGlobalBuffer((__gm__ T *)aPacked, static_cast<uint64_t>(this->k + 1U) * this->lda);
+    xGM.SetGlobalBuffer((__gm__ T*)x, this->n);
+    yGM.SetGlobalBuffer((__gm__ T*)y, this->n);
+    aGM.SetGlobalBuffer((__gm__ T*)aPacked, static_cast<uint64_t>(this->k + 1U) * this->lda);
 
-    maxDataCount = 30 * 1024 / BYTENUM_PER_FLOAT32;  // 30kb / 4b
+    maxDataCount = 30 * 1024 / BYTENUM_PER_FLOAT32; // 30kb / 4b
 
     // Workspace-related UB buffers are initialized here for later LocalTensor path enablement.
     pipe.InitBuffer(aQueue, BUFFER_NUM, maxDataCount * sizeof(T));
@@ -108,7 +108,7 @@ __aicore__ inline void TbmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, G
 template <typename T>
 __aicore__ inline void TbmvAIV<T>::ParseTilingData(GM_ADDR tilingGm)
 {
-    auto tiling = reinterpret_cast<__gm__ TbmvTilingDataDevice<T> *>(tilingGm);
+    auto tiling = reinterpret_cast<__gm__ TbmvTilingDataDevice<T>*>(tilingGm);
 
     n = tiling->n;
     k = tiling->k;
@@ -138,7 +138,7 @@ template <typename T>
 __aicore__ inline void TbmvAIV<T>::CopyIn(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     LocalTensor<T> LocalA = aQueue.AllocTensor<T>();
-    uint32_t r = colOffset + rowOffset * lda;  // Start index of the row in packed storage.
+    uint32_t r = colOffset + rowOffset * lda; // Start index of the row in packed storage.
     DataCopy(LocalA, aGM[r], dataCount);
     aQueue.EnQue<T>(LocalA);
 }
@@ -166,40 +166,42 @@ template <typename T>
 __aicore__ inline void TbmvAIV<T>::CopyOut(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     LocalTensor<T> yLocal = yQueue.DeQue<T>();
-    DataCopy(yGM[rowOffset], yLocal, dataCount);
+    DataCopy(yGM[colOffset + rowOffset], yLocal, dataCount);
     yQueue.FreeTensor(yLocal);
 }
 
 template <typename T>
-__aicore__ inline void TbmvAIV<T>::CopyInPad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void TbmvAIV<T>::CopyInPad(
+    uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
     DataCopyExtParams copyParams{1, dataCount * BYTENUM_PER_FLOAT32, 0, 0, 0};
     DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
 
-    uint32_t r = colOffset + rowOffset * lda;  // Start index of the row in packed storage.
+    uint32_t r = colOffset + rowOffset * lda; // Start index of the row in packed storage.
     LocalTensor<T> LocalA = aQueue.AllocTensor<T>();
     DataCopyPad(LocalA, aGM[r], copyParams, padParams);
     aQueue.EnQue<T>(LocalA);
 }
 
 template <typename T>
-__aicore__ inline void TbmvAIV<T>::CopyOutPad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void TbmvAIV<T>::CopyOutPad(
+    uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
     DataCopyExtParams copyParams{1, dataCount * BYTENUM_PER_FLOAT32, 0, 0, 0};
     DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
 
     LocalTensor<T> yLocal = yQueue.DeQue<T>();
-    DataCopyPad(yGM[rowOffset], yLocal, copyParams);
+    DataCopyPad(yGM[colOffset + rowOffset], yLocal, copyParams);
     yQueue.FreeTensor(yLocal);
-}   
+}
 
 template <typename T>
 __aicore__ inline void TbmvAIV<T>::Process()
 {
     if (taskStart == -1) {
-        return;  // No task assigned to this core.
+        return; // No task assigned to this core.
     }
     SetAtomicAdd<T>();
 
@@ -240,8 +242,7 @@ __aicore__ inline void TbmvAIV<T>::Process()
     SetAtomicNone();
 }
 
-__global__ __aicore__ void tbmv_kernel(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace,
-    GM_ADDR tilingGm)
+__global__ __aicore__ void tbmv_kernel(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TbmvAIV<float> op;
@@ -249,10 +250,10 @@ __global__ __aicore__ void tbmv_kernel(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM
     op.Process();
 }
 
-void tbmv_kernel_do(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm,
-    uint32_t numBlocks, void *stream)
+void tbmv_kernel_do(
+    GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
 {
     tbmv_kernel<<<numBlocks, nullptr, stream>>>(aPacked, x, y, workSpace, tilingGm);
 }
 
-#endif  // COPY_AIV_H
+#endif // COPY_AIV_H

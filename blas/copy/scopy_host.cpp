@@ -22,8 +22,8 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "../utils/aclblas_kernel_do.h"
-#include "../utils/aclblas_handle_internal.h"
+#include "../common/kernel_launch/aclblas_kernel_do.h"
+#include "../common/helper/aclblas_handle_internal.h"
 
 #define CHECK_RET(cond, return_expr) \
   do {                               \

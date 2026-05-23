@@ -8,27 +8,11 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
 
-add_executable(blasLtMatmul_test
-    blasLtMatmul_test.cpp
-)
-
-target_include_directories(blasLtMatmul_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-)
+ops_blas_add_tests(${OPS_BLASLT} blasLtMatmul_test)
 
 target_compile_definitions(blasLtMatmul_test PRIVATE
     ASCENDC_DUMP=0
 )
 target_compile_options(blasLtMatmul_test PRIVATE
     -g
-)
-target_compile_features(blasLtMatmul_test PRIVATE cxx_std_17)
-target_include_directories(blasLtMatmul_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    $ENV{LINUX_INCLUDE_PATH}
-)
-
-target_link_libraries(blasLtMatmul_test PRIVATE
-    ${OPS_BLASLT}
-    $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
 )

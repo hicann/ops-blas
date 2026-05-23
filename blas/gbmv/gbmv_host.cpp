@@ -20,7 +20,7 @@
 #include <vector>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "../utils/aclblas_kernel_do.h"
+#include "../common/kernel_launch/aclblas_kernel_do.h"
 #include "gbmv_tiling_data.h"
 
 constexpr uint32_t GBMV_MAX_CORE_NUM = 50;
@@ -186,7 +186,7 @@ static void DispatchGbmvAndCopyResult(const GbmvDeviceBuffers &buf,
 }
 
 // ===========================================================================
-// aclblasSgbmv â€” FP32 banded matrix-vector multiply
+// aclblasSgbmv â€?FP32 banded matrix-vector multiply
 // ===========================================================================
 aclblasStatus_t aclblasSgbmv(
     aclblasHandle handle,

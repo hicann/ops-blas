@@ -8,17 +8,4 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
 
-add_executable(tbmv_test
-    tbmv_test.cpp
-)
-
-target_include_directories(tbmv_test PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    $ENV{LINUX_INCLUDE_PATH}
-)
-
-target_link_libraries(tbmv_test PRIVATE
-    ${OPS_BLAS}
-    $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
-)
-
+ops_blas_add_tests(${OPS_BLAS})

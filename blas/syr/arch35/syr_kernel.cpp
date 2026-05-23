@@ -10,7 +10,7 @@
 
 #include <cstdint>
 #include "kernel_operator.h"
-#include "kernel_utils/kernel_constant.h"
+#include "common/helper/kernel_constant.h"
 #include "syr_tiling_data.h"
 
 using namespace AscendC;
