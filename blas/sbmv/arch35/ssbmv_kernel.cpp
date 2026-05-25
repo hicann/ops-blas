@@ -10,7 +10,7 @@
 
 /* !
  * \file ssbmv_kernel.cpp
- * \brief single-precision sbmv SIMT kernel
+ * \brief Single-precision symmetric banded matrix-vector multiply.
  */
 
 #include <cstdint>
@@ -18,77 +18,170 @@
 #include "kernel_operator.h"
 #include "simt_api/asc_simt.h"
 #include "ssbmv_tiling_data.h"
+#include "common/helper/kernel_constant.h"
 
-using namespace AscendC;
+static constexpr uint32_t UB_X_FLOATS = 16384; // 64 KB __ubuf__ for x tile
 
-constexpr uint32_t SSBMV_SIMT_MAX_THREAD_NUM = 2048;
-
+// ==========================================================================
+//  GM path — grid-stride  (incx != 1 or small n)
+// ==========================================================================
 template <bool UPLO_IS_UPPER>
-__simt_vf__ __aicore__ LAUNCH_BOUND(SSBMV_SIMT_MAX_THREAD_NUM) inline void SsbmvSimtCompute(
+__simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsbmvGm(
     uint32_t n, uint32_t k, uint32_t lda, float alpha, float beta, int64_t incx, int64_t incy, __gm__ const float* aGm,
     __gm__ const float* xGm, __gm__ float* yGm)
 {
+    // Grid-stride loop: each thread handles rows {tid, tid+step, tid+2*step, ...}
     for (uint32_t row = blockIdx.x * blockDim.x + threadIdx.x; row < n; row += gridDim.x * blockDim.x) {
         float acc = 0.0f;
 
-        uint32_t jStart = (row >= k) ? (row - k) : 0;
-        uint32_t jEnd = (n < row + k + 1) ? n : (row + k + 1);
+        // Column range limited by band width k
+        uint32_t colStart = (row >= k) ? (row - k) : 0;
+        uint32_t colEnd = (n < row + k + 1) ? n : (row + k + 1);
 
-        for (uint32_t jCol = jStart; jCol < jEnd; ++jCol) {
+        for (uint32_t col = colStart; col < colEnd; ++col) {
+            // Compute band-storage GM index (LAPACK format).
+            // UPPER: if row<=col read from column col, else use symmetry
+            // LOWER: if row>=col read from column col, else use symmetry
             int64_t gmIdx;
             if constexpr (UPLO_IS_UPPER) {
-                if (row <= jCol) {
-                    gmIdx = (k + row - jCol) + static_cast<int64_t>(lda) * jCol;
-                } else {
-                    gmIdx = (k + jCol - row) + static_cast<int64_t>(lda) * row;
-                }
+                if (row <= col)
+                    gmIdx = (k + row - col) + static_cast<int64_t>(lda) * col;
+                else
+                    gmIdx = (k + col - row) + static_cast<int64_t>(lda) * row;
             } else {
-                if (row >= jCol) {
-                    gmIdx = (row - jCol) + static_cast<int64_t>(lda) * jCol;
-                } else {
-                    gmIdx = (jCol - row) + static_cast<int64_t>(lda) * row;
-                }
+                if (row >= col)
+                    gmIdx = (row - col) + static_cast<int64_t>(lda) * col;
+                else
+                    gmIdx = (col - row) + static_cast<int64_t>(lda) * row;
             }
 
-            float xVal;
-            if (incx >= 0) {
-                xVal = xGm[jCol * incx];
-            } else {
-                xVal = xGm[(n - 1 - jCol) * (-incx)];
-            }
-
+            // x access with stride: incx>0 forward, incx<0 backward
+            float xVal = (incx >= 0) ? xGm[col * incx] : xGm[(n - 1 - col) * (-incx)];
             acc += aGm[gmIdx] * xVal;
         }
 
-        int64_t yIdx;
-        float yVal;
-        if (incy >= 0) {
-            yIdx = row * incy;
-            yVal = yGm[yIdx];
-        } else {
-            yIdx = (n - 1 - row) * (-incy);
-            yVal = yGm[yIdx];
-        }
-        yGm[yIdx] = alpha * acc + beta * yVal;
+        // y access with stride, then write back
+        int64_t yIdx = (incy >= 0) ? (row * incy) : ((n - 1 - row) * (-incy));
+        yGm[yIdx] = alpha * acc + beta * yGm[yIdx];
     }
 }
 
+// ==========================================================================
+//  UB path — x cached in __ubuf__ shared memory  (incx == 1)
+// ==========================================================================
+template <bool UPLO_IS_UPPER>
+__simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsbmvUb(
+    uint32_t n, uint32_t k, uint32_t lda, float alpha, float beta, int64_t incy, __gm__ const float* aGm,
+    __gm__ const float* xGm, __gm__ float* yGm, uint32_t rowStart, uint32_t rowEnd, int32_t xBase, uint32_t xLen)
+{
+    // UB shared memory
+    __ubuf__ float xUb[UB_X_FLOATS];
+
+    // Phase 1 — cooperative load: threads jointly copy x[ xBase .. xBase+xLen )
+    // from global memory into shared UB. Each thread loads a strided subset.
+    for (uint32_t i = threadIdx.x; i < xLen; i += blockDim.x)
+        xUb[i] = xGm[static_cast<uint32_t>(xBase) + i];
+    asc_syncthreads(); // ensure all writes to xUb are visible
+
+    // Phase 2 — compute: each thread handles its assigned rows.
+    // Row range [rowStart, rowEnd) is contiguous within this block,
+    // so x values are spatially local (good for __ubuf__ hit rate).
+    for (uint32_t row = rowStart + threadIdx.x; row < rowEnd; row += blockDim.x) {
+        float acc = 0.0f;
+
+        uint32_t colStart = (row >= k) ? (row - k) : 0;
+        uint32_t colEnd = (n < row + k + 1) ? n : (row + k + 1);
+
+        for (uint32_t col = colStart; col < colEnd; ++col) {
+            // A index — same band-storage formula as GM path
+            int64_t gmIdx;
+            if constexpr (UPLO_IS_UPPER) {
+                if (row <= col)
+                    gmIdx = (k + row - col) + static_cast<int64_t>(lda) * col;
+                else
+                    gmIdx = (k + col - row) + static_cast<int64_t>(lda) * row;
+            } else {
+                if (row >= col)
+                    gmIdx = (row - col) + static_cast<int64_t>(lda) * col;
+                else
+                    gmIdx = (col - row) + static_cast<int64_t>(lda) * row;
+            }
+
+            // x from shared memory — xBase offset maps column to UB index
+            acc += aGm[gmIdx] * xUb[col - xBase];
+        }
+
+        int64_t yIdx = (incy >= 0) ? (row * incy) : ((n - 1 - row) * (-incy));
+        yGm[yIdx] = alpha * acc + beta * yGm[yIdx];
+    }
+}
+
+// ==========================================================================
+//  Kernel dispatcher — choose GM or UB path per launch
+// ==========================================================================
 __global__ __aicore__ void ssbmv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
     const auto* __restrict tdata = reinterpret_cast<__gm__ SsbmvTilingData*>(tilingGm);
+    auto* aGm = reinterpret_cast<__gm__ float*>(a);
+    auto* xGm = reinterpret_cast<__gm__ float*>(x);
+    auto* yGm = reinterpret_cast<__gm__ float*>(y);
 
+    // ── Path selection ──
+    // UB path requires incx==1 (contiguous x in GM for cooperative load)
+    // and n>=32 (amortize cooperative-load + barrier overhead)
+    if (tdata->incx != 1 || tdata->n < 32) {
+        if (tdata->uplo == ACLBLAS_UPPER) {
+            asc_vf_call<SsbmvGm<true>>(
+                dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
+                tdata->incy, aGm, xGm, yGm);
+        } else {
+            asc_vf_call<SsbmvGm<false>>(
+                dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
+                tdata->incy, aGm, xGm, yGm);
+        }
+        return;
+    }
+
+    // ── UB path: per-block row range ──
+    // Each block handles a contiguous slice of rows: [rowStart, rowEnd).
+    int32_t blkIdx = AscendC::GetBlockIdx();
+    uint32_t rowsPerBlk = tdata->rowsPerBlock;
+    uint32_t rowStart = static_cast<uint32_t>(blkIdx) * rowsPerBlk;
+    uint32_t rowEnd = (rowStart + rowsPerBlk < tdata->n) ? (rowStart + rowsPerBlk) : tdata->n;
+    if (rowStart >= rowEnd) {
+        return;
+    }
+
+    // x range needed for this block: [rowStart-k, rowEnd+k), clamped to [0,n)
+    int32_t xBase = (rowStart >= tdata->k) ? static_cast<int32_t>(rowStart - tdata->k) : 0;
+    uint32_t xEnd = (tdata->n < rowEnd + tdata->k) ? tdata->n : (rowEnd + tdata->k);
+    uint32_t xLen = xEnd - static_cast<uint32_t>(xBase);
+
+    if (xLen == 0 || xLen > UB_X_FLOATS) {
+        // x tile too large for UB — fall back to GM path
+        if (tdata->uplo == ACLBLAS_UPPER) {
+            asc_vf_call<SsbmvGm<true>>(
+                dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
+                tdata->incy, aGm, xGm, yGm);
+        } else {
+            asc_vf_call<SsbmvGm<false>>(
+                dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
+                tdata->incy, aGm, xGm, yGm);
+        }
+        return;
+    }
+
+    // Launch SIMT VF with UB x-caching
     if (tdata->uplo == ACLBLAS_UPPER) {
-        asc_vf_call<SsbmvSimtCompute<true>>(
-            dim3{SSBMV_SIMT_MAX_THREAD_NUM, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta,
-            tdata->incx, tdata->incy, reinterpret_cast<__gm__ const float*>(a),
-            reinterpret_cast<__gm__ const float*>(x), reinterpret_cast<__gm__ float*>(y));
+        asc_vf_call<SsbmvUb<true>>(
+            dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incy, aGm,
+            xGm, yGm, rowStart, rowEnd, xBase, xLen);
     } else {
-        asc_vf_call<SsbmvSimtCompute<false>>(
-            dim3{SSBMV_SIMT_MAX_THREAD_NUM, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta,
-            tdata->incx, tdata->incy, reinterpret_cast<__gm__ const float*>(a),
-            reinterpret_cast<__gm__ const float*>(x), reinterpret_cast<__gm__ float*>(y));
+        asc_vf_call<SsbmvUb<false>>(
+            dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incy, aGm,
+            xGm, yGm, rowStart, rowEnd, xBase, xLen);
     }
 }
 

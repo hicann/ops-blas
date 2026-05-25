@@ -18,10 +18,13 @@
 #include <cstdint>
 
 struct SsbmvTilingData {
+    uint32_t numThreads;    // threads per block
+    uint32_t numBlocks;     // blocks launched
+    uint32_t rowsPerBlock;  // ceil(n / numBlocks), pre-computed by host
     uint32_t n;
     uint32_t k;
     uint32_t lda;
-    uint32_t uplo; // ACLBLAS_UPPER 或 ACLBLAS_LOWER
+    uint32_t uplo;          // ACLBLAS_UPPER or ACLBLAS_LOWER
     float alpha;
     float beta;
     int64_t incx;

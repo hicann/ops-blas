@@ -305,8 +305,17 @@ static int RunGenTests()
         {  100,  20,   25, ACLBLAS_UPPER, 0.0f,  1.5f,   11,     1},
         { 1023, 128,  132, ACLBLAS_LOWER, 1.8f,  0.2f,    7,    11},
         { 4096,   1,    3, ACLBLAS_UPPER, 0.9f,  0.1f,    5,    -3},
+        // Large incx=1,incy=1 cases for UB path evaluation
+        { 1024, 256,  260, ACLBLAS_LOWER, 0.8f,  1.2f,    1,     1},
+        { 4096,  64,   66, ACLBLAS_UPPER, 0.8f,  1.2f,    1,     1},
+        { 4096, 512,  520, ACLBLAS_LOWER, 0.8f,  1.2f,    1,     1},
+        // Large incx=1 cases for UB stress testing
+        { 8192,   1,    3, ACLBLAS_UPPER, 0.9f,  0.1f,    1,     1},
+        { 8192, 128,  132, ACLBLAS_LOWER, 1.5f,  0.3f,    1,     1},
+        { 2048, 128,  132, ACLBLAS_UPPER, 1.5f,  0.3f,    1,     1},
     };
-    for (int i = 0; i < 6; i++) {
+    constexpr int kGenCaseCount = sizeof(cases) / sizeof(cases[0]);
+    for (int i = 0; i < kGenCaseCount; i++) {
         const GenCase& c = cases[i];
         std::ostringstream nm;
         nm << "TC-GEN-" << std::setw(2) << std::setfill('0') << (i + 1)
@@ -332,7 +341,7 @@ int32_t main(int32_t argc, char *argv[])
     std::cout << "\n--- Stage 4: Generalization Tests ---" << std::endl;
     int genFailed = RunGenTests();
 
-    int totalL0 = 5, totalL1 = 12, totalGen = 6, totalFailed = l0Failed + l1Failed + genFailed;
+    int totalL0 = 5, totalL1 = 12, totalGen = 12, totalFailed = l0Failed + l1Failed + genFailed;
     std::cout << "\n========== SBMV Test Complete ==========" << std::endl;
     std::cout << "L0 Results:     " << (totalL0 - l0Failed) << "/" << totalL0 << " passed" << std::endl;
     std::cout << "L1 Results:     " << (totalL1 - l1Failed) << "/" << totalL1 << " passed" << std::endl;

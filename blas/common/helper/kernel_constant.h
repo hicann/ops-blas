@@ -16,4 +16,7 @@
 constexpr uint32_t BUFFER_NUM = 2;
 constexpr uint32_t UB_SIZE = 248 * 1024;
 
+constexpr uint32_t SIMT_MIN_THREAD_NUM = 128;
+constexpr uint32_t SIMT_MAX_THREAD_NUM = 2048;
+
 #endif  // KERNEL_CONSTANT_H

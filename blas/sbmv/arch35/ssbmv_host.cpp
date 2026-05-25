@@ -13,6 +13,7 @@
  * \brief single-precision sbmv host-side implementation
  */
 
+#include <algorithm>
 #include <cstdint>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
@@ -20,6 +21,8 @@
 #include "ssbmv_tiling_data.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/kernel_constant.h"
+#include "common/helper/host_utils.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -57,9 +60,14 @@ static uint32_t GetVectorCoreCount()
 }
 
 static SsbmvTilingData CalSsbmvTilingData(
-    int n, int k, int lda, aclblasFillMode uplo, float alpha, float beta, int incx, int incy)
+    uint32_t useNumBlocks, int n, int k, int lda, aclblasFillMode uplo, float alpha, float beta, int incx, int incy)
 {
     SsbmvTilingData tilingData{};
+    tilingData.numThreads =
+        std::min(CeilAlign<uint32_t>(CeilDiv<uint32_t>(n, useNumBlocks), SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
+    tilingData.numBlocks = useNumBlocks;
+    tilingData.rowsPerBlock =
+        static_cast<uint32_t>((n + static_cast<int>(useNumBlocks) - 1) / static_cast<int>(useNumBlocks));
     tilingData.n = static_cast<uint32_t>(n);
     tilingData.k = static_cast<uint32_t>(k);
     tilingData.lda = static_cast<uint32_t>(lda);
@@ -88,12 +96,13 @@ aclblasStatus_t aclblasSsbmv(
         return st;
     }
 
-    uint32_t numBlocks = GetVectorCoreCount();
-    if (numBlocks == 0) {
+    uint32_t aivCoreNum = GetVectorCoreCount();
+    if (aivCoreNum == 0) {
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
+    uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
 
-    SsbmvTilingData tiling = CalSsbmvTilingData(n, k, lda, uplo, *alpha, *beta, incx, incy);
+    SsbmvTilingData tiling = CalSsbmvTilingData(useNumBlocks, n, k, lda, uplo, *alpha, *beta, incx, incy);
 
     uint8_t* tilingDevice = nullptr;
     aclError aclRet =
@@ -105,7 +114,7 @@ aclblasStatus_t aclblasSsbmv(
     CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     ssbmv_kernel_do(
-        (GM_ADDR) const_cast<float*>(A), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice, numBlocks,
+        (GM_ADDR) const_cast<float*>(A), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice, useNumBlocks,
         h->stream);
 
     aclRet = aclrtSynchronizeStream(h->stream);
