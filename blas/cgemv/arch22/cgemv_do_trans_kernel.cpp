@@ -13,7 +13,7 @@
 
 #define MAXALIGN_WITH(a, b) (((a) + (b)-1) / (b)) * (b)
 
-extern "C" __global__ __aicore__ void cgemv_do_trans(
+extern "C" __global__ __aicore__ __vector__ void cgemv_do_trans(
     __gm__ uint8_t *__restrict__ d_A, __gm__ uint8_t *__restrict__ d_x,
     __gm__ uint8_t *__restrict__ d_y_in, __gm__ uint8_t *__restrict__ maskBuf_device,
     __gm__ uint8_t *__restrict__ d_y, __gm__ uint8_t *__restrict__ workspace,

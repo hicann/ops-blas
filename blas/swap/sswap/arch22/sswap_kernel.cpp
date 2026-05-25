@@ -16,9 +16,12 @@
 #include "common/iterator/iterator.h"
 #include "common/compute/simd.h"
 #ifdef __CCE_KT_TEST__
+#undef __aicore__
 #define __aicore__
 #else
+#ifndef __aicore__
 #define __aicore__ [aicore]
+#endif
 #endif
 
 constexpr uint32_t BYTENUM_PER_FLOAT32 = 4;

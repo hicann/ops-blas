@@ -357,7 +357,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void ssyr2_upper_aiv(
 }
 #endif
 
-extern "C" __global__ __aicore__ void ssyr2(__gm__ float *__restrict__ d_x, __gm__ float *__restrict__ d_y,
+extern "C" __global__ __aicore__ __vector__ void ssyr2(__gm__ float *__restrict__ d_x, __gm__ float *__restrict__ d_y,
                                             __gm__ float *__restrict__ d_A, __gm__ float *__restrict__ tiling_gm)
 {
 #if __DAV_C220_VEC__
@@ -399,6 +399,6 @@ extern "C" __global__ __aicore__ void ssyr2(__gm__ float *__restrict__ d_x, __gm
 void ssyr2_kernel_do(GM_ADDR gm_x, GM_ADDR gm_y, GM_ADDR gm_A, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream)
 {
-    ssyr2<<<numBlocks, nullptr, stream>>>((__gm__ float *)gm_x, (__gm__ float *)gm_y,
-                                           (__gm__ float *)gm_A, (__gm__ float *)tilingGm);
+    ssyr2<<<numBlocks, nullptr, stream>>>((float *)gm_x, (float *)gm_y,
+                                           (float *)gm_A, (float *)tilingGm);
 }

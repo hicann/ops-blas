@@ -13,9 +13,12 @@
 #include "common/iterator/iterator.h"
 #include "common/compute/simd.h"
 #ifdef __CCE_KT_TEST__
+#undef __aicore__
 #define __aicore__
 #else
+#ifndef __aicore__
 #define __aicore__ [aicore]
+#endif
 #endif
 
 __aicore__ __inline__ __attribute__((always_inline)) void copy_vec_gm2ub(
@@ -207,7 +210,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void sdot_process_aiv(
     SetAtomicnone();
 }
 
-__global__ __aicore__ void sdot(GM_ADDR x, GM_ADDR y, GM_ADDR result,
+__global__ __aicore__ __vector__ void sdot(GM_ADDR x, GM_ADDR y, GM_ADDR result,
                                 GM_ADDR workSpace, GM_ADDR tilingGm)
 {
     AscendC::SetMaskNorm();

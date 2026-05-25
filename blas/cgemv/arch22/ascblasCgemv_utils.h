@@ -12,9 +12,12 @@
 #define __ASCBLASCGEMV_UTILS_H__
 
 #ifdef __CCE_KT_TEST__
+#undef __aicore__
 #define __aicore__
 #else
+#ifndef __aicore__
 #define __aicore__ [aicore]
+#endif
 #endif
 
 #include "kernel_operator.h"

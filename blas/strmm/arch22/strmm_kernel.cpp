@@ -552,7 +552,7 @@ __aicore__ __inline__ void strmm_mix_aiv(__gm__ float *__restrict__ gm_a, __gm__
 }
 #endif
 
-extern "C" __global__ __aicore__ void strmm(__gm__ float *__restrict__ d_A,
+extern "C" __global__ __aicore__ __cube__ void strmm(__gm__ float *__restrict__ d_A,
                                             __gm__ float *__restrict__ d_B, __gm__ float *__restrict__ d_C,
                                             __gm__ float *__restrict__ workspace,
                                             __gm__ uint32_t *__restrict__ tiling_gm)
@@ -589,7 +589,7 @@ void strmm_kernel_do(GM_ADDR d_A, GM_ADDR d_B, GM_ADDR d_C, GM_ADDR workspace,
                      GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream)
 {
-    strmm<<<numBlocks, nullptr, stream>>>((__gm__ float *)d_A, (__gm__ float *)d_B,
-                                          (__gm__ float *)d_C, (__gm__ float *)workspace,
-                                          (__gm__ uint32_t *)tilingGm);
+    strmm<<<numBlocks, nullptr, stream>>>((float *)d_A, (float *)d_B,
+                                          (float *)d_C, (float *)workspace,
+                                          (uint32_t *)tilingGm);
 }

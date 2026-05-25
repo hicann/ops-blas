@@ -21,12 +21,13 @@
 #include "cann_ops_blas_common.h"  // Reuse enum definitions from host
 
 #ifdef __CCE_KT_TEST__
+#undef __aicore__
 #define __aicore__
 #else
+#ifndef __aicore__
 #define __aicore__ [aicore]
 #endif
-
-#define __inline__ __inline__ __attribute__((always_inline))
+#endif
 
 constexpr int BLOCK_DIM = 64;
 constexpr int UB_MATRIX_SIZE = BLOCK_DIM * BLOCK_DIM;
@@ -603,7 +604,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void ctrmv(
     FftsCrossCoreSync<PIPE_MTE3, 0>(0);
 }
 
-__global__ __aicore__ void ctrmv(GM_ADDR gm_A, GM_ADDR gm_X, GM_ADDR gm_uplo,
+__global__ __aicore__ __vector__ void ctrmv(GM_ADDR gm_A, GM_ADDR gm_X, GM_ADDR gm_uplo,
                                   GM_ADDR gm_wksp, GM_ADDR tilingGm)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);

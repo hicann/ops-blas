@@ -360,7 +360,7 @@ private:
 };
 #endif
 
-extern "C" __global__ __aicore__ void cgemm_batched(
+extern "C" __global__ __aicore__ __cube__ void cgemm_batched(
     GM_ADDR a, GM_ADDR b, GM_ADDR gatherOffset, GM_ADDR c, GM_ADDR workspace, GM_ADDR tiling)
 {
     AscendC::SetAtomicNone();

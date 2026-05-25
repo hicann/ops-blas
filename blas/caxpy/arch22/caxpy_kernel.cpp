@@ -9,12 +9,13 @@
  */
 
 #ifdef __CCE_KT_TEST__
+#undef __aicore__
 #define __aicore__
 #else
+#ifndef __aicore__
 #define __aicore__ [aicore]
 #endif
-
-#define __inline__ __inline__ __attribute__((always_inline))
+#endif
 
 #include "kernel_operator.h"
 
@@ -193,7 +194,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void caxpy_aiv(__gm__ float
 }
 #endif
 
-extern "C" __global__ __aicore__ void caxpy(__gm__ float *__restrict__ x, __gm__ uint32_t *__restrict__ aug,
+extern "C" __global__ __aicore__ __vector__ void caxpy(__gm__ float *__restrict__ x, __gm__ uint32_t *__restrict__ aug,
                                             __gm__ float *__restrict__ y, __gm__ float *__restrict__ tiling_gm)
 {
 #if __DAV_C220_VEC__
@@ -220,7 +221,7 @@ extern "C" __global__ __aicore__ void caxpy(__gm__ float *__restrict__ x, __gm__
 void caxpy_kernel_do(GM_ADDR x, GM_ADDR maskBuf, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream)
 {
-    caxpy<<<numBlocks, nullptr, stream>>>((__gm__ float *)x,
-                                           (__gm__ uint32_t *)maskBuf,
-                                           (__gm__ float *)y, (__gm__ float *)tilingGm);
+    caxpy<<<numBlocks, nullptr, stream>>>((float *)x,
+                                           (uint32_t *)maskBuf,
+                                           (float *)y, (float *)tilingGm);
 }

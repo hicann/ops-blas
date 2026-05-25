@@ -450,7 +450,7 @@ __aicore__ __inline__ void CgemmFinal(aclblasOperation_t transA, aclblasOperatio
 }
 #endif
 
-extern "C" __global__ __aicore__ void cgemm(__gm__ uint8_t *__restrict__ d_A, __gm__ uint8_t *__restrict__ d_B,
+extern "C" __global__ __aicore__ __cube__ void cgemm(__gm__ uint8_t *__restrict__ d_A, __gm__ uint8_t *__restrict__ d_B,
                                             __gm__ uint8_t *__restrict__ d_A_r, __gm__ uint8_t *__restrict__ d_A_i,
                                             __gm__ uint8_t *__restrict__ d_B_r, __gm__ uint8_t *__restrict__ d_B_i,
                                             __gm__ uint8_t *__restrict__ d_C_rr, __gm__ uint8_t *__restrict__ d_C_ri,

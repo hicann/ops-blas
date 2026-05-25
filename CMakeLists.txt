@@ -118,8 +118,10 @@ if(ENABLE_BLASLT_MXFP8)
 endif()
 target_compile_features(${OPS_BLASLT} PRIVATE cxx_std_17)
 
+set(ASC_WARN_SUPPRESS "-Wno-#pragma-messages" "-Wno-deprecated-declarations")
+
 target_compile_options(${OPS_BLASLT} PRIVATE
-    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH}>
+    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS}>
 )
 
 target_link_directories(${OPS_BLASLT} PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/lib64")
@@ -152,7 +154,7 @@ target_include_directories(${OPS_BLAS} PRIVATE
 )
 
 target_compile_options(${OPS_BLAS} PRIVATE
-    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH}>
+    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS}>
 )
 
 # ========= 安装规则（CPack 打包时放入 lib64 和 include） =========

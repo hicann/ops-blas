@@ -12,7 +12,7 @@
 
 #include "cgerc_kernel_impl.h"
 
-__global__ __aicore__ void cgerc(GM_ADDR d_x, GM_ADDR d_y,
+__global__ __aicore__ __vector__ void cgerc(GM_ADDR d_x, GM_ADDR d_y,
                                  GM_ADDR d_offset, GM_ADDR d_A,
                                  GM_ADDR work_space, GM_ADDR tiling_gm)
 {

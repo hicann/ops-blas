@@ -18,7 +18,7 @@ namespace CgemvBatched {
 
 }  // namespace CgemvBatched
 
-extern "C" __global__ __aicore__ void cgemv_batched(
+extern "C" __global__ __aicore__ __vector__ void cgemv_batched(
     GM_ADDR A, GM_ADDR x, GM_ADDR mask, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
 {
     auto tilingBuf = reinterpret_cast<__gm__ uint8_t *>(tilingGm);

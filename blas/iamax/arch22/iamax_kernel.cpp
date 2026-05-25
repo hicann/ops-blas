@@ -17,7 +17,7 @@
 #include "iamax_kernel_impl.h"
 
 // Kernel entry point
-__global__ __aicore__ void iamax_kernel(GM_ADDR x, GM_ADDR y, GM_ADDR workspace, GM_ADDR tiling)
+__global__ __aicore__ __vector__ void iamax_kernel(GM_ADDR x, GM_ADDR y, GM_ADDR workspace, GM_ADDR tiling)
 {
     GM_ADDR userWS = workspace;
     Iamax::Iamax<float> op;

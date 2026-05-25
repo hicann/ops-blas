@@ -9,9 +9,12 @@
  */
 
 #ifdef __CCE_KT_TEST__
+#undef __aicore__
 #define __aicore__
 #else
+#ifndef __aicore__
 #define __aicore__ [aicore]
+#endif
 #endif
 
 #include "kernel_operator.h"
@@ -373,7 +376,7 @@ __aicore__ __inline__ void cscal_aiv(GM_ADDR x, GM_ADDR maskBuf_device, GM_ADDR 
 
 #endif
 
-extern "C" __global__ __aicore__ void cscal(GM_ADDR x, GM_ADDR maskBuf_device, GM_ADDR workspace, GM_ADDR tiling_para_gm)
+extern "C" __global__ __aicore__ __vector__ void cscal(GM_ADDR x, GM_ADDR maskBuf_device, GM_ADDR workspace, GM_ADDR tiling_para_gm)
 {
 #ifdef __DAV_C220_VEC__
     cscal_aiv(x, maskBuf_device, workspace, tiling_para_gm);

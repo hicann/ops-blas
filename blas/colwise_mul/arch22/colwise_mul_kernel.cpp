@@ -13,8 +13,6 @@
 #include "common/iterator/iterator.h"
 #include "common/compute/simd.h"
 
-#define __inline__ __inline__ __attribute__((always_inline))
-
 __aicore__ __inline__ __attribute__((always_inline)) void copy_vec_gm2ub_uint32(
     AscendC::LocalTensor<uint32_t> dst,
     AscendC::GlobalTensor<uint32_t> src,
@@ -222,7 +220,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void colwise_mul_aiv(
     PIPE_BARRIER(ALL);
 }
 
-__global__ __aicore__ void colwise_mul(GM_ADDR mat, GM_ADDR vec,
+__global__ __aicore__ __vector__ void colwise_mul(GM_ADDR mat, GM_ADDR vec,
                                        GM_ADDR aug, GM_ADDR result,
                                        GM_ADDR workSpace, GM_ADDR tilingGm)
 {

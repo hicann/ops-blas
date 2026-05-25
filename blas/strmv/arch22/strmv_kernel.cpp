@@ -477,7 +477,7 @@ __aicore__ __inline__ __attribute__((always_inline)) void aclblassStrmv(
 }
 #endif
 
-extern "C" __global__ __aicore__ void strmv(__gm__ float *__restrict__ gm_A,
+extern "C" __global__ __aicore__ __vector__ void strmv(__gm__ float *__restrict__ gm_A,
                                             __gm__ float *__restrict__ gm_X, __gm__ float *__restrict__ gm_uplo,
                                             __gm__ float *__restrict__ gm_output, __gm__ float *__restrict__ gm_wksp,
                                             __gm__ uint32_t *__restrict__ tiling_gm)
@@ -513,7 +513,7 @@ void strmv_kernel_do(GM_ADDR gm_A, GM_ADDR gm_X, GM_ADDR gm_uplo, GM_ADDR gm_out
                      GM_ADDR gm_wksp, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream)
 {
-    strmv<<<numBlocks, nullptr, stream>>>((__gm__ float *)gm_A, (__gm__ float *)gm_X,
-                                           (__gm__ float *)gm_uplo, (__gm__ float *)gm_output,
-                                           (__gm__ float *)gm_wksp, (__gm__ uint32_t *)tilingGm);
+    strmv<<<numBlocks, nullptr, stream>>>((float *)gm_A, (float *)gm_X,
+                                           (float *)gm_uplo, (float *)gm_output,
+                                           (float *)gm_wksp, (uint32_t *)tilingGm);
 }
