@@ -414,7 +414,7 @@ install_googletest() {
     echo -e "\n==== Checking googletest ===="
     local req_ver="1.11.0"
 
-    if [[ -f "/usr/local/include/gtest/gtest.h" ]] || [[ -f "/usr/include/gtest/gtest.h" ]] || [[ -n "${HOMEBREW_PREFIX}" && -f "${HOMEBREW_PREFIX}/include/gtest/gtest.h" ]]; then
+    if [[ -f "/usr/local/include/gtest/gtest.h" ]] || [[ -f "/usr/include/gtest/gtest.h" ]] || [[ -n "${HOMEBREW_PREFIX:-}" && -f "${HOMEBREW_PREFIX:-}/include/gtest/gtest.h" ]]; then
         echo "googletest has been installed"
         return
     fi
@@ -439,7 +439,7 @@ install_googletest() {
 
     rm -rf "${gtest_tmp_dir}"
 
-    if [[ -f "/usr/local/include/gtest/gtest.h" ]] || [[ -f "/usr/include/gtest/gtest.h" ]] || [[ -n "${HOMEBREW_PREFIX}" && -f "${HOMEBREW_PREFIX}/include/gtest/gtest.h" ]]; then
+    if [[ -f "/usr/local/include/gtest/gtest.h" ]] || [[ -f "/usr/include/gtest/gtest.h" ]] || [[ -n "${HOMEBREW_PREFIX:-}" && -f "${HOMEBREW_PREFIX:-}/include/gtest/gtest.h" ]]; then
         echo "googletest installed successfully"
     else
         echo "googletest installation failed"
