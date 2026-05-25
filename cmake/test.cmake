@@ -12,14 +12,16 @@
 function(_ops_blas_has_blas_op_sources op_name out_var)
     set(has_sources FALSE)
     foreach(arch_dir ${SOC_ARCH_DIRS})
-        file(GLOB arch_dir_srcs ${CMAKE_SOURCE_DIR}/blas/${op_name}/${arch_dir}/*.cpp)
+        file(GLOB arch_dir_srcs ${CMAKE_SOURCE_DIR}/blas/${op_name}/${arch_dir}/*.cpp
+                                  ${CMAKE_SOURCE_DIR}/blas/*/${op_name}/${arch_dir}/*.cpp)
         if(arch_dir_srcs)
             set(has_sources TRUE)
             break()
         endif()
     endforeach()
     if(NOT has_sources)
-        file(GLOB base_srcs ${CMAKE_SOURCE_DIR}/blas/${op_name}/*.cpp)
+        file(GLOB base_srcs ${CMAKE_SOURCE_DIR}/blas/${op_name}/*.cpp
+                              ${CMAKE_SOURCE_DIR}/blas/*/${op_name}/*.cpp)
         if(base_srcs)
             set(has_sources TRUE)
         endif()
