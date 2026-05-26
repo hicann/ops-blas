@@ -22,7 +22,7 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "../common/kernel_launch/aclblas_kernel_do.h"
+#include "common/kernel_launch/aclblas_kernel_do.h"
 
 using aclblasHandle = void *;
 

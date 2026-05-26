@@ -138,6 +138,11 @@ int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
 				const float alpha, const float beta,
 				const int64_t n, const int64_t incx, const int64_t incy, void *stream);
 
+aclblasStatus_t aclblasSspmv(aclblasHandle handle,
+                 aclblasFillMode uplo, int n, const float *alpha,
+                 const float *AP, const float *x, int incx, const float *beta,
+                 float *y, int incy);
+
 int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float *alpha,
                const float *x, int64_t incx,
                float *y, int64_t incy,
