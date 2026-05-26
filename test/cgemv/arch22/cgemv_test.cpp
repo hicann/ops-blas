@@ -29,9 +29,9 @@
 
 constexpr float EPSILON = 1e-3f;
 
-uint32_t VerifyResult(std::vector<std::complex<float>> &output, std::vector<std::complex<float>> &golden)
+uint32_t VerifyResult(std::vector<std::complex<float>>& output, std::vector<std::complex<float>>& golden)
 {
-    auto printTensor = [](std::vector<std::complex<float>> &tensor, const char *name) {
+    auto printTensor = [](std::vector<std::complex<float>>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 10;
         std::cout << name << ": ";
         for (size_t i = 0; i < std::min(tensor.size(), maxPrintSize); i++) {
@@ -57,10 +57,10 @@ uint32_t VerifyResult(std::vector<std::complex<float>> &output, std::vector<std:
     return 0;
 }
 
-void ComputeGoldenCgemvN(const std::complex<float> *A, const std::complex<float> *x,
-                         std::complex<float> *y, const std::complex<float> &alpha,
-                         const std::complex<float> &beta, int64_t m, int64_t n, int64_t lda,
-                         int64_t incx, int64_t incy)
+void ComputeGoldenCgemvN(
+    const std::complex<float>* A, const std::complex<float>* x, std::complex<float>* y,
+    const std::complex<float>& alpha, const std::complex<float>& beta, int64_t m, int64_t n, int64_t lda, int64_t incx,
+    int64_t incy)
 {
     for (int64_t i = 0; i < m; i++) {
         std::complex<float> sum(0.0f, 0.0f);
@@ -71,10 +71,10 @@ void ComputeGoldenCgemvN(const std::complex<float> *A, const std::complex<float>
     }
 }
 
-void ComputeGoldenCgemvT(const std::complex<float> *A, const std::complex<float> *x,
-                         std::complex<float> *y, const std::complex<float> &alpha,
-                         const std::complex<float> &beta, int64_t m, int64_t n, int64_t lda,
-                         int64_t incx, int64_t incy)
+void ComputeGoldenCgemvT(
+    const std::complex<float>* A, const std::complex<float>* x, std::complex<float>* y,
+    const std::complex<float>& alpha, const std::complex<float>& beta, int64_t m, int64_t n, int64_t lda, int64_t incx,
+    int64_t incy)
 {
     for (int64_t j = 0; j < n; j++) {
         std::complex<float> sum(0.0f, 0.0f);
@@ -118,17 +118,17 @@ int TestCgemvNoTrans()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
     size_t aByteSize = M * N * sizeof(std::complex<float>);
     size_t xByteSize = N * sizeof(std::complex<float>);
     size_t yByteSize = M * sizeof(std::complex<float>);
-    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
@@ -137,8 +137,7 @@ int TestCgemvNoTrans()
     aclRet = aclrtMemcpy(yDevice, yByteSize, y.data(), yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasCgemv(handle, ACLBLAS_OP_N, M, N, alpha, aDevice, lda,
-                       xDevice, incx, beta, yDevice, incy);
+    ret = aclblasCgemv(handle, ACLBLAS_OP_N, M, N, alpha, aDevice, lda, xDevice, incx, beta, yDevice, incy);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemv failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
@@ -190,17 +189,17 @@ int TestCgemvTrans()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
     size_t aByteSize = M * N * sizeof(std::complex<float>);
     size_t xByteSize = M * sizeof(std::complex<float>);
     size_t yByteSize = N * sizeof(std::complex<float>);
-    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
@@ -209,8 +208,7 @@ int TestCgemvTrans()
     aclRet = aclrtMemcpy(yDevice, yByteSize, y.data(), yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasCgemv(handle, ACLBLAS_OP_T, M, N, alpha, aDevice, lda,
-                       xDevice, incx, beta, yDevice, incy);
+    ret = aclblasCgemv(handle, ACLBLAS_OP_T, M, N, alpha, aDevice, lda, xDevice, incx, beta, yDevice, incy);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemv failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
@@ -229,7 +227,7 @@ int TestCgemvTrans()
     return VerifyResult(y, yGolden);
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     int ret1 = TestCgemvNoTrans();
     int ret2 = TestCgemvTrans();

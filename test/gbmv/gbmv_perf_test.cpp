@@ -1,24 +1,24 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file gbmv_perf_test.cpp
-* \brief Performance profiling test for GBMV (General Banded Matrix-Vector multiplication).
-*
-* Measures end-to-end performance for three large-scale scenarios:
-*   - PM-1: m=n=512,  kl=ku=8
-*   - PM-2: m=n=1024, kl=ku=16
-*   - PM-3: m=n=2048, kl=ku=32
-*
-* Uses warm-up iterations and multiple measurement runs for stable timing.
-*/
+ * \file gbmv_perf_test.cpp
+ * \brief Performance profiling test for GBMV (General Banded Matrix-Vector multiplication).
+ *
+ * Measures end-to-end performance for three large-scale scenarios:
+ *   - PM-1: m=n=512,  kl=ku=8
+ *   - PM-2: m=n=1024, kl=ku=16
+ *   - PM-3: m=n=2048, kl=ku=32
+ *
+ * Uses warm-up iterations and multiple measurement runs for stable timing.
+ */
 
 #include <algorithm>
 #include <chrono>
@@ -32,7 +32,7 @@
 #include "gbmv_test_utils.h"
 
 struct PerfScenario {
-    const char *name;
+    const char* name;
     int64_t m;
     int64_t n;
     int64_t kl;
@@ -41,9 +41,9 @@ struct PerfScenario {
 };
 
 static const PerfScenario kPerfScenarios[] = {
-    {"PM-1 (m=n=512,  kl=ku=8)",   512,  512,  8,  8,  17},
-    {"PM-2 (m=n=1024, kl=ku=16)",  1024, 1024, 16, 16, 33},
-    {"PM-3 (m=n=2048, kl=ku=32)",  2048, 2048, 32, 32, 65},
+    {"PM-1 (m=n=512,  kl=ku=8)", 512, 512, 8, 8, 17},
+    {"PM-2 (m=n=1024, kl=ku=16)", 1024, 1024, 16, 16, 33},
+    {"PM-3 (m=n=2048, kl=ku=32)", 2048, 2048, 32, 32, 65},
 };
 
 static constexpr int kNumPerfScenarios = sizeof(kPerfScenarios) / sizeof(kPerfScenarios[0]);
@@ -51,32 +51,36 @@ static constexpr int kWarmupRuns = 10;
 static constexpr int kMeasureRuns = 50;
 
 struct PerfDeviceBuffers {
-    float *aDev = nullptr;
-    float *xDev = nullptr;
-    float *yDev = nullptr;
+    float* aDev = nullptr;
+    float* xDev = nullptr;
+    float* yDev = nullptr;
 
-    void FreeAll() { aclrtFree(aDev); aclrtFree(xDev); aclrtFree(yDev); }
+    void FreeAll()
+    {
+        aclrtFree(aDev);
+        aclrtFree(xDev);
+        aclrtFree(yDev);
+    }
 };
 
-static int InitPerfTest(int32_t deviceId, const PerfScenario &sc,
-                         PerfDeviceBuffers &buf, aclrtStream &stream, aclblasHandle_t &handle)
+static int InitPerfTest(
+    int32_t deviceId, const PerfScenario& sc, PerfDeviceBuffers& buf, aclrtStream& stream, aclblasHandle_t& handle)
 {
     aclError aclRet = aclInit(nullptr);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", aclRet); return -1);
 
     aclRet = aclrtSetDevice(deviceId);
-    CHECK_RET(aclRet == ACL_SUCCESS,
-        LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", aclRet); aclFinalize(); return -1);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", aclRet); aclFinalize(); return -1);
 
     size_t aSize = static_cast<size_t>(sc.lda) * static_cast<size_t>(sc.n);
     size_t xSize = static_cast<size_t>(sc.n);
     size_t ySize = static_cast<size_t>(sc.m);
 
-    aclRet = aclrtMalloc(reinterpret_cast<void **>(&buf.aDev), aSize * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc(reinterpret_cast<void**>(&buf.aDev), aSize * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDev failed\n"); return -1);
-    aclRet = aclrtMalloc(reinterpret_cast<void **>(&buf.xDev), xSize * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc(reinterpret_cast<void**>(&buf.xDev), xSize * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDev failed\n"); return -1);
-    aclRet = aclrtMalloc(reinterpret_cast<void **>(&buf.yDev), ySize * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc(reinterpret_cast<void**>(&buf.yDev), ySize * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDev failed\n"); return -1);
 
     aclRet = aclrtCreateStream(&stream);
@@ -90,34 +94,36 @@ static int InitPerfTest(int32_t deviceId, const PerfScenario &sc,
     return 0;
 }
 
-static int CopyHostToDevice(const PerfScenario &sc, const PerfDeviceBuffers &buf,
-                             const std::vector<float> &aHost, const std::vector<float> &xHost,
-                             const std::vector<float> &yHost)
+static int CopyHostToDevice(
+    const PerfScenario& sc, const PerfDeviceBuffers& buf, const std::vector<float>& aHost,
+    const std::vector<float>& xHost, const std::vector<float>& yHost)
 {
     size_t aSize = static_cast<size_t>(sc.lda) * static_cast<size_t>(sc.n);
     size_t xSize = static_cast<size_t>(sc.n);
     size_t ySize = static_cast<size_t>(sc.m);
 
-    aclError aclRet = aclrtMemcpy(buf.aDev, aSize * sizeof(float), aHost.data(), aSize * sizeof(float),
-        ACL_MEMCPY_HOST_TO_DEVICE);
+    aclError aclRet =
+        aclrtMemcpy(buf.aDev, aSize * sizeof(float), aHost.data(), aSize * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, return -1);
-    aclRet = aclrtMemcpy(buf.xDev, xSize * sizeof(float), xHost.data(), xSize * sizeof(float),
-        ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet =
+        aclrtMemcpy(buf.xDev, xSize * sizeof(float), xHost.data(), xSize * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, return -1);
-    aclRet = aclrtMemcpy(buf.yDev, ySize * sizeof(float), yHost.data(), ySize * sizeof(float),
-        ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet =
+        aclrtMemcpy(buf.yDev, ySize * sizeof(float), yHost.data(), ySize * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, return -1);
     return 0;
 }
 
-static void PrintPerfStats(const PerfScenario &sc, const std::vector<double> &timesUs)
+static void PrintPerfStats(const PerfScenario& sc, const std::vector<double>& timesUs)
 {
     double sumUs = 0.0;
-    for (auto t : timesUs) sumUs += t;
+    for (auto t : timesUs)
+        sumUs += t;
     double avgUs = sumUs / timesUs.size();
 
     double sumSq = 0.0;
-    for (auto t : timesUs) sumSq += (t - avgUs) * (t - avgUs);
+    for (auto t : timesUs)
+        sumSq += (t - avgUs) * (t - avgUs);
     double stdUs = std::sqrt(sumSq / timesUs.size());
 
     size_t aBytes = static_cast<size_t>(sc.lda) * static_cast<size_t>(sc.n) * sizeof(float);
@@ -154,7 +160,7 @@ static void PrintPerfStats(const PerfScenario &sc, const std::vector<double> &ti
     std::cout << "  Compute: " << gflops << " GFLOP/s" << std::endl;
 }
 
-static int run_perf_scenario(const PerfScenario &sc)
+static int run_perf_scenario(const PerfScenario& sc)
 {
     std::cout << "\n============================================" << std::endl;
     std::cout << "  " << sc.name << std::endl;
@@ -175,8 +181,10 @@ static int run_perf_scenario(const PerfScenario &sc)
     PerfDeviceBuffers buf;
     aclrtStream stream = nullptr;
     aclblasHandle_t handle = nullptr;
-    if (InitPerfTest(deviceId, sc, buf, stream, handle) != 0) return -1;
-    if (CopyHostToDevice(sc, buf, aHost, xHost, yHost) != 0) return -1;
+    if (InitPerfTest(deviceId, sc, buf, stream, handle) != 0)
+        return -1;
+    if (CopyHostToDevice(sc, buf, aHost, xHost, yHost) != 0)
+        return -1;
 
     float alpha = 1.0f, beta = 0.5f;
 
@@ -184,10 +192,9 @@ static int run_perf_scenario(const PerfScenario &sc)
     std::cout << "  Warming up (" << kWarmupRuns << " iterations)..." << std::endl;
     size_t ySize = static_cast<size_t>(sc.m);
     for (int i = 0; i < kWarmupRuns; i++) {
-        aclrtMemcpy(buf.yDev, ySize * sizeof(float), yHost.data(), ySize * sizeof(float),
-            ACL_MEMCPY_HOST_TO_DEVICE);
-        aclblasSgbmv(handle, ACLBLAS_OP_N, sc.m, sc.n, sc.kl, sc.ku,
-            &alpha, buf.aDev, sc.lda, buf.xDev, 1, &beta, buf.yDev, 1);
+        aclrtMemcpy(buf.yDev, ySize * sizeof(float), yHost.data(), ySize * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+        aclblasSgbmv(
+            handle, ACLBLAS_OP_N, sc.m, sc.n, sc.kl, sc.ku, &alpha, buf.aDev, sc.lda, buf.xDev, 1, &beta, buf.yDev, 1);
         aclrtSynchronizeStream(stream);
     }
 
@@ -197,12 +204,11 @@ static int run_perf_scenario(const PerfScenario &sc)
     timesUs.reserve(kMeasureRuns);
 
     for (int i = 0; i < kMeasureRuns; i++) {
-        aclrtMemcpy(buf.yDev, ySize * sizeof(float), yHost.data(), ySize * sizeof(float),
-            ACL_MEMCPY_HOST_TO_DEVICE);
+        aclrtMemcpy(buf.yDev, ySize * sizeof(float), yHost.data(), ySize * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
 
         auto tStart = std::chrono::high_resolution_clock::now();
-        aclblasSgbmv(handle, ACLBLAS_OP_N, sc.m, sc.n, sc.kl, sc.ku,
-            &alpha, buf.aDev, sc.lda, buf.xDev, 1, &beta, buf.yDev, 1);
+        aclblasSgbmv(
+            handle, ACLBLAS_OP_N, sc.m, sc.n, sc.kl, sc.ku, &alpha, buf.aDev, sc.lda, buf.xDev, 1, &beta, buf.yDev, 1);
         aclrtSynchronizeStream(stream);
         auto tEnd = std::chrono::high_resolution_clock::now();
 
@@ -221,7 +227,7 @@ static int run_perf_scenario(const PerfScenario &sc)
     return 0;
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     (void)argc;
     (void)argv;

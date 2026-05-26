@@ -8,11 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-
 /* !
-* \file sdot_test.cpp
-* \brief Test for real vector dot product
-*/
+ * \file sdot_test.cpp
+ * \brief Test for real vector dot product
+ */
 
 #include <cstdint>
 #include <iostream>
@@ -51,7 +50,7 @@ uint32_t VerifyResult(float output, float golden)
     return 0;
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     int32_t deviceId = 0;
 
@@ -85,16 +84,16 @@ int32_t main(int32_t argc, char *argv[])
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
-    uint8_t *resultDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
+    uint8_t* resultDevice = nullptr;
 
     size_t totalByteSize = n * sizeof(float);
-    aclError aclRet = aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&yDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&yDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&resultDevice, sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&resultDevice, sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc resultDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
     aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);

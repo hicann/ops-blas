@@ -1,17 +1,17 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file symv_test.cpp
-* \brief
-*/
+ * \file symv_test.cpp
+ * \brief
+ */
 
 #include <algorithm>
 #include <cstdint>
@@ -43,7 +43,7 @@ enum class SymvCompareMode {
 
 constexpr SymvCompareMode kCompareMode = SymvCompareMode::FullMatrix;
 
-static const char *GetCompareModeName()
+static const char* GetCompareModeName()
 {
     switch (kCompareMode) {
         case SymvCompareMode::FullMatrix:
@@ -57,12 +57,11 @@ static const char *GetCompareModeName()
     }
 }
 
-static std::vector<float> BuildGolden(const std::vector<float> &a, const std::vector<float> &x,
-    const std::vector<float> &y, uint32_t n, uint32_t lda, int64_t incx, int64_t incy, float alpha, float beta)
+static std::vector<float> BuildGolden(
+    const std::vector<float>& a, const std::vector<float>& x, const std::vector<float>& y, uint32_t n, uint32_t lda,
+    int64_t incx, int64_t incy, float alpha, float beta)
 {
-    auto matrixIndex = [lda](uint32_t row, uint32_t col) {
-        return static_cast<size_t>(row) * lda + col;
-    };
+    auto matrixIndex = [lda](uint32_t row, uint32_t col) { return static_cast<size_t>(row) * lda + col; };
 
     std::vector<float> golden(n, 0.0f);
     switch (kCompareMode) {
@@ -102,14 +101,15 @@ static std::vector<float> BuildGolden(const std::vector<float> &a, const std::ve
     return golden;
 }
 
-static uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
+static uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
 {
     std::cout << std::fixed << std::setprecision(6);
 
-    auto printTensor = [](std::vector<float> &tensor, const char *name) {
+    auto printTensor = [](std::vector<float>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 20;
         std::cout << name << ": ";
-        std::copy(tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
+        std::copy(
+            tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
             std::ostream_iterator<float>(std::cout, " "));
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -129,8 +129,8 @@ static uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &gol
 
     for (size_t i = 0; i < output.size(); ++i) {
         if (!closeEnough(output[i], golden[i])) {
-            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i]
-                      << " vs " << golden[i] << ")" << std::endl;
+            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i] << " vs "
+                      << golden[i] << ")" << std::endl;
             return 1;
         }
     }
@@ -165,20 +165,25 @@ static int RunCase(uint32_t n, uint32_t lda)
     aclrtSetDevice(deviceId);
     aclrtCreateStream(&stream);
 
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
+
     std::vector<float> z(n, 0.0f);
-    int ret = aclblasSymv(a.data(), lda, x.data(), y.data(), z.data(), alpha, beta, n, incx, incy, stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSymv failed. ERROR: %d\n", ret); return ret);
+    aclblasStatus_t ret = aclblasSymv(handle, a.data(), lda, x.data(), y.data(), z.data(), alpha, beta, n, incx, incy);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSymv failed. ERROR: %d\n", ret); return ret);
 
     std::vector<float> golden = BuildGolden(a, x, y, n, lda, incx, incy, alpha, beta);
     int status = VerifyResult(z, golden);
 
+    aclblasDestroy(handle);
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
     return status;
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     (void)argc;
     (void)argv;

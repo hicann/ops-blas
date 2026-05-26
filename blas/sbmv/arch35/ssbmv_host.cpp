@@ -81,7 +81,7 @@ static SsbmvTilingData CalSsbmvTilingData(
 }
 
 aclblasStatus_t aclblasSsbmv(
-    aclblasHandle handle, aclblasFillMode uplo, int n, int k, const float* alpha, const float* A, int lda,
+    aclblasHandle_t handle, aclblasFillMode uplo, int n, int k, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
@@ -114,8 +114,8 @@ aclblasStatus_t aclblasSsbmv(
     CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     ssbmv_kernel_do(
-        (GM_ADDR) const_cast<float*>(A), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice, useNumBlocks,
-        h->stream);
+        (GM_ADDR) const_cast<float*>(A), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice,
+        useNumBlocks, h->stream);
 
     aclRet = aclrtSynchronizeStream(h->stream);
     CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);

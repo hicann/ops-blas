@@ -21,8 +21,8 @@
 // ---------------------------------------------------------------------------
 // Parameter validation — returns non-success if invalid
 // ---------------------------------------------------------------------------
-static aclblasStatus_t ValidateParams(aclblasHandle_t handle, int n, aclblasFillMode_t uplo,
-                                      int lda, const float *A, const float *AP)
+static aclblasStatus_t ValidateParams(
+    aclblasHandle_t handle, int n, aclblasFillMode_t uplo, int lda, const float* A, const float* AP)
 {
     if (handle == nullptr) {
         printf("[ERROR][trttp] handle is nullptr\n");
@@ -57,7 +57,7 @@ static aclblasStatus_t ValidateParams(aclblasHandle_t handle, int n, aclblasFill
 // ---------------------------------------------------------------------------
 // Query vector core count
 // ---------------------------------------------------------------------------
-static uint32_t GetVecCoreNum(int32_t deviceId, aclblasStatus_t *status)
+static uint32_t GetVecCoreNum(int32_t deviceId, aclblasStatus_t* status)
 {
     int64_t availableCoreNum = 0;
     aclError ret = aclrtGetDeviceInfo(deviceId, ACL_DEV_ATTR_VECTOR_CORE_NUM, &availableCoreNum);
@@ -73,7 +73,7 @@ static uint32_t GetVecCoreNum(int32_t deviceId, aclblasStatus_t *status)
 // ---------------------------------------------------------------------------
 // Tiling data computation
 // ---------------------------------------------------------------------------
-static aclblasStatus_t CalTilingData(TrttpTilingData *tiling, uint32_t n, uint32_t lda, uint32_t uploVal)
+static aclblasStatus_t CalTilingData(TrttpTilingData* tiling, uint32_t n, uint32_t lda, uint32_t uploVal)
 {
     int32_t deviceId = 0;
     aclError ret = aclrtGetDevice(&deviceId);
@@ -106,29 +106,27 @@ static aclblasStatus_t CalTilingData(TrttpTilingData *tiling, uint32_t n, uint32
 // ---------------------------------------------------------------------------
 // Kernel execution & cleanup
 // ---------------------------------------------------------------------------
-static aclblasStatus_t ExecuteKernel(const float *A, float *AP,
-                                      const TrttpTilingData *tiling,
-                                      aclrtStream stream)
+static aclblasStatus_t ExecuteKernel(const float* A, float* AP, const TrttpTilingData* tiling, aclrtStream stream)
 {
-    uint8_t *tilingDevice = nullptr;
-    aclError aclRet = aclrtMalloc(reinterpret_cast<void **>(&tilingDevice),
-                                   sizeof(TrttpTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    uint8_t* tilingDevice = nullptr;
+    aclError aclRet =
+        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(TrttpTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
     if (aclRet != ACL_SUCCESS) {
         printf("[ERROR][trttp] aclrtMalloc failed, error=%d\n", aclRet);
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(TrttpTilingData),
-                          tiling, sizeof(TrttpTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(TrttpTilingData), tiling, sizeof(TrttpTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
     if (aclRet != ACL_SUCCESS) {
         printf("[ERROR][trttp] aclrtMemcpy failed, error=%d\n", aclRet);
         aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    strttp_kernel_do(reinterpret_cast<uint8_t *>(const_cast<float *>(A)),
-                     reinterpret_cast<uint8_t *>(AP),
-                     tilingDevice, tiling->useCoreNum, stream);
+    strttp_kernel_do(
+        reinterpret_cast<uint8_t*>(const_cast<float*>(A)), reinterpret_cast<uint8_t*>(AP), tilingDevice,
+        tiling->useCoreNum, stream);
 
     aclRet = aclrtSynchronizeStream(stream);
     if (aclRet != ACL_SUCCESS) {
@@ -148,15 +146,14 @@ static aclblasStatus_t ExecuteKernel(const float *A, float *AP,
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
-aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo,
-                              int n, const float *A, int lda, float *AP)
+aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* A, int lda, float* AP)
 {
     aclblasStatus_t status = ValidateParams(handle, n, uplo, lda, A, AP);
     if (status != ACLBLAS_STATUS_SUCCESS || n == 0) {
         return status;
     }
 
-    auto *h = reinterpret_cast<_aclblas_handle *>(handle);
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     uint32_t uploVal = (uplo == ACLBLAS_LOWER) ? 0 : 1;
     uint32_t uN = static_cast<uint32_t>(n);
     uint32_t uLda = static_cast<uint32_t>(lda);

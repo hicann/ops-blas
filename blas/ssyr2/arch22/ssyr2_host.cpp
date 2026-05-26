@@ -17,16 +17,16 @@
 #include "common/helper/aclblas_handle_internal.h"
 
 #define CHECK_RET(cond, return_expr) \
-  do {                               \
-    if (!(cond)) {                   \
-      return_expr;                   \
-    }                                \
-  } while (0)
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-#define LOG_PRINT(message, ...)     \
-  do {                              \
-    printf(message, ##__VA_ARGS__); \
-  } while (0)
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 constexpr uint32_t WORKSPACE_SIZE = 1024;
@@ -38,17 +38,13 @@ struct Ssyr2TilingData {
     uint32_t coreNum;
 };
 
-aclblasStatus_t aclblasSsyr2(aclblasHandle handle,
-                             aclblasFillMode uplo,
-                             const int64_t n,
-                             const float alpha,
-                             uint8_t *x, const int64_t incx,
-                             uint8_t *y, const int64_t incy,
-                             uint8_t *A, const int64_t lda)
+aclblasStatus_t aclblasSsyr2(
+    aclblasHandle_t handle, aclblasFillMode uplo, const int64_t n, const float alpha, uint8_t* x, const int64_t incx,
+    uint8_t* y, const int64_t incy, uint8_t* A, const int64_t lda)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
-    
+
     uint32_t vecCoreNum = DEFAULT_VECTOR_NUM;
 
     Ssyr2TilingData tiling;
@@ -61,17 +57,26 @@ aclblasStatus_t aclblasSsyr2(aclblasHandle handle,
     uint8_t* tilingDevice = nullptr;
 
     aclError aclRet = aclrtMalloc((void**)&workSpaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
     aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(Ssyr2TilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(Ssyr2TilingData), &tiling, sizeof(Ssyr2TilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(Ssyr2TilingData), &tiling, sizeof(Ssyr2TilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     ssyr2_kernel_do(x, y, A, workSpaceDevice, tilingDevice, vecCoreNum, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(workSpaceDevice);
     aclrtFree(tilingDevice);

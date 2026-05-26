@@ -71,7 +71,7 @@ static SspmvTilingData CalSspmvTilingData(
 }
 
 aclblasStatus_t aclblasSspmv(
-    aclblasHandle handle, aclblasFillMode uplo, int n, const float* alpha, const float* ap, const float* x, int incx,
+    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* ap, const float* x, int incx,
     const float* beta, float* y, int incy)
 {
     // 1. n < 0 check

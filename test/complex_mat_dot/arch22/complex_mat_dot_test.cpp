@@ -1,18 +1,17 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file complex_mat_dot_test.cpp
-* \brief Test for complex matrix dot product
-*/
+ * \file complex_mat_dot_test.cpp
+ * \brief Test for complex matrix dot product
+ */
 
 #include <cstdint>
 #include <iostream>
@@ -35,12 +34,13 @@
         printf(message, ##__VA_ARGS__); \
     } while (0)
 
-uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
+uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
 {
-    auto printTensor = [](std::vector<float> &tensor, const char *name) {
+    auto printTensor = [](std::vector<float>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 20;
         std::cout << name << ": ";
-        std::copy(tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
+        std::copy(
+            tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
             std::ostream_iterator<float>(std::cout, " "));
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -69,7 +69,7 @@ uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
     }
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     int32_t deviceId = 0;
     aclrtStream stream = nullptr;
@@ -97,18 +97,18 @@ int32_t main(int32_t argc, char *argv[])
     aclblasSetStream(handle, stream);
 
     size_t dataSize = complexSize * sizeof(float);
-    
+
     uint8_t* matxDevice = nullptr;
     uint8_t* matyDevice = nullptr;
     uint8_t* resultDevice = nullptr;
-    
+
     aclError aclRet = aclrtMalloc((void**)&matxDevice, dataSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc matxDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMalloc((void**)&matyDevice, dataSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc matyDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMalloc((void**)&resultDevice, dataSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc resultDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    
+
     aclRet = aclrtMemcpy(matxDevice, dataSize, matx.data(), dataSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy matxDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(matyDevice, dataSize, maty.data(), dataSize, ACL_MEMCPY_HOST_TO_DEVICE);
@@ -118,17 +118,17 @@ int32_t main(int32_t argc, char *argv[])
 
     auto ret = aclblasComplexMatDot(handle, m, n, matxDevice, matyDevice, resultDevice);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasComplexMatDot failed. ERROR: %d\n", ret); return ret);
-    
+
     aclRet = aclrtSynchronizeStream(stream);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
-    
+
     aclRet = aclrtMemcpy(result.data(), dataSize, resultDevice, dataSize, ACL_MEMCPY_DEVICE_TO_HOST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy result failed. ERROR: %d\n", aclRet); return aclRet);
-    
+
     aclrtFree(matxDevice);
     aclrtFree(matyDevice);
     aclrtFree(resultDevice);
-    
+
     aclblasDestroy(handle);
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);

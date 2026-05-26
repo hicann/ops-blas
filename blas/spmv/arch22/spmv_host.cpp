@@ -1,13 +1,12 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
  * \file spmv.asc
@@ -23,8 +22,7 @@
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
-
-using aclblasHandle = void *;
+#include "common/helper/aclblas_handle_internal.h"
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -48,8 +46,8 @@ struct SpmvTilingData {
     uint32_t taskStep[MAX_CORE_NUM];
 };
 
-SpmvTilingData CalTilingData(uint32_t totalRows, uint32_t vecCoreNum, float alpha, float beta,
-    int64_t incx, int64_t incy)
+SpmvTilingData CalTilingData(
+    uint32_t totalRows, uint32_t vecCoreNum, float alpha, float beta, int64_t incx, int64_t incy)
 {
     SpmvTilingData tilingData{};
     tilingData.n = totalRows;
@@ -89,11 +87,15 @@ SpmvTilingData CalTilingData(uint32_t totalRows, uint32_t vecCoreNum, float alph
     return tilingData;
 }
 
-
-int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
-    const float alpha, const float beta,
-    const int64_t n, const int64_t incx, const int64_t incy, void *stream)
+aclblasStatus_t aclblasSpmv(
+    aclblasHandle_t handle, const float* aPacked, const float* x, const float* y, float* z, const float alpha,
+    const float beta, const int64_t n, const int64_t incx, const int64_t incy)
 {
+    aclrtStream useStream = nullptr;
+    if (handle != nullptr) {
+        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        useStream = h->stream;
+    }
     constexpr uint32_t numBlocks = 8;
     const size_t vecByteSize = static_cast<size_t>(n) * sizeof(float);
     const size_t nSize = static_cast<size_t>(n);
@@ -102,25 +104,25 @@ int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
 
     SpmvTilingData tiling = CalTilingData(static_cast<uint32_t>(n), numBlocks, alpha, beta, incx, incy);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
-    uint8_t *zDevice = nullptr;
-    uint8_t *tilingDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
+    uint8_t* zDevice = nullptr;
+    uint8_t* tilingDevice = nullptr;
 
-    aclrtMalloc((void **)&aDevice, packedByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&xDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&yDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&zDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void **)&tilingDevice, sizeof(SpmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&aDevice, packedByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&xDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&yDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&zDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&tilingDevice, sizeof(SpmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
 
     aclrtMemcpy(aDevice, packedByteSize, aPacked, packedByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(xDevice, vecByteSize, x, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(tilingDevice, sizeof(SpmvTilingData), &tiling, sizeof(SpmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
 
-    spmv_kernel_do(aDevice, xDevice, yDevice, zDevice, nullptr, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    spmv_kernel_do(aDevice, xDevice, yDevice, zDevice, nullptr, tilingDevice, numBlocks, useStream);
+    aclrtSynchronizeStream(useStream);
 
     aclrtMemcpy(z, vecByteSize, zDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
 
@@ -130,6 +132,5 @@ int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
     aclrtFree(zDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }
-

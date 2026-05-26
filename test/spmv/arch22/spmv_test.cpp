@@ -1,18 +1,17 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file spmv_test.cpp
-* \brief
-*/
+ * \file spmv_test.cpp
+ * \brief
+ */
 
 #include <cstdint>
 #include <iomanip>
@@ -45,7 +44,7 @@ enum class SpmvCompareMode {
 // Change only this line to switch the verification mode.
 constexpr SpmvCompareMode kCompareMode = SpmvCompareMode::FullMatrix;
 
-static const char *GetCompareModeName()
+static const char* GetCompareModeName()
 {
     switch (kCompareMode) {
         case SpmvCompareMode::FullMatrix:
@@ -59,8 +58,9 @@ static const char *GetCompareModeName()
     }
 }
 
-static std::vector<float> BuildGolden(const std::vector<float> &aPacked, const std::vector<float> &x,
-    const std::vector<float> &y, uint32_t n, int64_t incx, int64_t incy, float alpha, float beta)
+static std::vector<float> BuildGolden(
+    const std::vector<float>& aPacked, const std::vector<float>& x, const std::vector<float>& y, uint32_t n,
+    int64_t incx, int64_t incy, float alpha, float beta)
 {
     auto packedIndex = [n](uint32_t i, uint32_t j) {
         if (i < j) {
@@ -110,14 +110,15 @@ static std::vector<float> BuildGolden(const std::vector<float> &aPacked, const s
     return golden;
 }
 
-uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
+uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
 {
     std::cout << std::fixed << std::setprecision(6);
 
-    auto printTensor = [](std::vector<float> &tensor, const char *name) {
+    auto printTensor = [](std::vector<float>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 20;
         std::cout << name << ": ";
-        std::copy(tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
+        std::copy(
+            tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
             std::ostream_iterator<float>(std::cout, " "));
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -137,8 +138,8 @@ uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
 
     for (size_t i = 0; i < output.size(); ++i) {
         if (!closeEnough(output[i], golden[i])) {
-            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i]
-                      << " vs " << golden[i] << ")" << std::endl;
+            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i] << " vs "
+                      << golden[i] << ")" << std::endl;
             return 1;
         }
     }
@@ -185,24 +186,29 @@ static int RunCase(uint32_t n)
     aclrtSetDevice(deviceId);
     aclrtCreateStream(&stream);
 
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
+
     std::vector<float> z(n, 0.0f);
-    auto ret = aclblasSpmv(aPacked.data(), x.data(), y.data(), z.data(), alpha, beta, n, incx, incy, stream);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSpmv failed. ERROR: %d\n", ret); return ret);
+    aclblasStatus_t ret = aclblasSpmv(handle, aPacked.data(), x.data(), y.data(), z.data(), alpha, beta, n, incx, incy);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSpmv failed. ERROR: %d\n", ret); return ret);
 
     std::vector<float> golden = BuildGolden(aPacked, x, y, n, incx, incy, alpha, beta);
     int status = VerifyResult(z, golden);
 
+    aclblasDestroy(handle);
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
     return status;
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
-    int ret = RunCase(6144);  // exactly two 128x128 tiles
+    int ret = RunCase(6144); // exactly two 128x128 tiles
     if (ret != 0) {
         return ret;
     }
-    return RunCase(5000);  // 128x128 tiling with tail blocks
+    return RunCase(5000); // 128x128 tiling with tail blocks
 }

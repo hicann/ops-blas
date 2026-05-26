@@ -1,13 +1,12 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use the License for the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use the License for the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
  * \file iamax_host.cpp
@@ -26,20 +25,22 @@
 #include "common/helper/aclblas_handle_internal.h"
 
 #define CHECK_RET(cond, return_expr) \
-  do {                               \
-    if (!(cond)) {                   \
-      return_expr;                   \
-    }                                \
-  } while (0)
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-#define LOG_PRINT(message, ...)     \
-  do {                              \
-    printf(message, ##__VA_ARGS__); \
-  } while (0)
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 // Constants from original tiling implementation
-constexpr int32_t MAXNUMF32ELEEACHCORE = 23040;       // å®æ°è¶è¿è¿ä¹å¤ä¸ªï¼éè¦å¤è½®å¾ªç¯å¤ç?
-constexpr int32_t MAX_NUM_COM_ELE_EACH_CORE = 11520;  // å¤æ°è¶è¿è¿ä¹å¤ä¸ªï¼éè¦å¤è½®å¾ªç¯å¤ç?
+constexpr int32_t MAXNUMF32ELEEACHCORE =
+    23040; // å®æ°è¶è¿è¿ä¹å¤ä¸ªï¼éè¦å¤è½®å¾ªç¯å¤ç?
+constexpr int32_t MAX_NUM_COM_ELE_EACH_CORE =
+    11520; // å¤æ°è¶è¿è¿ä¹å¤ä¸ªï¼éè¦å¤è½®å¾ªç¯å¤ç?
 constexpr int32_t BYTESPERBLOCK = 32;
 constexpr int32_t BYTESPERREPEAT = 256;
 constexpr int32_t F32LEN = 4;
@@ -94,7 +95,9 @@ uint32_t GetNeedVecCoreNum(uint32_t tensorLen, uint32_t elements)
     if (tensorLen > MAXVECTORNUM * elements) {
         needVecCoreNum = MAXVECTORNUM;
     } else if (tensorLen > elements) {
-        needVecCoreNum = tensorLen / elements;  // ä¸è¶³ä¸ä¸ªrepeatçæ°æ®ç»ç¬¬ä¸ä¸ªæ ¸ï¼åå°å¤æ ¸åæ­¥çå¯è½æ?
+        needVecCoreNum =
+            tensorLen /
+            elements; // ä¸è¶³ä¸ä¸ªrepeatçæ°æ®ç»ç¬¬ä¸ä¸ªæ ¸ï¼åå°å¤æ ¸åæ­¥çå¯è½æ?
     } else {
         needVecCoreNum = 1;
     }
@@ -136,20 +139,20 @@ IamaxTilingData CalIamaxTilingData(uint32_t n, uint32_t incx, uint32_t vecCoreNu
     uint32_t minEleRepeatsNumbeTail = minEleRepeatsNumber % needVecCoreNum;
 
     // Allocate temporary arrays for tiling calculation
-    uint32_t *allMem = new uint32_t[12 * MAXVECTORNUM];
-    
-    uint32_t *startOffset = allMem;
-    uint32_t *endOffset = allMem + MAXVECTORNUM;
-    uint32_t *eleTotalEachCore = allMem + 2 * MAXVECTORNUM;
-    uint32_t *dealLenEachTime = allMem + 3 * MAXVECTORNUM;
-    uint32_t *dealTimesEachCore = allMem + 4 * MAXVECTORNUM;
-    uint32_t *reduceMaxRstsLenEachCore = allMem + 5 * MAXVECTORNUM;
-    uint32_t *dealLenUpBlockEachTime = allMem + 6 * MAXVECTORNUM;
-    uint32_t *totalRptCntNor = allMem + 7 * MAXVECTORNUM;
-    uint32_t *totalRptCntNorRemainder = allMem + 8 * MAXVECTORNUM;
-    uint32_t *rptBatchCntNor = allMem + 9 * MAXVECTORNUM;
-    uint32_t *rptBatchCntNorRemainder = allMem + 10 * MAXVECTORNUM;
-    uint32_t *rmdRptLenNor = allMem + 11 * MAXVECTORNUM;
+    uint32_t* allMem = new uint32_t[12 * MAXVECTORNUM];
+
+    uint32_t* startOffset = allMem;
+    uint32_t* endOffset = allMem + MAXVECTORNUM;
+    uint32_t* eleTotalEachCore = allMem + 2 * MAXVECTORNUM;
+    uint32_t* dealLenEachTime = allMem + 3 * MAXVECTORNUM;
+    uint32_t* dealTimesEachCore = allMem + 4 * MAXVECTORNUM;
+    uint32_t* reduceMaxRstsLenEachCore = allMem + 5 * MAXVECTORNUM;
+    uint32_t* dealLenUpBlockEachTime = allMem + 6 * MAXVECTORNUM;
+    uint32_t* totalRptCntNor = allMem + 7 * MAXVECTORNUM;
+    uint32_t* totalRptCntNorRemainder = allMem + 8 * MAXVECTORNUM;
+    uint32_t* rptBatchCntNor = allMem + 9 * MAXVECTORNUM;
+    uint32_t* rptBatchCntNorRemainder = allMem + 10 * MAXVECTORNUM;
+    uint32_t* rmdRptLenNor = allMem + 11 * MAXVECTORNUM;
 
     uint32_t eleLenEachCore = 0;
     for (uint32_t i = 0; i < needVecCoreNum; i++) {
@@ -166,7 +169,7 @@ IamaxTilingData CalIamaxTilingData(uint32_t n, uint32_t incx, uint32_t vecCoreNu
             minEleRepeatsNumbeTail--;
         }
         dealTimesEachCore[i] = 0;
-        dealLenEachTime[i] = eleLenEachCore;  // ä¸å¸¦å°¾åç®?
+        dealLenEachTime[i] = eleLenEachCore; // ä¸å¸¦å°¾åç®?
         if (eleLenEachCore > 0 && eleLenEachCore <= MAXNUMF32ELEEACHCORE) {
             dealTimesEachCore[i] = 1;
         } else if (eleLenEachCore > MAXNUMF32ELEEACHCORE) {
@@ -179,7 +182,7 @@ IamaxTilingData CalIamaxTilingData(uint32_t n, uint32_t incx, uint32_t vecCoreNu
 
         uint32_t dealLenEachTimeAttachTail = dealLenEachTime[i];
         if (i == 0 && minEleRepeatTail != 0) {
-            eleLenEachCore += minEleRepeatTail;  // å°¾åå¨ç»ç¬¬ä¸ä¸ªæ ¸
+            eleLenEachCore += minEleRepeatTail; // å°¾åå¨ç»ç¬¬ä¸ä¸ªæ ¸
             if (dealTimesEachCore[i] == 0) {
                 dealTimesEachCore[i] = 1;
             }
@@ -193,9 +196,9 @@ IamaxTilingData CalIamaxTilingData(uint32_t n, uint32_t incx, uint32_t vecCoreNu
         dealLenUpBlockEachTime[i] = CeilA2B(dealLenEachTimeAttachTail, ELEMENTS_IN_BLOCK) * ELEMENTS_IN_BLOCK;
 
         totalRptCntNor[i] = dealLenEachTime[i] / elementsPerRepeat;
-        totalRptCntNorRemainder[i] = dealLenEachTime[i] % elementsPerRepeat;  // should calc
-        rptBatchCntNor[i] = totalRptCntNor[i] / MAX_REPEATS;                  // limit by L0 API, should calc
-        rptBatchCntNorRemainder[i] = totalRptCntNor[i] % MAX_REPEATS;         // should calc
+        totalRptCntNorRemainder[i] = dealLenEachTime[i] % elementsPerRepeat; // should calc
+        rptBatchCntNor[i] = totalRptCntNor[i] / MAX_REPEATS;                 // limit by L0 API, should calc
+        rptBatchCntNorRemainder[i] = totalRptCntNor[i] % MAX_REPEATS;        // should calc
         rmdRptLenNor[i] = rptBatchCntNorRemainder[i] * elementsPerRepeat;
     }
     uint32_t maxRepeatLen = MAX_REPEATS * elementsPerRepeat;
@@ -207,7 +210,7 @@ IamaxTilingData CalIamaxTilingData(uint32_t n, uint32_t incx, uint32_t vecCoreNu
     tilingData.rstLenAllCoreBytes = rstLenAllCoreBytes;
     tilingData.tailCount = minEleRepeatTail;
     tilingData.maxRepeatLen = maxRepeatLen;
-    
+
     uint32_t copyLen = MAXVECTORNUM * sizeof(uint32_t);
     memcpy(tilingData.startOffset, startOffset, copyLen);
     memcpy(tilingData.eleTotalEachCore, eleTotalEachCore, copyLen);
@@ -226,12 +229,11 @@ IamaxTilingData CalIamaxTilingData(uint32_t n, uint32_t incx, uint32_t vecCoreNu
     return tilingData;
 }
 
-
-aclblasStatus_t aclblasIamax(aclblasHandle handle, const int64_t n, uint8_t *x, const int64_t incx, uint8_t *result)
+aclblasStatus_t aclblasIamax(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
-    
+
     uint32_t needVecCoreNum = 1;
     uint32_t mixCoreNum = CeilA2B(needVecCoreNum, 2);
     if (mixCoreNum == 0) {
@@ -243,28 +245,37 @@ aclblasStatus_t aclblasIamax(aclblasHandle handle, const int64_t n, uint8_t *x, 
     uint32_t actualN = n;
 
     IamaxTilingData tiling = CalIamaxTilingData(n, incx, numBlocks, dtypeFlag);
-    
+
     numBlocks = CeilA2B(tiling.needVecCoreNum, 2);
     if (numBlocks == 0) {
         numBlocks = 1;
     }
 
-    uint8_t *workspaceDevice = nullptr;
-    uint8_t *tilingDevice = nullptr;
+    uint8_t* workspaceDevice = nullptr;
+    uint8_t* tilingDevice = nullptr;
     size_t workspaceSize = 16 * 1024 * 1024 + MAXVECTORNUM * GM_RESULT_LEN * BYTE_LEN_4;
 
-    aclError aclRet = aclrtMalloc((void **)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+    aclError aclRet = aclrtMalloc((void**)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(IamaxTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(IamaxTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(IamaxTilingData), &tiling, sizeof(IamaxTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(IamaxTilingData), &tiling, sizeof(IamaxTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     iamax_kernel_do(x, result, workspaceDevice, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(workspaceDevice);
     aclrtFree(tilingDevice);

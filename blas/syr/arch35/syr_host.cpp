@@ -60,25 +60,22 @@ static SyrTilingData CalSyrTilingData(int64_t n, int64_t lda, uint32_t uplo, uin
 
 namespace {
 
-inline _aclblas_handle *ToInternal(aclblasHandle_t handle)
-{
-    return reinterpret_cast<_aclblas_handle *>(handle);
-}
+inline _aclblas_handle* ToInternal(aclblasHandle_t handle) { return reinterpret_cast<_aclblas_handle*>(handle); }
 
 } // namespace
 
-static aclblasStatus_t PrepareContiguousX(const float *x, int64_t n, int64_t incx,
-                                           float **xContiguousDevice, bool *needFreeX)
+static aclblasStatus_t PrepareContiguousX(
+    const float* x, int64_t n, int64_t incx, float** xContiguousDevice, bool* needFreeX)
 {
     if (incx == 1) {
-        *xContiguousDevice = const_cast<float *>(x);
+        *xContiguousDevice = const_cast<float*>(x);
         *needFreeX = false;
         return ACLBLAS_STATUS_SUCCESS;
     }
 
     size_t xContiguousBytes = static_cast<size_t>(n) * sizeof(float);
-    aclError aclRet = aclrtMalloc(reinterpret_cast<void **>(xContiguousDevice), xContiguousBytes,
-                                   ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet =
+        aclrtMalloc(reinterpret_cast<void**>(xContiguousDevice), xContiguousBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     if (aclRet != ACL_SUCCESS) {
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
@@ -87,9 +84,7 @@ static aclblasStatus_t PrepareContiguousX(const float *x, int64_t n, int64_t inc
     int64_t absIncx = std::abs(incx);
     size_t xTotalBytes = static_cast<size_t>(1 + (n - 1) * absIncx) * sizeof(float);
     std::vector<float> xHost(1 + (n - 1) * absIncx, 0.0f);
-    aclRet = aclrtMemcpy(xHost.data(), xTotalBytes,
-                         const_cast<float *>(x), xTotalBytes,
-                         ACL_MEMCPY_DEVICE_TO_HOST);
+    aclRet = aclrtMemcpy(xHost.data(), xTotalBytes, const_cast<float*>(x), xTotalBytes, ACL_MEMCPY_DEVICE_TO_HOST);
     if (aclRet != ACL_SUCCESS) {
         aclrtFree(*xContiguousDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
@@ -108,9 +103,8 @@ static aclblasStatus_t PrepareContiguousX(const float *x, int64_t n, int64_t inc
         }
     }
 
-    aclRet = aclrtMemcpy(*xContiguousDevice, xContiguousBytes,
-                         xContiguousHost.data(), xContiguousBytes,
-                         ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMemcpy(
+        *xContiguousDevice, xContiguousBytes, xContiguousHost.data(), xContiguousBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     if (aclRet != ACL_SUCCESS) {
         aclrtFree(*xContiguousDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
@@ -119,10 +113,9 @@ static aclblasStatus_t PrepareContiguousX(const float *x, int64_t n, int64_t inc
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-static aclblasStatus_t AllocAndCopyToDevice(uint8_t **devicePtr, const void *hostPtr, size_t size)
+static aclblasStatus_t AllocAndCopyToDevice(uint8_t** devicePtr, const void* hostPtr, size_t size)
 {
-    aclError aclRet = aclrtMalloc(reinterpret_cast<void **>(devicePtr), size,
-                                   ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc(reinterpret_cast<void**>(devicePtr), size, ACL_MEM_MALLOC_HUGE_FIRST);
     if (aclRet != ACL_SUCCESS) {
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
@@ -134,38 +127,36 @@ static aclblasStatus_t AllocAndCopyToDevice(uint8_t **devicePtr, const void *hos
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-static aclblasStatus_t LaunchSyrKernel(float alphaVal, const SyrTilingData &tiling,
-                                       float *xContiguousDevice, bool needFreeX,
-                                       float *A, aclrtStream stream)
+static aclblasStatus_t LaunchSyrKernel(
+    float alphaVal, const SyrTilingData& tiling, float* xContiguousDevice, bool needFreeX, float* A, aclrtStream stream)
 {
-    float *alphaDevice = nullptr;
-    aclblasStatus_t status = AllocAndCopyToDevice(reinterpret_cast<uint8_t **>(&alphaDevice),
-                                                   &alphaVal, sizeof(float));
+    float* alphaDevice = nullptr;
+    aclblasStatus_t status = AllocAndCopyToDevice(reinterpret_cast<uint8_t**>(&alphaDevice), &alphaVal, sizeof(float));
     if (status != ACLBLAS_STATUS_SUCCESS) {
-        if (needFreeX) aclrtFree(xContiguousDevice);
+        if (needFreeX)
+            aclrtFree(xContiguousDevice);
         return status;
     }
 
-    uint8_t *tilingDevice = nullptr;
+    uint8_t* tilingDevice = nullptr;
     status = AllocAndCopyToDevice(&tilingDevice, &tiling, sizeof(SyrTilingData));
     if (status != ACLBLAS_STATUS_SUCCESS) {
         aclrtFree(alphaDevice);
-        if (needFreeX) aclrtFree(xContiguousDevice);
+        if (needFreeX)
+            aclrtFree(xContiguousDevice);
         return status;
     }
 
-    syr_kernel_do(reinterpret_cast<GM_ADDR>(xContiguousDevice),
-                  reinterpret_cast<GM_ADDR>(A),
-                  reinterpret_cast<GM_ADDR>(alphaDevice),
-                  reinterpret_cast<GM_ADDR>(tilingDevice),
-                  tiling.useCoreNum,
-                  stream);
+    syr_kernel_do(
+        reinterpret_cast<GM_ADDR>(xContiguousDevice), reinterpret_cast<GM_ADDR>(A),
+        reinterpret_cast<GM_ADDR>(alphaDevice), reinterpret_cast<GM_ADDR>(tilingDevice), tiling.useCoreNum, stream);
 
     aclError aclRet = aclrtSynchronizeStream(stream);
     if (aclRet != ACL_SUCCESS) {
         aclrtFree(alphaDevice);
         aclrtFree(tilingDevice);
-        if (needFreeX) aclrtFree(xContiguousDevice);
+        if (needFreeX)
+            aclrtFree(xContiguousDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
@@ -178,19 +169,15 @@ static aclblasStatus_t LaunchSyrKernel(float alphaVal, const SyrTilingData &tili
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-aclblasStatus_t aclblasSsyr(aclblasHandle handle,
-                             aclblasFillMode uplo,
-                             const int n,
-                             const float *alpha,
-                             const float *x, const int incx,
-                             float *A, const int lda)
+aclblasStatus_t aclblasSsyr(
+    aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,
+    float* A, const int lda)
 {
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    if (n < 0 || lda < std::max(1, n) || incx == 0 ||
-        alpha == nullptr || x == nullptr || A == nullptr) {
+    if (n < 0 || lda < std::max(1, n) || incx == 0 || alpha == nullptr || x == nullptr || A == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
@@ -204,7 +191,7 @@ aclblasStatus_t aclblasSsyr(aclblasHandle handle,
 
     aclrtStream stream = nullptr;
     if (handle != nullptr) {
-        auto *h = ToInternal(handle);
+        auto* h = ToInternal(handle);
         stream = h->stream;
     }
 
@@ -213,16 +200,14 @@ aclblasStatus_t aclblasSsyr(aclblasHandle handle,
         coreNum = 1;
     }
 
-    float *xContiguousDevice = nullptr;
+    float* xContiguousDevice = nullptr;
     bool needFreeX = false;
     aclblasStatus_t status = PrepareContiguousX(x, n, incx, &xContiguousDevice, &needFreeX);
     if (status != ACLBLAS_STATUS_SUCCESS) {
         return status;
     }
 
-    SyrTilingData tiling = CalSyrTilingData(n, lda,
-                                             (uplo == ACLBLAS_UPPER) ? 1u : 0u,
-                                             coreNum);
+    SyrTilingData tiling = CalSyrTilingData(n, lda, (uplo == ACLBLAS_UPPER) ? 1u : 0u, coreNum);
 
     return LaunchSyrKernel(alphaVal, tiling, xContiguousDevice, needFreeX, A, stream);
 }

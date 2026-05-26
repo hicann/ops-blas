@@ -1,17 +1,17 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file sbmv_test.cpp
-* \brief
-*/
+ * \file sbmv_test.cpp
+ * \brief
+ */
 
 #include <algorithm>
 #include <cstdint>
@@ -39,9 +39,9 @@
 
 // ---- golden / verify / data helpers ----
 
-static std::vector<float> BuildGolden(const std::vector<float> &a, const std::vector<float> &x,
-    const std::vector<float> &y, int n, int k, int lda, aclblasFillMode uplo,
-    int incx, int incy, float alpha, float beta)
+static std::vector<float> BuildGolden(
+    const std::vector<float>& a, const std::vector<float>& x, const std::vector<float>& y, int n, int k, int lda,
+    aclblasFillMode uplo, int incx, int incy, float alpha, float beta)
 {
     std::vector<float> golden(n, 0.0f);
     for (int i = 0; i < n; ++i) {
@@ -63,15 +63,16 @@ static std::vector<float> BuildGolden(const std::vector<float> &a, const std::ve
     return golden;
 }
 
-static uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
+static uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
 {
     std::cout << std::fixed << std::setprecision(6);
-    auto printTensor = [](std::vector<float> &t, const char *name) {
+    auto printTensor = [](std::vector<float>& t, const char* name) {
         constexpr size_t maxN = 20;
         size_t n = std::min(t.size(), maxN);
         std::cout << name << ": ";
         std::copy(t.begin(), t.begin() + n, std::ostream_iterator<float>(std::cout, " "));
-        if (t.size() > maxN) std::cout << "...";
+        if (t.size() > maxN)
+            std::cout << "...";
         std::cout << std::endl;
     };
     printTensor(output, "Output");
@@ -90,9 +91,9 @@ static uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &gol
     return 0;
 }
 
-static void FillTestData(std::vector<float>& a, std::vector<float>& x, std::vector<float>& y,
-    std::vector<float>& yCopy, int n, int k, int lda, aclblasFillMode uplo,
-    int incx, int incy)
+static void FillTestData(
+    std::vector<float>& a, std::vector<float>& x, std::vector<float>& y, std::vector<float>& yCopy, int n, int k,
+    int lda, aclblasFillMode uplo, int incx, int incy)
 {
     size_t xSize = (n > 0) ? static_cast<size_t>(std::abs(incx) * (n - 1) + 1) : 0;
     size_t ySize = (n > 0) ? static_cast<size_t>(std::abs(incy) * (n - 1) + 1) : 0;
@@ -105,9 +106,14 @@ static void FillTestData(std::vector<float>& a, std::vector<float>& x, std::vect
     std::uniform_real_distribution<float> dist(0.0f, 0.5f);
 
     for (int j = 0; j < n; ++j)
-        for (int row = 0; row < lda; ++row) a[row + lda * j] = dist(rng);
-    for (size_t i = 0; i < xSize; ++i) x[i] = dist(rng);
-    for (size_t i = 0; i < ySize; ++i) { y[i] = dist(rng); yCopy[i] = y[i]; }
+        for (int row = 0; row < lda; ++row)
+            a[row + lda * j] = dist(rng);
+    for (size_t i = 0; i < xSize; ++i)
+        x[i] = dist(rng);
+    for (size_t i = 0; i < ySize; ++i) {
+        y[i] = dist(rng);
+        yCopy[i] = y[i];
+    }
 }
 
 static std::vector<float> ExtractYFlat(const std::vector<float>& y, int n, int incy)
@@ -128,25 +134,31 @@ struct TestContext {
 
     bool Init()
     {
-        if (aclInit(nullptr) != ACL_SUCCESS) return false;
-        return aclrtSetDevice(deviceId) == ACL_SUCCESS
-            && aclrtCreateStream(&stream) == ACL_SUCCESS
-            && aclblasCreate(&handle) == ACL_SUCCESS
-            && aclblasSetStream(handle, stream) == ACL_SUCCESS;
+        if (aclInit(nullptr) != ACL_SUCCESS)
+            return false;
+        return aclrtSetDevice(deviceId) == ACL_SUCCESS && aclrtCreateStream(&stream) == ACL_SUCCESS &&
+               aclblasCreate(&handle) == ACL_SUCCESS && aclblasSetStream(handle, stream) == ACL_SUCCESS;
     }
 
     bool AllocBuffers(const void* aSrc, size_t aSz, const void* xSrc, size_t xSz, const void* ySrc, size_t ySz)
     {
         aclError r;
         if ((r = aclrtMalloc((void**)&aDevice, aSz, ACL_MEM_MALLOC_HUGE_FIRST)) != ACL_SUCCESS) {
-            LOG_PRINT("malloc aDevice failed: %d\n", r); return false;
+            LOG_PRINT("malloc aDevice failed: %d\n", r);
+            return false;
         }
         if ((r = aclrtMalloc((void**)&xDevice, xSz, ACL_MEM_MALLOC_HUGE_FIRST)) != ACL_SUCCESS) {
-            LOG_PRINT("malloc xDevice failed: %d\n", r); aclrtFree(aDevice); aDevice = nullptr; return false;
+            LOG_PRINT("malloc xDevice failed: %d\n", r);
+            aclrtFree(aDevice);
+            aDevice = nullptr;
+            return false;
         }
         if ((r = aclrtMalloc((void**)&yDevice, ySz, ACL_MEM_MALLOC_HUGE_FIRST)) != ACL_SUCCESS) {
-            LOG_PRINT("malloc yDevice failed: %d\n", r); aclrtFree(aDevice); aclrtFree(xDevice);
-            aDevice = xDevice = nullptr; return false;
+            LOG_PRINT("malloc yDevice failed: %d\n", r);
+            aclrtFree(aDevice);
+            aclrtFree(xDevice);
+            aDevice = xDevice = nullptr;
+            return false;
         }
         aclrtMemcpy(aDevice, aSz, aSrc, aSz, ACL_MEMCPY_HOST_TO_DEVICE);
         aclrtMemcpy(xDevice, xSz, xSrc, xSz, ACL_MEMCPY_HOST_TO_DEVICE);
@@ -156,9 +168,12 @@ struct TestContext {
 
     ~TestContext()
     {
-        aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice);
+        aclrtFree(aDevice);
+        aclrtFree(xDevice);
+        aclrtFree(yDevice);
         aclblasDestroy(handle);
-        if (stream) aclrtDestroyStream(stream);
+        if (stream)
+            aclrtDestroyStream(stream);
         aclrtResetDevice(deviceId);
         aclFinalize();
     }
@@ -170,27 +185,29 @@ struct TestContext {
 
 // ---- test runner ----
 
-static int RunCase(const char* caseName, int n, int k, aclblasFillMode uplo,
-    float alpha, float beta, int incx, int incy, int lda)
+static int RunCase(
+    const char* caseName, int n, int k, aclblasFillMode uplo, float alpha, float beta, int incx, int incy, int lda)
 {
     std::cout << "\n[" << caseName << "] n=" << n << " k=" << k
-              << " uplo=" << (uplo == ACLBLAS_UPPER ? "UPPER" : "LOWER")
-              << " lda=" << lda << " incx=" << incx << " incy=" << incy
-              << " alpha=" << alpha << " beta=" << beta << std::endl;
+              << " uplo=" << (uplo == ACLBLAS_UPPER ? "UPPER" : "LOWER") << " lda=" << lda << " incx=" << incx
+              << " incy=" << incy << " alpha=" << alpha << " beta=" << beta << std::endl;
 
     std::vector<float> a, x, y, yCopy;
     FillTestData(a, x, y, yCopy, n, k, lda, uplo, incx, incy);
 
     TestContext ctx;
-    if (!ctx.Init()) return -1;
+    if (!ctx.Init())
+        return -1;
 
     size_t aSz = static_cast<size_t>(lda) * n * sizeof(float);
     size_t xSz = (n > 0) ? static_cast<size_t>(std::abs(incx) * (n - 1) + 1) * sizeof(float) : 0;
     size_t ySz = (n > 0) ? static_cast<size_t>(std::abs(incy) * (n - 1) + 1) * sizeof(float) : 0;
-    if (n > 0 && !ctx.AllocBuffers(a.data(), aSz, x.data(), xSz, y.data(), ySz)) return -1;
+    if (n > 0 && !ctx.AllocBuffers(a.data(), aSz, x.data(), xSz, y.data(), ySz))
+        return -1;
 
-    int ret = aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, (const float*)ctx.aDevice, lda,
-                           (const float*)ctx.xDevice, incx, &beta, (float*)ctx.yDevice, incy);
+    int ret = aclblasSsbmv(
+        ctx.handle, uplo, n, k, &alpha, (const float*)ctx.aDevice, lda, (const float*)ctx.xDevice, incx, &beta,
+        (float*)ctx.yDevice, incy);
     if (ret != ACLBLAS_STATUS_SUCCESS) {
         LOG_PRINT("aclblasSsbmv failed: %d\n", ret);
         return ret;
@@ -229,41 +246,55 @@ static int TestInvalidParameters()
     std::vector<float> a(lda * n, 0.0f), x(n, 0.0f), y(n, 0.0f);
 
     TestContext ctx;
-    if (!ctx.Init()) return -1;
+    if (!ctx.Init())
+        return -1;
 
     int failed = 0;
 #define CHECK_PARAM(name, expr) failed |= CheckInvalid(name, (expr))
 
-    CHECK_PARAM("invalid uplo",
-        aclblasSsbmv(ctx.handle, static_cast<aclblasFillMode>(100), n, k, &alpha, a.data(), lda, x.data(), incx, &beta, y.data(), incy));
-    CHECK_PARAM("k < 0",
-        aclblasSsbmv(ctx.handle, uplo, n, -1, &alpha, a.data(), lda, x.data(), incx, &beta, y.data(), incy));
-    CHECK_PARAM("lda < k+1",
-        aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), k, x.data(), incx, &beta, y.data(), incy));
-    CHECK_PARAM("incx == 0",
-        aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), lda, x.data(), 0, &beta, y.data(), incy));
-    CHECK_PARAM("incy == 0",
-        aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), lda, x.data(), incx, &beta, y.data(), 0));
-    CHECK_PARAM("alpha == nullptr",
+    CHECK_PARAM(
+        "invalid uplo", aclblasSsbmv(
+                            ctx.handle, static_cast<aclblasFillMode>(100), n, k, &alpha, a.data(), lda, x.data(), incx,
+                            &beta, y.data(), incy));
+    CHECK_PARAM(
+        "k < 0", aclblasSsbmv(ctx.handle, uplo, n, -1, &alpha, a.data(), lda, x.data(), incx, &beta, y.data(), incy));
+    CHECK_PARAM(
+        "lda < k+1", aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), k, x.data(), incx, &beta, y.data(), incy));
+    CHECK_PARAM(
+        "incx == 0", aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), lda, x.data(), 0, &beta, y.data(), incy));
+    CHECK_PARAM(
+        "incy == 0", aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), lda, x.data(), incx, &beta, y.data(), 0));
+    CHECK_PARAM(
+        "alpha == nullptr",
         aclblasSsbmv(ctx.handle, uplo, n, k, nullptr, a.data(), lda, x.data(), incx, &beta, y.data(), incy));
-    CHECK_PARAM("beta == nullptr",
+    CHECK_PARAM(
+        "beta == nullptr",
         aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), lda, x.data(), incx, nullptr, y.data(), incy));
-    CHECK_PARAM("A == nullptr",
+    CHECK_PARAM(
+        "A == nullptr",
         aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, nullptr, lda, x.data(), incx, &beta, y.data(), incy));
-    CHECK_PARAM("x == nullptr",
+    CHECK_PARAM(
+        "x == nullptr",
         aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), lda, nullptr, incx, &beta, y.data(), incy));
-    CHECK_PARAM("y == nullptr",
+    CHECK_PARAM(
+        "y == nullptr",
         aclblasSsbmv(ctx.handle, uplo, n, k, &alpha, a.data(), lda, x.data(), incx, &beta, nullptr, incy));
 #undef CHECK_PARAM
 
-    if (failed) return 1;
+    if (failed)
+        return 1;
     std::cout << "[Success] All parameter validation tests passed." << std::endl;
     return 0;
 }
 
 // ---- test suites ----
 
-#define RUN_TC(name, ...) do { int _r = RunCase(name, __VA_ARGS__); if (_r != 0) fc++; } while(0)
+#define RUN_TC(name, ...)                    \
+    do {                                     \
+        int _r = RunCase(name, __VA_ARGS__); \
+        if (_r != 0)                         \
+            fc++;                            \
+    } while (0)
 
 static int RunL0Tests()
 {
@@ -297,29 +328,33 @@ static int RunL1Tests()
 static int RunGenTests()
 {
     int fc = 0;
-    struct GenCase { int n, k, lda; aclblasFillMode uplo; float alpha, beta; int incx, incy; };
+    struct GenCase {
+        int n, k, lda;
+        aclblasFillMode uplo;
+        float alpha, beta;
+        int incx, incy;
+    };
     const GenCase cases[] = {
-        {    0,   0,    1, ACLBLAS_LOWER, 1.0f,  0.0f,    1,     1},
-        {    1,   0,    1, ACLBLAS_LOWER, 0.5f,  0.5f,   -1,    -1},
-        {   13,   0,    1, ACLBLAS_LOWER, 0.5f,  0.5f,    2,     5},
-        {  100,  20,   25, ACLBLAS_UPPER, 0.0f,  1.5f,   11,     1},
-        { 1023, 128,  132, ACLBLAS_LOWER, 1.8f,  0.2f,    7,    11},
-        { 4096,   1,    3, ACLBLAS_UPPER, 0.9f,  0.1f,    5,    -3},
+        {0, 0, 1, ACLBLAS_LOWER, 1.0f, 0.0f, 1, 1},
+        {1, 0, 1, ACLBLAS_LOWER, 0.5f, 0.5f, -1, -1},
+        {13, 0, 1, ACLBLAS_LOWER, 0.5f, 0.5f, 2, 5},
+        {100, 20, 25, ACLBLAS_UPPER, 0.0f, 1.5f, 11, 1},
+        {1023, 128, 132, ACLBLAS_LOWER, 1.8f, 0.2f, 7, 11},
+        {4096, 1, 3, ACLBLAS_UPPER, 0.9f, 0.1f, 5, -3},
         // Large incx=1,incy=1 cases for UB path evaluation
-        { 1024, 256,  260, ACLBLAS_LOWER, 0.8f,  1.2f,    1,     1},
-        { 4096,  64,   66, ACLBLAS_UPPER, 0.8f,  1.2f,    1,     1},
-        { 4096, 512,  520, ACLBLAS_LOWER, 0.8f,  1.2f,    1,     1},
+        {1024, 256, 260, ACLBLAS_LOWER, 0.8f, 1.2f, 1, 1},
+        {4096, 64, 66, ACLBLAS_UPPER, 0.8f, 1.2f, 1, 1},
+        {4096, 512, 520, ACLBLAS_LOWER, 0.8f, 1.2f, 1, 1},
         // Large incx=1 cases for UB stress testing
-        { 8192,   1,    3, ACLBLAS_UPPER, 0.9f,  0.1f,    1,     1},
-        { 8192, 128,  132, ACLBLAS_LOWER, 1.5f,  0.3f,    1,     1},
-        { 2048, 128,  132, ACLBLAS_UPPER, 1.5f,  0.3f,    1,     1},
+        {8192, 1, 3, ACLBLAS_UPPER, 0.9f, 0.1f, 1, 1},
+        {8192, 128, 132, ACLBLAS_LOWER, 1.5f, 0.3f, 1, 1},
+        {2048, 128, 132, ACLBLAS_UPPER, 1.5f, 0.3f, 1, 1},
     };
     constexpr int kGenCaseCount = sizeof(cases) / sizeof(cases[0]);
     for (int i = 0; i < kGenCaseCount; i++) {
         const GenCase& c = cases[i];
         std::ostringstream nm;
-        nm << "TC-GEN-" << std::setw(2) << std::setfill('0') << (i + 1)
-           << "-" << (c.uplo == ACLBLAS_UPPER ? "U" : "L");
+        nm << "TC-GEN-" << std::setw(2) << std::setfill('0') << (i + 1) << "-" << (c.uplo == ACLBLAS_UPPER ? "U" : "L");
         RUN_TC(nm.str().c_str(), c.n, c.k, c.uplo, c.alpha, c.beta, c.incx, c.incy, c.lda);
     }
     return fc;
@@ -327,12 +362,13 @@ static int RunGenTests()
 
 #undef RUN_TC
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     std::cout << "========== SBMV Test ==========" << std::endl;
 
     std::cout << "\n--- Stage 1: Invalid Parameter Tests ---" << std::endl;
-    if (TestInvalidParameters()) return 1;
+    if (TestInvalidParameters())
+        return 1;
 
     std::cout << "\n--- Stage 2: L0 Functional Tests ---" << std::endl;
     int l0Failed = RunL0Tests();
@@ -346,7 +382,7 @@ int32_t main(int32_t argc, char *argv[])
     std::cout << "L0 Results:     " << (totalL0 - l0Failed) << "/" << totalL0 << " passed" << std::endl;
     std::cout << "L1 Results:     " << (totalL1 - l1Failed) << "/" << totalL1 << " passed" << std::endl;
     std::cout << "GEN Results:    " << (totalGen - genFailed) << "/" << totalGen << " passed" << std::endl;
-    std::cout << "Total:          " << (totalL0 + totalL1 + totalGen - totalFailed)
-              << "/" << (totalL0 + totalL1 + totalGen) << " passed" << std::endl;
+    std::cout << "Total:          " << (totalL0 + totalL1 + totalGen - totalFailed) << "/"
+              << (totalL0 + totalL1 + totalGen) << " passed" << std::endl;
     return (totalFailed > 0) ? 1 : 0;
 }

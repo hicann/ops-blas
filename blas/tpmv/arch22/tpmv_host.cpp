@@ -21,8 +21,7 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
-
-using aclblasHandle = void*;
+#include "common/helper/aclblas_handle_internal.h"
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -80,8 +79,14 @@ tpmvTilingData CalTilingData(uint32_t totalRows, uint32_t vecCoreNum, int64_t in
     return tilingData;
 }
 
-int aclblasTpmv(const float* aPacked, const float* x, float* y, const int64_t n, const int64_t incx, void* stream)
+aclblasStatus_t aclblasTpmv(
+    aclblasHandle_t handle, const float* aPacked, const float* x, float* y, const int64_t n, const int64_t incx)
 {
+    aclrtStream useStream = nullptr;
+    if (handle != nullptr) {
+        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        useStream = h->stream;
+    }
     constexpr uint32_t numBlocks = 8;
     const size_t vecByteSize = static_cast<size_t>(n) * sizeof(float);
     const size_t nSize = static_cast<size_t>(n);
@@ -106,8 +111,8 @@ int aclblasTpmv(const float* aPacked, const float* x, float* y, const int64_t n,
 
     aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
 
-    tpmv_kernel_do(aDevice, xDevice, yDevice, nullptr, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    tpmv_kernel_do(aDevice, xDevice, yDevice, nullptr, tilingDevice, numBlocks, useStream);
+    aclrtSynchronizeStream(useStream);
 
     aclrtMemcpy(y, vecByteSize, yDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
 
@@ -116,5 +121,5 @@ int aclblasTpmv(const float* aPacked, const float* x, float* y, const int64_t n,
     aclrtFree(yDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

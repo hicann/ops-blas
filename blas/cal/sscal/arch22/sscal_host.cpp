@@ -1,18 +1,17 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file sscal_host.cpp
-* \brief
-*/
+ * \file sscal_host.cpp
+ * \brief
+ */
 
 #include <cstdint>
 #include <iostream>
@@ -26,16 +25,16 @@
 #include "common/helper/aclblas_handle_internal.h"
 
 #define CHECK_RET(cond, return_expr) \
-  do {                               \
-    if (!(cond)) {                   \
-      return_expr;                   \
-    }                                \
-  } while (0)
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-#define LOG_PRINT(message, ...)     \
-  do {                              \
-    printf(message, ##__VA_ARGS__); \
-  } while (0)
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -104,52 +103,66 @@ SscalTilingData CalTilingData(uint32_t totalEleNum, uint32_t vecCoreNum, float a
     return tilingData;
 }
 
-
-aclblasStatus_t aclblasSscal(aclblasHandle handle, const int64_t n, const float alpha, uint8_t *x, const int64_t incx)
+aclblasStatus_t aclblasSscal(aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
-    
+
     uint32_t numBlocks = 8;
 
     SscalTilingData tiling = CalTilingData(n, numBlocks, alpha);
-    
-    uint8_t *tilingDevice = nullptr;
-    aclError aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(SscalTilingData), &tiling, sizeof(SscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    uint8_t* tilingDevice = nullptr;
+    aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(SscalTilingData), &tiling, sizeof(SscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     sscal_kernel_do(x, nullptr, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(tilingDevice);
 
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-aclblasStatus_t aclblasCsscal(aclblasHandle handle, const int64_t n, const float alpha, uint8_t *x, const int64_t incx)
+aclblasStatus_t aclblasCsscal(
+    aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
-    
+
     uint32_t numBlocks = 8;
     uint32_t totalFloatNum = n * 2;
 
     SscalTilingData tiling = CalTilingData(totalFloatNum, numBlocks, alpha);
-    
-    uint8_t *tilingDevice = nullptr;
-    aclError aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(SscalTilingData), &tiling, sizeof(SscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    uint8_t* tilingDevice = nullptr;
+    aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(SscalTilingData), &tiling, sizeof(SscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     sscal_kernel_do(x, nullptr, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(tilingDevice);
 

@@ -28,7 +28,7 @@
 
 constexpr float EPSILON = 1e-3f;
 
-uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
+uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
 {
     constexpr size_t maxPrintSize = 10;
     std::cout << "Output: ";
@@ -52,7 +52,8 @@ uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
     for (size_t i = 0; i < output.size(); i++) {
         float diff = std::abs(output[i] - golden[i]);
         if (diff > EPSILON) {
-            std::cout << "[Failed] Index " << i << ": output=" << output[i] << " golden=" << golden[i] << " diff=" << diff << std::endl;
+            std::cout << "[Failed] Index " << i << ": output=" << output[i] << " golden=" << golden[i]
+                      << " diff=" << diff << std::endl;
             return 1;
         }
     }
@@ -60,7 +61,7 @@ uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
     return 0;
 }
 
-void ComputeGoldenSsyr2Upper(float *A, const float *x, const float *y, float alpha, int64_t n, int64_t lda)
+void ComputeGoldenSsyr2Upper(float* A, const float* x, const float* y, float alpha, int64_t n, int64_t lda)
 {
     for (int64_t i = 0; i < n; i++) {
         for (int64_t j = i; j < n; j++) {
@@ -70,7 +71,7 @@ void ComputeGoldenSsyr2Upper(float *A, const float *x, const float *y, float alp
     }
 }
 
-void ComputeGoldenSsyr2Lower(float *A, const float *x, const float *y, float alpha, int64_t n, int64_t lda)
+void ComputeGoldenSsyr2Lower(float* A, const float* x, const float* y, float alpha, int64_t n, int64_t lda)
 {
     for (int64_t i = 0; i < n; i++) {
         for (int64_t j = 0; j <= i; j++) {
@@ -120,17 +121,17 @@ int TestSsyr2Upper()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
     size_t yByteSize = N * sizeof(float);
-    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
@@ -198,17 +199,17 @@ int TestSsyr2Lower()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
     size_t yByteSize = N * sizeof(float);
-    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
@@ -236,7 +237,7 @@ int TestSsyr2Lower()
     return VerifyResult(A, AGolden);
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     int ret1 = TestSsyr2Upper();
     int ret2 = TestSsyr2Lower();

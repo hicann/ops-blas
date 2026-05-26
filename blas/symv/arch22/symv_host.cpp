@@ -1,12 +1,12 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
  * \file symv.asc
@@ -17,11 +17,12 @@
 #include <cstdint>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "common/helper/aclblas_handle_internal.h"
 
 #define GM_ADDR uint8_t*
 
-extern void symv_kernel_do(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace, GM_ADDR tilingGm,
-    uint32_t numBlocks, void *stream);
+extern void symv_kernel_do(
+    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream);
 
 constexpr uint32_t SYMV_MAX_CORE_NUM = 50;
 constexpr uint32_t SYMV_TILE_SIZE = 128;
@@ -45,8 +46,8 @@ struct SymvTilingData {
     uint32_t taskStep[SYMV_MAX_CORE_NUM];
 };
 
-static SymvTilingData CalSymvTilingData(uint32_t totalRows, uint32_t lda, uint32_t vecCoreNum, float alpha,
-    float beta, int64_t incx, int64_t incy)
+static SymvTilingData CalSymvTilingData(
+    uint32_t totalRows, uint32_t lda, uint32_t vecCoreNum, float alpha, float beta, int64_t incx, int64_t incy)
 {
     SymvTilingData tilingData{};
     tilingData.n = totalRows;
@@ -81,38 +82,43 @@ static SymvTilingData CalSymvTilingData(uint32_t totalRows, uint32_t lda, uint32
     return tilingData;
 }
 
-int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *y, float *z,
-    const float alpha, const float beta,
-    const int64_t n, const int64_t incx, const int64_t incy, void *stream)
+aclblasStatus_t aclblasSymv(
+    aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, const float* y, float* z,
+    const float alpha, const float beta, const int64_t n, const int64_t incx, const int64_t incy)
 {
+    aclrtStream useStream = nullptr;
+    if (handle != nullptr) {
+        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        useStream = h->stream;
+    }
     constexpr uint32_t numBlocks = 8;
     const size_t vecElementCount = static_cast<size_t>(n);
     const size_t matrixElementCount = static_cast<size_t>(n) * static_cast<size_t>(lda);
     const size_t vecByteSize = vecElementCount * sizeof(float);
     const size_t matrixByteSize = matrixElementCount * sizeof(float);
 
-    SymvTilingData tiling = CalSymvTilingData(static_cast<uint32_t>(n), static_cast<uint32_t>(lda), numBlocks,
-        alpha, beta, incx, incy);
+    SymvTilingData tiling =
+        CalSymvTilingData(static_cast<uint32_t>(n), static_cast<uint32_t>(lda), numBlocks, alpha, beta, incx, incy);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
-    uint8_t *yDevice = nullptr;
-    uint8_t *zDevice = nullptr;
-    uint8_t *tilingDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
+    uint8_t* zDevice = nullptr;
+    uint8_t* tilingDevice = nullptr;
 
-    aclrtMalloc(reinterpret_cast<void **>(&aDevice), matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void **>(&xDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void **>(&yDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void **>(&zDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void **>(&tilingDevice), sizeof(SymvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&aDevice), matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&xDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&yDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&zDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SymvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
 
     aclrtMemcpy(aDevice, matrixByteSize, a, matrixByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(xDevice, vecByteSize, x, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(tilingDevice, sizeof(SymvTilingData), &tiling, sizeof(SymvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
 
-    symv_kernel_do(aDevice, xDevice, yDevice, zDevice, nullptr, tilingDevice, numBlocks, stream);
-    aclrtSynchronizeStream(stream);
+    symv_kernel_do(aDevice, xDevice, yDevice, zDevice, nullptr, tilingDevice, numBlocks, useStream);
+    aclrtSynchronizeStream(useStream);
     aclrtMemcpy(z, vecByteSize, zDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
 
     aclrtFree(aDevice);
@@ -120,5 +126,5 @@ int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *
     aclrtFree(yDevice);
     aclrtFree(zDevice);
     aclrtFree(tilingDevice);
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

@@ -17,16 +17,16 @@
 #include "common/helper/aclblas_handle_internal.h"
 
 #define CHECK_RET(cond, return_expr) \
-  do {                               \
-    if (!(cond)) {                   \
-      return_expr;                   \
-    }                                \
-  } while (0)
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-#define LOG_PRINT(message, ...)     \
-  do {                              \
-    printf(message, ##__VA_ARGS__); \
-  } while (0)
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 constexpr uint32_t CORE_SPLIT_NUM = 128;
 constexpr uint32_t WORKSPACE_SIZE = 128 * 1024 * sizeof(float);
@@ -57,17 +57,13 @@ static float* CreateUploMatrix(int64_t uplo)
     return uploData;
 }
 
-aclblasStatus_t aclblasStrmv(aclblasHandle handle,
-                             aclblasFillMode uplo,
-                             aclblasOperation trans,
-                             aclblasDiagType diag,
-                             const int64_t n,
-                             uint8_t *A, const int64_t lda,
-                             uint8_t *x, const int64_t incx)
+aclblasStatus_t aclblasStrmv(
+    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, const int64_t n,
+    uint8_t* A, const int64_t lda, uint8_t* x, const int64_t incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
-    
+
     uint32_t m0 = CORE_SPLIT_NUM;
     uint32_t m0TileNumOfM = (n + m0 - 1) / m0;
     uint32_t numBlocks = m0TileNumOfM;
@@ -95,27 +91,44 @@ aclblasStatus_t aclblasStrmv(aclblasHandle handle,
     uint8_t* tilingDevice = nullptr;
 
     aclError aclRet = aclrtMalloc((void**)&uploDevice, uploSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] uploMatrix;
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
     aclRet = aclrtMalloc((void**)&wkspDevice, wkspSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(uploDevice);
+        delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
 
     aclRet = aclrtMalloc((void**)&workSpaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(wkspDevice);
+        aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
 
     aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(StrmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice);
+        aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_ALLOC_FAILED);
 
     aclRet = aclrtMemcpy(uploDevice, uploSize, uploHost, uploSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix;
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(StrmvTilingData), &tiling, sizeof(StrmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(StrmvTilingData), &tiling, sizeof(StrmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix;
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    strmv_kernel_do(A, x, uploDevice, x, wkspDevice,
-                    workSpaceDevice, tilingDevice, numBlocks, useStream);
+    strmv_kernel_do(A, x, uploDevice, x, wkspDevice, workSpaceDevice, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix; return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix;
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(uploDevice);
     aclrtFree(wkspDevice);

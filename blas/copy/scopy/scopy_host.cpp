@@ -1,13 +1,12 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
  * \file scopy.asc
@@ -26,16 +25,16 @@
 #include "common/helper/aclblas_handle_internal.h"
 
 #define CHECK_RET(cond, return_expr) \
-  do {                               \
-    if (!(cond)) {                   \
-      return_expr;                   \
-    }                                \
-  } while (0)
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-#define LOG_PRINT(message, ...)     \
-  do {                              \
-    printf(message, ##__VA_ARGS__); \
-  } while (0)
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -105,8 +104,8 @@ CopyTilingData CalTilingData(uint32_t totalEleNum, uint32_t vecCoreNum)
     return tilingData;
 }
 
-
-aclblasStatus_t aclblasScopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const int64_t n, const int64_t incx, const int64_t incy)
+aclblasStatus_t aclblasScopy(
+    aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy)
 {
     if (n <= 0) {
         return ACLBLAS_STATUS_SUCCESS;
@@ -125,12 +124,17 @@ aclblasStatus_t aclblasScopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const
     uint32_t numBlocks = 8;
     CopyTilingData tiling = CalTilingData(n, numBlocks);
 
-    uint8_t *tilingDevice = nullptr;
-    aclError aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(CopyTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+    uint8_t* tilingDevice = nullptr;
+    aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(CopyTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(CopyTilingData), &tiling, sizeof(CopyTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(CopyTilingData), &tiling, sizeof(CopyTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     scopy_kernel_do(x, y, nullptr, tilingDevice, numBlocks, useStream);
 
@@ -139,7 +143,8 @@ aclblasStatus_t aclblasScopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-aclblasStatus_t aclblasCcopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const int64_t n, const int64_t incx, const int64_t incy)
+aclblasStatus_t aclblasCcopy(
+    aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy)
 {
     if (n <= 0) {
         return ACLBLAS_STATUS_SUCCESS;
@@ -159,12 +164,17 @@ aclblasStatus_t aclblasCcopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const
     uint64_t totalFloatNum = n * 2;
     CopyTilingData tiling = CalTilingData(totalFloatNum, numBlocks);
 
-    uint8_t *tilingDevice = nullptr;
-    aclError aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(CopyTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+    uint8_t* tilingDevice = nullptr;
+    aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(CopyTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(CopyTilingData), &tiling, sizeof(CopyTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(CopyTilingData), &tiling, sizeof(CopyTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     scopy_kernel_do(x, y, nullptr, tilingDevice, numBlocks, useStream);
 
@@ -172,4 +182,3 @@ aclblasStatus_t aclblasCcopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const
 
     return ACLBLAS_STATUS_SUCCESS;
 }
-

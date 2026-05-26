@@ -1,18 +1,17 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file sscal_test.cpp
-* \brief Test for aclblasSscal and aclblasCsscal interfaces
-*/
+ * \file sscal_test.cpp
+ * \brief Test for aclblasSscal and aclblasCsscal interfaces
+ */
 
 #include <cstdint>
 #include <iostream>
@@ -35,12 +34,13 @@
         printf(message, ##__VA_ARGS__); \
     } while (0)
 
-uint32_t VerifySscalResult(std::vector<float> &output, std::vector<float> &golden)
+uint32_t VerifySscalResult(std::vector<float>& output, std::vector<float>& golden)
 {
-    auto printTensor = [](std::vector<float> &tensor, const char *name) {
+    auto printTensor = [](std::vector<float>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 20;
         std::cout << name << ": ";
-        std::copy(tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
+        std::copy(
+            tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
             std::ostream_iterator<float>(std::cout, " "));
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -60,9 +60,9 @@ uint32_t VerifySscalResult(std::vector<float> &output, std::vector<float> &golde
     return 0;
 }
 
-uint32_t VerifyCsscalResult(std::vector<std::complex<float>> &output, std::vector<std::complex<float>> &golden)
+uint32_t VerifyCsscalResult(std::vector<std::complex<float>>& output, std::vector<std::complex<float>>& golden)
 {
-    auto printTensor = [](std::vector<std::complex<float>> &tensor, const char *name) {
+    auto printTensor = [](std::vector<std::complex<float>>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 10;
         std::cout << name << ": ";
         for (size_t i = 0; i < std::min(tensor.size(), maxPrintSize); i++) {
@@ -79,7 +79,7 @@ uint32_t VerifyCsscalResult(std::vector<std::complex<float>> &output, std::vecto
     for (size_t i = 0; i < output.size(); i++) {
         float diff = std::abs(output[i] - golden[i]);
         if (diff > EPSILON) {
-            std::cout << "[Failed] Csscal Index " << i << ": output=(" << output[i].real() << "," << output[i].imag() 
+            std::cout << "[Failed] Csscal Index " << i << ": output=(" << output[i].real() << "," << output[i].imag()
                       << ") golden=(" << golden[i].real() << "," << golden[i].imag() << ") diff=" << diff << std::endl;
             return 1;
         }
@@ -96,21 +96,29 @@ int32_t TestSscal(aclblasHandle handle, aclrtStream stream)
     std::vector<float> x(totalLength, valueX);
     int64_t incx = 1;
 
-    uint8_t *xDevice = nullptr;
+    uint8_t* xDevice = nullptr;
     size_t totalByteSize = totalLength * sizeof(float);
-    aclError aclRet = aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); aclrtFree(xDevice);
+        return aclRet);
 
     std::cout << "========== Testing aclblasSscal ==========" << std::endl;
     auto ret = aclblasSscal(handle, totalLength, alpha, xDevice, incx);
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSscal failed. ERROR: %d\n", ret); aclrtFree(xDevice); return ret);
+    CHECK_RET(
+        ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSscal failed. ERROR: %d\n", ret); aclrtFree(xDevice);
+        return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(xDevice);
+        return aclRet);
     aclRet = aclrtMemcpy(x.data(), totalByteSize, xDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x failed. ERROR: %d\n", aclRet); aclrtFree(xDevice);
+        return aclRet);
     aclrtFree(xDevice);
 
     std::vector<float> golden(totalLength, valueX * alpha);
@@ -125,28 +133,36 @@ int32_t TestCsscal(aclblasHandle handle, aclrtStream stream)
     std::vector<std::complex<float>> x(totalLength, valueX);
     int64_t incx = 1;
 
-    uint8_t *xDevice = nullptr;
+    uint8_t* xDevice = nullptr;
     size_t totalByteSize = totalLength * sizeof(std::complex<float>);
-    aclError aclRet = aclrtMalloc((void **)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); aclrtFree(xDevice);
+        return aclRet);
 
     std::cout << "========== Testing aclblasCsscal ==========" << std::endl;
     auto ret = aclblasCsscal(handle, totalLength, alpha, xDevice, incx);
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCsscal failed. ERROR: %d\n", ret); aclrtFree(xDevice); return ret);
+    CHECK_RET(
+        ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCsscal failed. ERROR: %d\n", ret); aclrtFree(xDevice);
+        return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(xDevice);
+        return aclRet);
     aclRet = aclrtMemcpy(x.data(), totalByteSize, xDevice, totalByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x failed. ERROR: %d\n", aclRet); aclrtFree(xDevice); return aclRet);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy x failed. ERROR: %d\n", aclRet); aclrtFree(xDevice);
+        return aclRet);
     aclrtFree(xDevice);
 
     std::vector<std::complex<float>> golden(totalLength, valueX * alpha);
     return VerifyCsscalResult(x, golden);
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     int32_t deviceId = 0;
 
@@ -163,7 +179,7 @@ int32_t main(int32_t argc, char *argv[])
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
     int32_t result = 0;
-    
+
     result = TestSscal(handle, stream);
     if (result != 0) {
         std::cout << "[FAIL] Sscal test failed" << std::endl;

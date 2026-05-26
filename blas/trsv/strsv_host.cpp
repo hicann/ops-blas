@@ -1,11 +1,11 @@
 /**
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 #include <cstdint>
 #include <vector>
@@ -13,14 +13,13 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "../common/helper/aclblas_handle_internal.h"
+#include "common/helper/aclblas_handle_internal.h"
 
 #define GM_ADDR uint8_t*
 
-void strsv_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR tilingGm,
-                            aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
-                            int64_t n, int64_t lda,
-                            uint32_t numBlocks, void* stream);
+void strsv_kernel_do(
+    GM_ADDR A, GM_ADDR x, GM_ADDR tilingGm, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
+    int64_t n, int64_t lda, uint32_t numBlocks, void* stream);
 
 constexpr uint32_t MAX_CORE_NUM = 40;
 
@@ -58,7 +57,8 @@ static StrsvTilingData CalStrsvTilingData(int64_t n, int64_t lda, uint32_t coreN
     for (uint32_t i = 0; i < totalBlockNum && i < MAX_CORE_NUM; i++) {
         tiling.startRow[i] = i * rowsPerBlock;
         uint32_t rowEnd = (i + 1) * rowsPerBlock;
-        if (rowEnd > n) rowEnd = n;
+        if (rowEnd > n)
+            rowEnd = n;
         tiling.rowCount[i] = (rowEnd > tiling.startRow[i]) ? (rowEnd - tiling.startRow[i]) : 0;
 
         if (tiling.rowCount[i] > 0) {
@@ -69,18 +69,12 @@ static StrsvTilingData CalStrsvTilingData(int64_t n, int64_t lda, uint32_t coreN
     return tiling;
 }
 
-int aclblasStrsv(aclblasHandle handle,
-                 aclblasFillMode uplo,
-                 aclblasOperation trans,
-                 aclblasDiagType diag,
-                 int64_t n,
-                 const float *A,
-                 int64_t lda,
-                 float *x,
-                 int64_t incx)
+aclblasStatus_t aclblasStrsv(
+    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n,
+    const float* A, int64_t lda, float* x, int64_t incx)
 {
     if (n <= 0) {
-        return ACL_SUCCESS;
+        return ACLBLAS_STATUS_SUCCESS;
     }
 
     if (A == nullptr || x == nullptr) {
@@ -148,7 +142,8 @@ int aclblasStrsv(aclblasHandle handle,
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(StrsvTilingData), &tiling, sizeof(StrsvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(StrsvTilingData), &tiling, sizeof(StrsvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
     if (aclRet != ACL_SUCCESS) {
         aclrtFree(aDevice);
         aclrtFree(xDevice);
@@ -182,5 +177,5 @@ int aclblasStrsv(aclblasHandle handle,
     aclrtFree(xDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

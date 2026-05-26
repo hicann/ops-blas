@@ -1,12 +1,12 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* This SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * This SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /*!
  * \file sger.asc
@@ -22,6 +22,7 @@
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "../../common/kernel_launch/aclblas_kernel_do.h"
+#include "common/helper/aclblas_handle_internal.h"
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -47,7 +48,6 @@ static SgerTilingData CalSgerTilingData(int64_t m, int64_t n, int64_t lda, uint3
     tiling.lda = static_cast<uint32_t>(lda);
     tiling.useCoreNum = 0;
 
-
     for (uint32_t i = 0; i < MAX_CORE_NUM; i++) {
         tiling.startRow[i] = 0;
         tiling.rowCount[i] = 0;
@@ -59,16 +59,15 @@ static SgerTilingData CalSgerTilingData(int64_t m, int64_t n, int64_t lda, uint3
         coreNum = 1;
     }
 
-
     uint32_t totalBlockNum = coreNum;
     uint32_t rowsPerBlock = (m + totalBlockNum - 1) / totalBlockNum;
 
     for (uint32_t i = 0; i < totalBlockNum && i < MAX_CORE_NUM; i++) {
         tiling.startRow[i] = i * rowsPerBlock;
         uint32_t rowEnd = (i + 1) * rowsPerBlock;
-        if (rowEnd > m) rowEnd = m;
+        if (rowEnd > m)
+            rowEnd = m;
         tiling.rowCount[i] = (rowEnd > tiling.startRow[i]) ? (rowEnd - tiling.startRow[i]) : 0;
-
 
         tiling.startCol[i] = 0;
         tiling.colCount[i] = tiling.rowCount[i] > 0 ? n : 0;
@@ -81,14 +80,12 @@ static SgerTilingData CalSgerTilingData(int64_t m, int64_t n, int64_t lda, uint3
     return tiling;
 }
 
-int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float* alpha,
-               const float* x, int64_t incx,
-               float* y, int64_t incy,
-               float* A, int64_t lda,
-               void* stream)
+aclblasStatus_t aclblasSger(
+    aclblasHandle_t handle, int64_t m, int64_t n, const float* alpha, const float* x, int64_t incx, float* y,
+    int64_t incy, float* A, int64_t lda)
 {
     if (m <= 0 || n <= 0) {
-        return ACL_SUCCESS;
+        return ACLBLAS_STATUS_SUCCESS;
     }
 
     if (alpha == nullptr || x == nullptr || A == nullptr || y == nullptr) {
@@ -101,6 +98,11 @@ int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float* alpha,
         return ACLBLAS_STATUS_NOT_INITIALIZED;
     }
 
+    aclrtStream useStream = nullptr;
+    if (handle != nullptr) {
+        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        useStream = h->stream;
+    }
 
     size_t aSize = static_cast<size_t>(m) * static_cast<size_t>(lda) * sizeof(float);
     size_t xSize = static_cast<size_t>(m) * static_cast<size_t>(std::abs(incx)) * sizeof(float);
@@ -137,7 +139,6 @@ int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float* alpha,
         aclrtFree(yDevice);
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
-
 
     std::vector<float> aHost(m * lda, 0.0f);
     std::vector<float> xHost(m, 0.0f);
@@ -195,9 +196,7 @@ int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float* alpha,
 
     constexpr uint32_t numBlocks = 8;
 
-
     SgerTilingData tiling = CalSgerTilingData(m, n, lda, numBlocks);
-
 
     uint8_t* tilingDevice = nullptr;
     aclRet = aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SgerTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
@@ -209,8 +208,8 @@ int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float* alpha,
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
 
-
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(SgerTilingData), &tiling, sizeof(SgerTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(SgerTilingData), &tiling, sizeof(SgerTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
     if (aclRet != ACL_SUCCESS) {
         aclrtFree(aDevice);
         aclrtFree(xDevice);
@@ -220,11 +219,9 @@ int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float* alpha,
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
+    sger_kernel_do(aDevice, xDevice, yDevice, alphaDevice, tilingDevice, tiling.useCoreNum, useStream);
 
-    sger_kernel_do(aDevice, xDevice, yDevice, alphaDevice, tilingDevice,
-                  tiling.useCoreNum, stream);
-
-    aclRet = aclrtSynchronizeStream(stream);
+    aclRet = aclrtSynchronizeStream(useStream);
     if (aclRet != ACL_SUCCESS) {
         aclrtFree(aDevice);
         aclrtFree(xDevice);
@@ -256,5 +253,5 @@ int aclblasSger(aclblasHandle handle, int64_t m, int64_t n, const float* alpha,
     aclrtFree(alphaDevice);
     aclrtFree(tilingDevice);
 
-    return ACL_SUCCESS;
+    return ACLBLAS_STATUS_SUCCESS;
 }

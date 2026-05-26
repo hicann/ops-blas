@@ -17,16 +17,16 @@
 #include "common/helper/aclblas_handle_internal.h"
 
 #define CHECK_RET(cond, return_expr) \
-  do {                               \
-    if (!(cond)) {                   \
-      return_expr;                   \
-    }                                \
-  } while (0)
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-#define LOG_PRINT(message, ...)     \
-  do {                              \
-    printf(message, ##__VA_ARGS__); \
-  } while (0)
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 constexpr uint32_t WORKSPACE_SIZE = 1024;
@@ -38,19 +38,15 @@ struct SsyrTilingData {
     uint32_t coreNum;
 };
 
-aclblasStatus_t aclblasSsyr(aclblasHandle handle,
-                             aclblasFillMode uplo,
-                             const int n,
-                             const float *alpha,
-                             const float *x, const int incx,
-                             float *A, const int lda)
+aclblasStatus_t aclblasSsyr(
+    aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,
+    float* A, const int lda)
 {
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    if (n < 0 || lda < std::max(1, n) || incx == 0 ||
-        alpha == nullptr || x == nullptr || A == nullptr) {
+    if (n < 0 || lda < std::max(1, n) || incx == 0 || alpha == nullptr || x == nullptr || A == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
@@ -59,7 +55,9 @@ aclblasStatus_t aclblasSsyr(aclblasHandle handle,
 
     float alphaVal = 0.0f;
     aclError aclRet = aclrtMemcpy(&alphaVal, sizeof(float), alpha, sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy alpha failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy alpha failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     uint32_t vecCoreNum = DEFAULT_VECTOR_NUM;
 
@@ -73,20 +71,29 @@ aclblasStatus_t aclblasSsyr(aclblasHandle handle,
     uint8_t* tilingDevice = nullptr;
 
     aclRet = aclrtMalloc((void**)&workSpaceDevice, WORKSPACE_SIZE, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
     aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(SsyrTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(SsyrTilingData), &tiling, sizeof(SsyrTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(SsyrTilingData), &tiling, sizeof(SsyrTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    ssyr_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float *>(x)),
-                   reinterpret_cast<GM_ADDR>(A),
-                   workSpaceDevice, tilingDevice, vecCoreNum, useStream);
+    ssyr_kernel_do(
+        reinterpret_cast<GM_ADDR>(const_cast<float*>(x)), reinterpret_cast<GM_ADDR>(A), workSpaceDevice, tilingDevice,
+        vecCoreNum, useStream);
 
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(workSpaceDevice);
     aclrtFree(tilingDevice);

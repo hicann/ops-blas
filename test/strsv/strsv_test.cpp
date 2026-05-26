@@ -1,12 +1,12 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for the details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNEss FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for the details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNEss FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 #include <cstdint>
 #include <iostream>
@@ -38,18 +38,17 @@ constexpr float ATOL = 1e-5f;
 
 static uint32_t g_seed = 0;
 
-inline int32_t fastRand(void) {
+inline int32_t fastRand(void)
+{
     g_seed = g_seed * 1103515245 + 12345;
     return static_cast<int32_t>(g_seed / 65536) % 32768;
 }
 
-inline float frand(void) {
-    return static_cast<float>(fastRand()) / 32768.0f;
-}
+inline float frand(void) { return static_cast<float>(fastRand()) / 32768.0f; }
 
-void ComputeGoldenTrsvLower(aclblasDiagType diag, aclblasOperation trans, int64_t n,
-                            const std::vector<float>& A, int64_t lda,
-                            std::vector<float>& x)
+void ComputeGoldenTrsvLower(
+    aclblasDiagType diag, aclblasOperation trans, int64_t n, const std::vector<float>& A, int64_t lda,
+    std::vector<float>& x)
 {
     for (int64_t i = 0; i < n; i++) {
         float sum = x[i];
@@ -64,9 +63,9 @@ void ComputeGoldenTrsvLower(aclblasDiagType diag, aclblasOperation trans, int64_
     }
 }
 
-void ComputeGoldenTrsvUpper(aclblasDiagType diag, aclblasOperation trans, int64_t n,
-                            const std::vector<float>& A, int64_t lda,
-                            std::vector<float>& x)
+void ComputeGoldenTrsvUpper(
+    aclblasDiagType diag, aclblasOperation trans, int64_t n, const std::vector<float>& A, int64_t lda,
+    std::vector<float>& x)
 {
     for (int64_t i = n - 1; i >= 0; i--) {
         float sum = x[i];
@@ -93,8 +92,7 @@ uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden, in
 
         if (diff > ATOL && relDiff > RTOL) {
             if (errorCount < maxErrors) {
-                std::cout << "Error at index " << i << ": output=" << output[i]
-                          << ", golden=" << golden[i]
+                std::cout << "Error at index " << i << ": output=" << output[i] << ", golden=" << golden[i]
                           << ", diff=" << diff << std::endl;
             }
             errorCount++;
@@ -111,7 +109,8 @@ uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden, in
     }
 }
 
-void PrintUsage(const char* progName) {
+void PrintUsage(const char* progName)
+{
     std::cout << "Usage: " << progName << " [options]" << std::endl;
     std::cout << "Options:" << std::endl;
     std::cout << "  -n <size>      Matrix dimension (default: 128)" << std::endl;
@@ -137,7 +136,8 @@ int32_t main(int32_t argc, char* argv[])
     int64_t n = 128;
     float randomRange = 1.0f;
     bool randomParams = true;
-    bool nSpecified = false, uploSpecified = false, transSpecified = false, diagSpecified = false, incxSpecified = false;
+    bool nSpecified = false, uploSpecified = false, transSpecified = false, diagSpecified = false,
+         incxSpecified = false;
     int64_t previewCount = 10;
     aclblasDiagType diag = ACLBLAS_NON_UNIT;
     aclblasFillMode uplo = ACLBLAS_LOWER;
@@ -272,7 +272,7 @@ int32_t main(int32_t argc, char* argv[])
     aclrtCreateStream(&stream);
 
     // Handle integration test: verify aclblasStrsv works correctly with a real handle
-    void *handle = nullptr;
+    aclblasHandle_t handle = nullptr;
     if (aclblasCreate(&handle) != ACLBLAS_STATUS_SUCCESS) {
         std::cout << "[FAIL] aclblasCreate failed" << std::endl;
         aclrtDestroyStream(stream);
@@ -280,19 +280,8 @@ int32_t main(int32_t argc, char* argv[])
         aclFinalize();
         return 1;
     }
-
-    aclrtStream handleStream = nullptr;
-    if (aclrtCreateStream(&handleStream) != ACL_SUCCESS) {
-        std::cout << "[FAIL] aclrtCreateStream for handle failed" << std::endl;
-        aclblasDestroy(handle);
-        aclrtDestroyStream(stream);
-        aclrtResetDevice(deviceId);
-        aclFinalize();
-        return 1;
-    }
-    if (aclblasSetStream(handle, handleStream) != ACLBLAS_STATUS_SUCCESS) {
+    if (aclblasSetStream(handle, stream) != ACLBLAS_STATUS_SUCCESS) {
         std::cout << "[FAIL] aclblasSetStream failed" << std::endl;
-        aclrtDestroyStream(handleStream);
         aclblasDestroy(handle);
         aclrtDestroyStream(stream);
         aclrtResetDevice(deviceId);
@@ -300,27 +289,27 @@ int32_t main(int32_t argc, char* argv[])
         return 1;
     }
 
-    auto ret = aclblasStrsv(handle, uplo, trans, diag,
-                              n, A.data(), lda, x.data(), incx);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasStrsv failed. ERROR: %d\n", ret); return ret);
+    auto ret = aclblasStrsv(handle, uplo, trans, diag, n, A.data(), lda, x.data(), incx);
+    CHECK_RET(
+        ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStrsv failed. ERROR: %d\n", ret);
+        return static_cast<int32_t>(ret));
 
-    aclrtDestroyStream(stream);
-    aclrtDestroyStream(handleStream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
     if (previewCount > 0) {
         int64_t count = std::min(previewCount, n);
         std::cout << "\n=== Result Preview (first " << count << " elements) ===" << std::endl;
-        std::cout << std::setw(12) << "Index" << std::setw(18) << "Golden" << std::setw(18) << "Output" << std::setw(14) << "Diff" << std::endl;
+        std::cout << std::setw(12) << "Index" << std::setw(18) << "Golden" << std::setw(18) << "Output" << std::setw(14)
+                  << "Diff" << std::endl;
         std::cout << std::string(60, '-') << std::endl;
         for (int64_t i = 0; i < count; i++) {
             float diff = std::fabs(x[i * incx] - golden[i]);
-            std::cout << std::setw(12) << i
-                      << std::setw(18) << std::scientific << std::setprecision(6) << golden[i]
-                      << std::setw(18) << x[i * incx]
-                      << std::setw(14) << std::fixed << std::setprecision(8) << diff << std::endl;
+            std::cout << std::setw(12) << i << std::setw(18) << std::scientific << std::setprecision(6) << golden[i]
+                      << std::setw(18) << x[i * incx] << std::setw(14) << std::fixed << std::setprecision(8) << diff
+                      << std::endl;
         }
         std::cout << std::endl;
     }

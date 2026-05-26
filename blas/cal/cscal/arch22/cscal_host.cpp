@@ -1,18 +1,17 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file cscal_host.cpp
-* \brief
-*/
+ * \file cscal_host.cpp
+ * \brief
+ */
 
 #include <cstdint>
 #include <iostream>
@@ -25,16 +24,16 @@
 #include "common/helper/aclblas_handle_internal.h"
 
 #define CHECK_RET(cond, return_expr) \
-  do {                               \
-    if (!(cond)) {                   \
-      return_expr;                   \
-    }                                \
-  } while (0)
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-#define LOG_PRINT(message, ...)     \
-  do {                              \
-    printf(message, ##__VA_ARGS__); \
-  } while (0)
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 constexpr uint32_t MAX_LENG_PER_UB_PROC = 6144;
 constexpr uint32_t ELEMENTS_EACH_COMPLEX64 = 2;
@@ -58,7 +57,7 @@ CscalTilingData CalTilingData(int32_t n, float alphaReal, float alphaImag)
     return tilingData;
 }
 
-void CreateMaskData(uint32_t *maskData)
+void CreateMaskData(uint32_t* maskData)
 {
     uint32_t imagBaseAddr = MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(float) +
                             MAX_LENG_PER_UB_PROC * sizeof(float) * ELEMENTS_EACH_COMPLEX64 * PING_PONG_NUM;
@@ -71,42 +70,55 @@ void CreateMaskData(uint32_t *maskData)
     }
 }
 
-aclblasStatus_t aclblasCscal(aclblasHandle handle, const int64_t n, const std::complex<float> alpha, uint8_t *x, const int64_t incx)
+aclblasStatus_t aclblasCscal(
+    aclblasHandle_t handle, const int64_t n, const std::complex<float> alpha, uint8_t* x, const int64_t incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
-    
+
     uint32_t numBlocks = 40;
 
     float alphaReal = alpha.real();
     float alphaImag = alpha.imag();
 
     CscalTilingData tiling = CalTilingData(n, alphaReal, alphaImag);
-    
-    uint8_t *tilingDevice = nullptr;
-    uint8_t *maskDevice = nullptr;
 
-    uint32_t *maskHost = new uint32_t[MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64];
+    uint8_t* tilingDevice = nullptr;
+    uint8_t* maskDevice = nullptr;
+
+    uint32_t* maskHost = new uint32_t[MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64];
     CreateMaskData(maskHost);
 
-    aclError aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(CscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] maskHost; return ACLBLAS_STATUS_ALLOC_FAILED);
+    aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(CscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); delete[] maskHost;
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMalloc((void **)&maskDevice, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
-                ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_ALLOC_FAILED);
+    aclRet = aclrtMalloc(
+        (void**)&maskDevice, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
+        ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
+        delete[] maskHost; return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(CscalTilingData), &tiling, sizeof(CscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice); aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(CscalTilingData), &tiling, sizeof(CscalTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice);
+        aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclRet = aclrtMemcpy(maskDevice, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
-                maskHost, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t),
-                ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice); aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet = aclrtMemcpy(
+        maskDevice, MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t), maskHost,
+        MAX_LENG_PER_UB_PROC * ELEMENTS_EACH_COMPLEX64 * sizeof(uint32_t), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice);
+        aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     cscal_kernel_do(x, maskDevice, nullptr, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice); aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice);
+        aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(tilingDevice);
     aclrtFree(maskDevice);

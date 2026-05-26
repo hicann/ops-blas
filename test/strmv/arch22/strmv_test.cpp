@@ -28,7 +28,7 @@
 
 constexpr float EPSILON = 1e-3f;
 
-uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
+uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
 {
     constexpr size_t maxPrintSize = 10;
     std::cout << "Output: ";
@@ -52,7 +52,8 @@ uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
     for (size_t i = 0; i < output.size(); i++) {
         float diff = std::abs(output[i] - golden[i]);
         if (diff > EPSILON) {
-            std::cout << "[Failed] Index " << i << ": output=" << output[i] << " golden=" << golden[i] << " diff=" << diff << std::endl;
+            std::cout << "[Failed] Index " << i << ": output=" << output[i] << " golden=" << golden[i]
+                      << " diff=" << diff << std::endl;
             return 1;
         }
     }
@@ -60,7 +61,7 @@ uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
     return 0;
 }
 
-void ComputeGoldenStrmvUpperN(const float *A, float *x, int64_t n, int64_t lda, int64_t incx, int64_t diag)
+void ComputeGoldenStrmvUpperN(const float* A, float* x, int64_t n, int64_t lda, int64_t incx, int64_t diag)
 {
     std::vector<float> temp(n);
     for (int64_t i = 0; i < n; i++) {
@@ -78,7 +79,7 @@ void ComputeGoldenStrmvUpperN(const float *A, float *x, int64_t n, int64_t lda, 
     }
 }
 
-void ComputeGoldenStrmvLowerN(const float *A, float *x, int64_t n, int64_t lda, int64_t incx, int64_t diag)
+void ComputeGoldenStrmvLowerN(const float* A, float* x, int64_t n, int64_t lda, int64_t incx, int64_t diag)
 {
     std::vector<float> temp(n);
     for (int64_t i = 0; i < n; i++) {
@@ -96,7 +97,7 @@ void ComputeGoldenStrmvLowerN(const float *A, float *x, int64_t n, int64_t lda, 
     }
 }
 
-void ComputeGoldenStrmvUpperT(const float *A, float *x, int64_t n, int64_t lda, int64_t incx, int64_t diag)
+void ComputeGoldenStrmvUpperT(const float* A, float* x, int64_t n, int64_t lda, int64_t incx, int64_t diag)
 {
     std::vector<float> temp(n);
     for (int64_t i = 0; i < n; i++) {
@@ -114,7 +115,7 @@ void ComputeGoldenStrmvUpperT(const float *A, float *x, int64_t n, int64_t lda, 
     }
 }
 
-void ComputeGoldenStrmvLowerT(const float *A, float *x, int64_t n, int64_t lda, int64_t incx, int64_t diag)
+void ComputeGoldenStrmvLowerT(const float* A, float* x, int64_t n, int64_t lda, int64_t incx, int64_t diag)
 {
     std::vector<float> temp(n);
     for (int64_t i = 0; i < n; i++) {
@@ -165,21 +166,20 @@ int TestStrmvUpperN()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
-    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(xDevice, xByteSize, x.data(), xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasStrmv(handle, ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
-                       N, aDevice, lda, xDevice, incx);
+    ret = aclblasStrmv(handle, ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, N, aDevice, lda, xDevice, incx);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStrmv failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
@@ -230,21 +230,20 @@ int TestStrmvLowerN()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
-    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(xDevice, xByteSize, x.data(), xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasStrmv(handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
-                       N, aDevice, lda, xDevice, incx);
+    ret = aclblasStrmv(handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, N, aDevice, lda, xDevice, incx);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStrmv failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
@@ -295,21 +294,20 @@ int TestStrmvUpperT()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
-    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(xDevice, xByteSize, x.data(), xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasStrmv(handle, ACLBLAS_UPPER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT,
-                       N, aDevice, lda, xDevice, incx);
+    ret = aclblasStrmv(handle, ACLBLAS_UPPER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, N, aDevice, lda, xDevice, incx);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStrmv failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
@@ -360,21 +358,20 @@ int TestStrmvLowerT()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t *aDevice = nullptr;
-    uint8_t *xDevice = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
-    aclError aclRet = aclrtMalloc((void **)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
-    aclRet = aclrtMalloc((void **)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(aDevice, aByteSize, A.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(xDevice, xByteSize, x.data(), xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasStrmv(handle, ACLBLAS_LOWER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT,
-                       N, aDevice, lda, xDevice, incx);
+    ret = aclblasStrmv(handle, ACLBLAS_LOWER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, N, aDevice, lda, xDevice, incx);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStrmv failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
@@ -392,7 +389,7 @@ int TestStrmvLowerT()
     return VerifyResult(x, xGolden);
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     int ret1 = TestStrmvUpperN();
     int ret2 = TestStrmvLowerN();
