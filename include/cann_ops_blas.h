@@ -174,6 +174,13 @@ aclblasStatus_t aclblasSsbmv(aclblasHandle handle,
                  const float *A, int lda, const float *x, int incx, const float *beta,
                  float *y, int incy);
 
+// Symmetric matrix-vector multiply: y = alpha * A * x + beta * y
+// A is an n x n symmetric matrix in column-major format
+aclblasStatus_t aclblasSsymv(aclblasHandle handle,
+                 aclblasFillMode uplo, int n, const float *alpha,
+                 const float *A, int lda, const float *x, int incx, const float *beta,
+                 float *y, int incy);
+
 int aclblasTpmv(const float *aPacked, const float *x, float *y, 
 				const int64_t n, const int64_t incx, void *stream);
 
