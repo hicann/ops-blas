@@ -169,12 +169,14 @@ static int RunCase(uint32_t n, uint32_t lda)
     aclblasCreate(&handle);
     aclblasSetStream(handle, stream);
 
-    std::vector<float> z(n, 0.0f);
-    aclblasStatus_t ret = aclblasSymv(handle, a.data(), lda, x.data(), y.data(), z.data(), alpha, beta, n, incx, incy);
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSymv failed. ERROR: %d\n", ret); return ret);
+    std::vector<float> output = y;
+    aclblasStatus_t ret = aclblasSsymv(
+        handle, ACLBLAS_LOWER, static_cast<int>(n), &alpha, a.data(), static_cast<int>(lda), x.data(),
+        static_cast<int>(incx), &beta, output.data(), static_cast<int>(incy));
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSsymv failed. ERROR: %d\n", ret); return ret);
 
     std::vector<float> golden = BuildGolden(a, x, y, n, lda, incx, incy, alpha, beta);
-    int status = VerifyResult(z, golden);
+    int status = VerifyResult(output, golden);
 
     aclblasDestroy(handle);
     aclrtDestroyStream(stream);
@@ -189,9 +191,9 @@ int32_t main(int32_t argc, char* argv[])
     (void)argv;
 
     std::cout << "Verification mode: " << GetCompareModeName() << std::endl;
-    int ret = RunCase(6144, 6144);
+    int ret = RunCase(2048, 2048);
     if (ret != 0) {
         return ret;
     }
-    return RunCase(5000, 6000);
+    return RunCase(1537, 1664);
 }

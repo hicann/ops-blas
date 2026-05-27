@@ -8,8 +8,8 @@
 * See LICENSE in the root of the software repository for the full text of the License.
 */
 
-#ifndef SYMV_KERNEL_H
-#define SYMV_KERNEL_H
+#ifndef SCOPY_KERNEL_H
+#define SCOPY_KERNEL_H
 
 #include <cstdint>
 #include "kernel_operator.h"
@@ -19,14 +19,14 @@ using namespace AscendC;
 constexpr uint32_t BUFFER_NUM = 2;
 constexpr uint32_t BYTENUM_PER_FLOAT32 = 4;
 constexpr uint32_t MAX_CORE_NUM = 50;
-constexpr uint32_t MAX_TILE_TASK = 4096;
+constexpr uint32_t MAX_TILE_TASK = 128;
 constexpr uint32_t UB_BYTENUM_PER_BLOCK = 32;
 constexpr uint32_t UB_BYTENUM_PER_REPEAT = 256;
+constexpr uint32_t TILE_SIZE = 128;
 
 template <typename T>
-struct SymvTilingDataDevice {
+struct SpmvTilingDataDevice {
     uint32_t n;
-    uint32_t lda;
     uint32_t useCoreNum;
     T alpha;
     T beta;
@@ -35,32 +35,31 @@ struct SymvTilingDataDevice {
     uint32_t tileSize;
     uint32_t tileRows;
     uint32_t taskCount;
-    uint16_t taskBi[MAX_TILE_TASK];
-    uint16_t taskBj[MAX_TILE_TASK];
-    uint8_t taskType[MAX_TILE_TASK];
+    uint16_t taskBi[MAX_CORE_NUM];
     uint32_t taskStart[MAX_CORE_NUM];
     uint32_t taskStep[MAX_CORE_NUM];
 };
 
 template <typename T>
-class SymvAIV {
+class SpmvAIV {
 public:
-    __aicore__ inline SymvAIV() = default;
-    __aicore__ inline void Init(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR tilingGm);
+    __aicore__ inline SpmvAIV() = default;
+    __aicore__ inline void Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR tilingGm);
     __aicore__ inline void Process();
 
 private:
     TPipe pipe;
 
     __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
+    __aicore__ inline uint32_t PackedIndex(uint32_t i, uint32_t j) const;
 
-    __aicore__ inline void CopyInV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void ComputeV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void CopyOutV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void CopyIn(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void Compute(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void CopyOut(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
 
-    __aicore__ inline void CopyInPadV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void ComputePadV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void CopyOutPadV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void CopyInPad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void ComputePad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void CopyOutPad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
 
     __aicore__ inline void CopyInVec(uint32_t curOffset, uint32_t dataCount, bool needPad);
     __aicore__ inline void ComputeVec(uint32_t curOffset, uint32_t dataCount);
@@ -80,16 +79,23 @@ private:
 
     uint32_t vecIdx = 0;
     uint32_t n = 0;
-    uint32_t lda = 0;
     uint32_t useCoreNum = 0;
-    uint32_t tileSize = 128;
+    uint32_t tileSize = 0;
     uint32_t tileRows = 0;
     uint32_t taskCount = 0;
     uint32_t taskStart = 0;
     uint32_t taskStep = 0;
 
     uint16_t taskBi[MAX_TILE_TASK] = {0};
-    uint16_t taskBj[MAX_TILE_TASK] = {0};
+
+    uint32_t curTaskIdx = 0;
+    uint32_t curRowStart = 0;
+    uint32_t curColStart = 0;
+    uint32_t curRowLen = 0;
+    uint32_t curColLen = 0;
+    uint32_t curRowIdx = 0;
+    uint32_t curStartPos = 0;
+    uint32_t curDataCount = 0;
 
     uint32_t maxDataCount = 0;
 
@@ -97,13 +103,13 @@ private:
     T beta = static_cast<T>(0.0f);
     int64_t incx = 1;
     int64_t incy = 1;
-    
+
     int elementsPerRepeat = UB_BYTENUM_PER_REPEAT / BYTENUM_PER_FLOAT32;
     int elementsPerBlock = UB_BYTENUM_PER_BLOCK / BYTENUM_PER_FLOAT32;
 };
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::Init(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR tilingGm)
+__aicore__ inline void SpmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR tilingGm)
 {
     vecIdx = GetBlockIdx();
     ParseTilingData(tilingGm);
@@ -111,26 +117,23 @@ __aicore__ inline void SymvAIV<T>::Init(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR
     xGM.SetGlobalBuffer((__gm__ T *)x, this->n);
     yGM.SetGlobalBuffer((__gm__ T *)y, this->n);
     zGM.SetGlobalBuffer((__gm__ T *)z, this->n);
-    aGM.SetGlobalBuffer((__gm__ T *)a, this->n * this->lda);
+    aGM.SetGlobalBuffer((__gm__ T *)aPacked, this->n * this->n);
 
-    maxDataCount = 30 * 1024 / BYTENUM_PER_FLOAT32;  // 30kb / 4b
+    maxDataCount = 30 * 1024 / BYTENUM_PER_FLOAT32;  // 32kb / 4b
 
-    // Workspace-related UB buffers are initialized here for later LocalTensor path enablement.
     pipe.InitBuffer(aQueue, BUFFER_NUM, maxDataCount * sizeof(T));
     pipe.InitBuffer(xQueue, BUFFER_NUM, maxDataCount * sizeof(T));
     pipe.InitBuffer(x2Queue, BUFFER_NUM, sizeof(T));
     pipe.InitBuffer(zQueue, BUFFER_NUM, sizeof(T));
     pipe.InitBuffer(z2Queue, BUFFER_NUM, maxDataCount * sizeof(T));
-    pipe.InitBuffer(workspaceQueue, BUFFER_NUM, maxDataCount * sizeof(T));
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::ParseTilingData(GM_ADDR tilingGm)
+__aicore__ inline void SpmvAIV<T>::ParseTilingData(GM_ADDR tilingGm)
 {
-    auto tiling = reinterpret_cast<__gm__ SymvTilingDataDevice<T> *>(tilingGm);
+    auto tiling = reinterpret_cast<__gm__ SpmvTilingDataDevice<T> *>(tilingGm);
 
     n = tiling->n;
-    lda = tiling->lda;
     useCoreNum = tiling->useCoreNum;
     alpha = tiling->alpha;
     beta = tiling->beta;
@@ -141,7 +144,7 @@ __aicore__ inline void SymvAIV<T>::ParseTilingData(GM_ADDR tilingGm)
     taskCount = tiling->taskCount;
 
     if (tileSize == 0) {
-        tileSize = 128;
+        tileSize = TILE_SIZE;
     }
     if (useCoreNum == 0 || useCoreNum > MAX_CORE_NUM) {
         useCoreNum = 1;
@@ -149,7 +152,6 @@ __aicore__ inline void SymvAIV<T>::ParseTilingData(GM_ADDR tilingGm)
 
     for (uint32_t i = 0; i < taskCount && i < MAX_TILE_TASK; ++i) {
         taskBi[i] = tiling->taskBi[i];
-        taskBj[i] = tiling->taskBj[i];
     }
 
     taskStart = tiling->taskStart[vecIdx];
@@ -157,16 +159,12 @@ __aicore__ inline void SymvAIV<T>::ParseTilingData(GM_ADDR tilingGm)
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::CopyInV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SpmvAIV<T>::CopyIn(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
-    uint32_t r = rowOffset * lda + colOffset;  // Start index of the row in packed storage.
     LocalTensor<T> LocalA = aQueue.AllocTensor<T>();
+    uint32_t r = colOffset + rowOffset * (rowOffset + 1) / 2;  // Start index of the row in packed storage.
     DataCopy(LocalA, aGM[r], dataCount);
     aQueue.EnQue<T>(LocalA);
-
-    LocalTensor<T> LocalX = xQueue.AllocTensor<T>();
-    DataCopy(LocalX, xGM[colOffset], dataCount);
-    xQueue.EnQue<T>(LocalX);
 
     uint8_t paddingNum2 = elementsPerBlock - 1;
     DataCopyExtParams copyParams2{1, BYTENUM_PER_FLOAT32, 0, 0, 0};
@@ -178,18 +176,14 @@ __aicore__ inline void SymvAIV<T>::CopyInV2(uint32_t taskIdx, uint32_t rowOffset
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::ComputeV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SpmvAIV<T>::Compute(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     LocalTensor<T> LocalA = aQueue.DeQue<T>();
     LocalTensor<T> LocalX = xQueue.DeQue<T>();
     LocalTensor<T> LocalX2 = x2Queue.DeQue<T>();
     LocalTensor<T> LocalZ = zQueue.AllocTensor<T>();
     LocalTensor<T> LocalZ2 = z2Queue.AllocTensor<T>();
-    LocalTensor<T> workLocal = workspaceQueue.AllocTensor<T>();
 
-    // int32_t eventIDMTE2ToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE2_V));
-    // AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
-    // AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
     int32_t eventIDMTE3ToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE3_V));
     AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(eventIDMTE3ToV);
     AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventIDMTE3ToV);
@@ -197,30 +191,27 @@ __aicore__ inline void SymvAIV<T>::ComputeV2(uint32_t taskIdx, uint32_t rowOffse
     ReduceSum(LocalZ, LocalZ, LocalZ, dataCount);
     Muls(LocalZ, LocalZ, alpha, 1);
     auto scalar = LocalX2(0) * alpha;
-    // int32_t eventIDSToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::S_V));
-    // AscendC::SetFlag<AscendC::HardEvent::S_V>(eventIDSToV);
-    // AscendC::WaitFlag<AscendC::HardEvent::S_V>(eventIDSToV);
     if (colOffset + dataCount <= rowOffset) {
         Muls(LocalZ2, LocalA, scalar, dataCount);
     } else if (dataCount > 1) {
         Muls(LocalZ2, LocalA, scalar, dataCount - 1);
     }
-    // int32_t eventIDVToMTE3 = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::V_MTE3));
-    // AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventIDVToMTE3);
-    // AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(eventIDVToMTE3);
+
     zQueue.EnQue<T>(LocalZ);
     z2Queue.EnQue<T>(LocalZ2);
     aQueue.FreeTensor(LocalA);
-    xQueue.FreeTensor(LocalX);
     x2Queue.FreeTensor(LocalX2);
-    workspaceQueue.FreeTensor(workLocal);
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::CopyOutV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SpmvAIV<T>::CopyOut(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
+    uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
+    DataCopyExtParams copyParams{1, static_cast<uint16_t>(sizeof(T)), 0, 0, 0};
+    DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
+
     LocalTensor<T> zLocal = zQueue.DeQue<T>();
-    DataCopy(zGM[rowOffset], zLocal, dataCount);
+    DataCopyPad(zGM[rowOffset], zLocal, copyParams);
     zQueue.FreeTensor(zLocal);
 
     LocalTensor<T> z2Local = z2Queue.DeQue<T>();
@@ -236,24 +227,19 @@ __aicore__ inline void SymvAIV<T>::CopyOutV2(uint32_t taskIdx, uint32_t rowOffse
         DataCopyPad(zGM[colOffset], z2Local, copyParams2);
     }
     z2Queue.FreeTensor(z2Local);
-
-}   
+}
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::CopyInPadV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SpmvAIV<T>::CopyInPad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
     DataCopyExtParams copyParams{1, dataCount * BYTENUM_PER_FLOAT32, 0, 0, 0};
     DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
 
-    uint32_t r = rowOffset * lda + colOffset;  // Start index of the row in packed storage.
+    uint32_t r = colOffset + rowOffset * (rowOffset + 1) / 2;  // Start index of the row in packed storage.
     LocalTensor<T> LocalA = aQueue.AllocTensor<T>();
     DataCopyPad(LocalA, aGM[r], copyParams, padParams);
     aQueue.EnQue<T>(LocalA);
-
-    LocalTensor<T> LocalX = xQueue.AllocTensor<T>();
-    DataCopyPad(LocalX, xGM[colOffset], copyParams, padParams);
-    xQueue.EnQue<T>(LocalX);
 
     uint8_t paddingNum2 = elementsPerBlock - 1;
     DataCopyExtParams copyParams2{1, BYTENUM_PER_FLOAT32, 0, 0, 0};
@@ -265,18 +251,14 @@ __aicore__ inline void SymvAIV<T>::CopyInPadV2(uint32_t taskIdx, uint32_t rowOff
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::ComputePadV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SpmvAIV<T>::ComputePad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     LocalTensor<T> LocalA = aQueue.DeQue<T>();
     LocalTensor<T> LocalX = xQueue.DeQue<T>();
     LocalTensor<T> LocalX2 = x2Queue.DeQue<T>();
     LocalTensor<T> LocalZ = zQueue.AllocTensor<T>();
     LocalTensor<T> LocalZ2 = z2Queue.AllocTensor<T>();
-    LocalTensor<T> workLocal = workspaceQueue.AllocTensor<T>();
 
-    // int32_t eventIDMTE2ToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE2_V));
-    // AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
-    // AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
     int32_t eventIDMTE3ToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE3_V));
     AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(eventIDMTE3ToV);
     AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventIDMTE3ToV);
@@ -284,27 +266,20 @@ __aicore__ inline void SymvAIV<T>::ComputePadV2(uint32_t taskIdx, uint32_t rowOf
     ReduceSum(LocalZ, LocalZ, LocalZ, dataCount);
     Muls(LocalZ, LocalZ, alpha, 1);
     auto scalar = LocalX2(0) * alpha;
-    // int32_t eventIDSToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::S_V));
-    // AscendC::SetFlag<AscendC::HardEvent::S_V>(eventIDSToV);
-    // AscendC::WaitFlag<AscendC::HardEvent::S_V>(eventIDSToV);
     if (colOffset + dataCount <= rowOffset) {
         Muls(LocalZ2, LocalA, scalar, dataCount);
     } else if (dataCount > 1) {
         Muls(LocalZ2, LocalA, scalar, dataCount - 1);
     }
-    // int32_t eventIDVToMTE3 = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::V_MTE3));
-    // AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventIDVToMTE3);
-    // AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(eventIDVToMTE3);
+    
     zQueue.EnQue<T>(LocalZ);
     z2Queue.EnQue<T>(LocalZ2);
     aQueue.FreeTensor(LocalA);
-    xQueue.FreeTensor(LocalX);
     x2Queue.FreeTensor(LocalX2);
-    workspaceQueue.FreeTensor(workLocal);
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::CopyOutPadV2(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SpmvAIV<T>::CopyOutPad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
     DataCopyExtParams copyParams{1, static_cast<uint16_t>(sizeof(T)), 0, 0, 0};
@@ -331,7 +306,7 @@ __aicore__ inline void SymvAIV<T>::CopyOutPadV2(uint32_t taskIdx, uint32_t rowOf
 }   
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::CopyInVec(uint32_t curOffset, uint32_t dataCount, bool needPad)
+__aicore__ inline void SpmvAIV<T>::CopyInVec(uint32_t curOffset, uint32_t dataCount, bool needPad)
 {
     if (!needPad) {
         LocalTensor<T> LocalX = xQueue.AllocTensor<T>();
@@ -350,31 +325,22 @@ __aicore__ inline void SymvAIV<T>::CopyInVec(uint32_t curOffset, uint32_t dataCo
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::ComputeVec(uint32_t curOffset, uint32_t dataCount)
+__aicore__ inline void SpmvAIV<T>::ComputeVec(uint32_t curOffset, uint32_t dataCount)
 {
     LocalTensor<T> LocalX = xQueue.DeQue<T>();
-    LocalTensor<T> LocalZ = z2Queue.AllocTensor<T>();
-    int32_t eventIDMTE2ToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE2_V));
-    AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
-    AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
-    int32_t eventIDMTE3ToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE3_V));
-    AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(eventIDMTE3ToV);
-    AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventIDMTE3ToV);
+    LocalTensor<T> LocalZ = zQueue.AllocTensor<T>();
     Muls(LocalZ, LocalX, beta, dataCount);
-    int32_t eventIDVToMTE3 = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::V_MTE3));
-    AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventIDVToMTE3);
-    AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(eventIDVToMTE3);
-    z2Queue.EnQue<T>(LocalZ);
+    zQueue.EnQue<T>(LocalZ);
     xQueue.FreeTensor(LocalX);
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::CopyOutVec(uint32_t curOffset, uint32_t dataCount, bool needPad)
+__aicore__ inline void SpmvAIV<T>::CopyOutVec(uint32_t curOffset, uint32_t dataCount, bool needPad)
 {
     if(!needPad) {
-        LocalTensor<T> LocalZ = z2Queue.DeQue<T>();
+        LocalTensor<T> LocalZ = zQueue.DeQue<T>();
         DataCopy(zGM[curOffset], LocalZ, dataCount);
-        z2Queue.FreeTensor(LocalZ);
+        zQueue.FreeTensor(LocalZ);
         return;
     }
 
@@ -382,14 +348,17 @@ __aicore__ inline void SymvAIV<T>::CopyOutVec(uint32_t curOffset, uint32_t dataC
     DataCopyExtParams copyParams{1, dataCount * BYTENUM_PER_FLOAT32, 0, 0, 0};
     DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
 
-    LocalTensor<T> LocalZ = z2Queue.DeQue<T>();
+    LocalTensor<T> LocalZ = zQueue.DeQue<T>();
     DataCopyPad(zGM[curOffset], LocalZ, copyParams);
-    z2Queue.FreeTensor(LocalZ);
+    zQueue.FreeTensor(LocalZ);
 }
 
 template <typename T>
-__aicore__ inline void SymvAIV<T>::Process()
-{    
+__aicore__ inline void SpmvAIV<T>::Process()
+{
+    if (taskStart == static_cast<uint32_t>(-1)) {
+        return;
+    }
     SetAtomicAdd<T>();
     if (vecIdx == 0) {
         uint32_t repeatTimes = n / maxDataCount;
@@ -411,42 +380,57 @@ __aicore__ inline void SymvAIV<T>::Process()
     }
 
     int64_t incyStep = incy == 0 ? 1 : incy;
-    for (uint32_t taskIdx = taskStart; taskIdx < taskCount; taskIdx += taskStep) {
-        uint32_t bi = static_cast<uint32_t>(taskBi[taskIdx]);
-        uint32_t bj = static_cast<uint32_t>(taskBj[taskIdx]);
-        uint32_t row = bi;
-        uint32_t colLen = bi + 1;
-        for (uint32_t col = 0; col < colLen; col+= maxDataCount) {
-            uint32_t dataCount = maxDataCount;
-            if (col + dataCount > colLen) {
-                dataCount = colLen - col;
-                CopyInPadV2(taskIdx, row, col, dataCount);
-                ComputePadV2(taskIdx, row, col, dataCount);
-                CopyOutPadV2(taskIdx, row, col, dataCount);
+    uint32_t rowLen = n;
+    uint32_t colLen = n;
+    for (uint32_t col = 0; col < colLen; col += maxDataCount) {
+        LocalTensor<T> xLocal = xQueue.AllocTensor<T>();
+        if (col + maxDataCount <= colLen) {
+            DataCopy(xLocal, xGM[col], maxDataCount);
+        } else {
+            uint32_t dataCount = colLen - col;
+            uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
+            DataCopyExtParams copyParams{1, dataCount * BYTENUM_PER_FLOAT32, 0, 0, 0};
+            DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
+            DataCopyPad(xLocal, xGM[col], copyParams, padParams);
+        }
+        for (uint32_t taskNum = 0; taskStart + taskNum < taskCount; taskNum += taskStep) {
+            uint32_t row = static_cast<uint32_t>(taskBi[taskStart] + taskNum);
+            uint32_t taskIdx = taskStart + taskNum;
+            if (col > row) {
                 continue;
             }
-            CopyInV2(taskIdx, row, col, dataCount);
-            ComputeV2(taskIdx, row, col, dataCount);
-            CopyOutV2(taskIdx, row, col, dataCount);
+            uint32_t dataCount = maxDataCount;
+            if (col + dataCount > row + 1) {
+                dataCount = row + 1 - col;
+                xQueue.EnQue<T>(xLocal);
+                CopyInPad(taskIdx, row, col, dataCount);
+                ComputePad(taskIdx, row, col, dataCount);
+                CopyOutPad(taskIdx, row, col, dataCount);
+                continue;
+            }
+            xQueue.EnQue<T>(xLocal);
+            CopyIn(taskIdx, row, col, dataCount);
+            Compute(taskIdx, row, col, dataCount);
+            CopyOut(taskIdx, row, col, dataCount);
         }
+        xQueue.FreeTensor(xLocal);
     }
     SetAtomicNone();
 }
 
-__global__ __aicore__ void symv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace,
+__global__ __aicore__ void spmv_kernel(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace,
     GM_ADDR tilingGm)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-    (void)workSpace;
-    SymvAIV<float> op;
-    op.Init(a, x, y, z, tilingGm);
+    SpmvAIV<float> op;
+    op.Init(aPacked, x, y, z, tilingGm);
     op.Process();
 }
 
-void symv_kernel_do(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace, GM_ADDR tilingGm,
+void spmv_kernel_do(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace, GM_ADDR tilingGm,
     uint32_t numBlocks, void *stream)
 {
-    symv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, z, workSpace, tilingGm);
+    spmv_kernel<<<numBlocks, nullptr, stream>>>(aPacked, x, y, z, workSpace, tilingGm);
 }
 
-#endif  // SYMV_KERNEL_H
+#endif  // COPY_AIV_H

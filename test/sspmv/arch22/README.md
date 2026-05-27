@@ -1,12 +1,12 @@
-## symv算子实现
+## spmv算子实现
 
 ## 概述
 
-BLAS symv算子实现。
+BLAS spmv算子实现。
 
-symv(Symmetric Matrix-Vector Multiplication)算子实现了对称矩阵与向量的乘法运算，是BLAS基础线性代数库中的核心算子之一。
+Spmv(Symmetric Packed Matrix-Vector Multiplication)算子实现了对称压缩矩阵与向量的乘法运算，是BLAS基础线性代数库中的核心算子之一。
 
-该算子针对对称矩阵的存储特性进行了优化，并高效完成矩阵与向量的乘加运算。
+该算子针对对称矩阵的存储特性进行了优化，采用压缩存储格式以节省内存空间，并高效完成矩阵与向量的乘加运算。
 
 ## 支持的产品
 
@@ -16,33 +16,33 @@ symv(Symmetric Matrix-Vector Multiplication)算子实现了对称矩阵与向量
 ## 目录结构介绍
 
 ```
-├── symv
+├── spmv
 │   ├── CMakeLists.txt      // 编译工程文件
 │   ├── README.md           // 说明文档
-│   └── symv_test.cpp       // 算子调用样例
+│   └── spmv_test.cpp       // 算子调用样例
 ```
 
 ## 算子描述
 
 - 算子功能：  
-symv算子实现了将对称压缩矩阵乘以向量。对应的数学表达式为：  
+spmv算子实现了将对称压缩矩阵乘以向量。对应的数学表达式为：  
 ```
 z = alpha * A * x + beta * y
 ```
-A为对称矩阵，x和y是向量，alpha和beta是标量
+A为对称压缩矩阵，x和y是向量，alpha和beta是标量
 
-对称矩阵A的下三角部分元素按行储存，对应的对称部分通过已有元素推断得出。压缩对称矩阵格式仅需要`n * (n + 1) / 2`个元素储存。
+对称矩阵A的下三角部分元素按行连续打包储存，元素`A(i,j)`储存在位置`AP[j + i * (i + 1) / 2]`中，且`i >= j`，对应的对称部分通过已有元素推断得出。压缩对称矩阵格式仅需要`n * (n + 1) / 2`个元素储存。
 
 对应的接口为：
 ```
-int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *y, float *z,
+int aclblasSpmv(const float *aPacked, const float *x, const float *y, float *z,
 				const float alpha, const float beta,
 				const int64_t n, const int64_t incx, const int64_t incy, void *stream);
 ```
 <table>
    <tr>
       <td rowspan="1" align="center">参数</td>
-      <td colspan="4" align="center">symv 参数说明</td>
+      <td colspan="4" align="center">spmv 参数说明</td>
    </tr>
    <tr>
       <td rowspan="12" align="center">参数列表</td>
@@ -55,7 +55,7 @@ int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *
       <td align="center">n</td>
       <td align="center"></td>
       <td align="center">in</td>
-      <td align="center">对称矩阵 A 的行数和列数。</td>
+      <td align="center">对称压缩矩阵 A 的行数和列数。</td>
    </tr>
    <tr>
       <td align="center">alpha</td>
@@ -67,13 +67,7 @@ int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *
       <td align="center">aPacked</td>
       <td align="center">device</td>
       <td align="center">in</td>
-      <td align="center">对称矩阵 &lt;type&gt; 数组，维度为 n x n。</td>
-   </tr>
-   <tr>
-      <td align="center">lda</td>
-      <td align="center"></td>
-      <td align="center">in</td>
-      <td align="center">用于存储矩阵A的二维数组的主维。</td>
+      <td align="center">对称压缩矩阵 &lt;type&gt; 数组，维度为 n x n。</td>
    </tr>
    <tr>
       <td align="center">x</td>
@@ -116,7 +110,7 @@ int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *
 
 - 算子规格：
   <table>
-  <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="6" align="center">symv</td></tr>
+  <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="6" align="center">Spmv</td></tr>
   </tr>
   <tr><td rowspan="6" align="center">算子输入</td><td align="center">name</td><td align="center">shape</td><td align="center">data type</td><td align="center">format</td></tr>
   <tr><td align="center">A</td><td align="center">N * (N + 1) /2</td><td align="center">float</td><td align="center">ND</td></tr>
@@ -128,7 +122,7 @@ int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *
   </tr>
   <tr><td rowspan="1" align="center">算子输出</td><td align="center">z</td><td align="center">N</td><td align="center">float</td><td align="center">ND</td></tr>
   </tr>
-  <tr><td rowspan="1" align="center">核函数名</td><td colspan="6" align="center">symv_kernel</td></tr>
+  <tr><td rowspan="1" align="center">核函数名</td><td colspan="6" align="center">spmv_kernel</td></tr>
   </table>
 
 - 算子实现： 
@@ -160,7 +154,7 @@ int aclblasSymv(const float *a, const int64_t lda, const float *x, const float *
 
 - 样例执行
   ```bash
-  bash build.sh --ops=symv --run # --ops=<算子名> --run可选参数，执行测试样例
+  bash build.sh --ops=spmv --run # --ops=<算子名> --run可选参数，执行测试样例
   ```
   执行结果如下，说明精度对比成功。
   ```bash

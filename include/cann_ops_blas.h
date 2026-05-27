@@ -146,18 +146,19 @@ aclblasStatus_t aclblasStrsv(
     aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n,
     const float* A, int64_t lda, float* x, int64_t incx);
 
-aclblasStatus_t aclblasSymv(
-    aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, const float* y, float* z,
-    const float alpha, const float beta, const int64_t n, const int64_t incx, const int64_t incy);
+aclblasStatus_t aclblasSsymv(
+    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* A, int lda,
+    const float* x, int incx, const float* beta, float* y, int incy);
 
 aclblasStatus_t aclblasSsbmv(
     aclblasHandle_t handle, aclblasFillMode uplo, int n, int k, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy);
 
-aclblasStatus_t aclblasTpmv(
-    aclblasHandle_t handle, const float* aPacked, const float* x, float* y, const int64_t n, const int64_t incx);
+aclblasStatus_t aclblasStpmv(
+    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
+    int64_t n, const float* aPacked, const float* x, float* y, int64_t incx);
 
-aclblasStatus_t aclblasTbmv(
+aclblasStatus_t aclblasStbmv(
     aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, float* y, const int64_t n,
     const int64_t k, const int64_t incx);
 

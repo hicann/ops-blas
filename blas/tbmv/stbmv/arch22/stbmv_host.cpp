@@ -89,47 +89,28 @@ tbmvTilingData CalTbmvTilingData(
     return tilingData;
 }
 
-aclblasStatus_t aclblasTbmv(
+aclblasStatus_t aclblasStbmv(
     aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, float* y, const int64_t n,
     const int64_t k, const int64_t incx)
 {
-    aclrtStream useStream = nullptr;
-    if (handle != nullptr) {
-        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-        useStream = h->stream;
+    const uint32_t rowCount = static_cast<uint32_t>(n);
+    const uint32_t bandCount = static_cast<uint32_t>(k);
+    const uint32_t leadingDim = static_cast<uint32_t>(lda);
+    const size_t packedElementCount = static_cast<size_t>(rowCount) * (static_cast<size_t>(rowCount) + 1U) / 2U;
+
+    std::vector<float> packedMatrix(packedElementCount, 0.0f);
+    auto packedLowerIndex = [](uint32_t row, uint32_t col) {
+        return static_cast<size_t>(col + (row * (row + 1U)) / 2U);
+    };
+
+    for (uint32_t row = 0; row < rowCount; ++row) {
+        uint32_t startCol = row > bandCount ? row - bandCount : 0;
+        for (uint32_t col = startCol; col <= row; ++col) {
+            uint32_t bandRow = row - col;
+            packedMatrix[packedLowerIndex(row, col)] = a[static_cast<size_t>(bandRow) * leadingDim + col];
+        }
     }
-    constexpr uint32_t numBlocks = 8;
-    const size_t vecByteSize = static_cast<size_t>(n) * sizeof(float);
-    const size_t matrixByteSize = static_cast<size_t>(k + 1) * static_cast<size_t>(lda) * sizeof(float);
 
-    tbmvTilingData tiling = CalTbmvTilingData(
-        static_cast<uint32_t>(n), static_cast<uint32_t>(k + 1), static_cast<uint32_t>(lda), numBlocks, incx);
-
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    uint8_t* tilingDevice = nullptr;
-
-    aclrtMalloc((void**)&aDevice, matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&xDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&yDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&tilingDevice, sizeof(tbmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-
-    aclrtMemcpy(aDevice, matrixByteSize, a, matrixByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(xDevice, vecByteSize, x, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(tbmvTilingData), &tiling, sizeof(tbmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-
-    aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-
-    tbmv_kernel_do(aDevice, xDevice, yDevice, nullptr, tilingDevice, numBlocks, useStream);
-    aclrtSynchronizeStream(useStream);
-
-    aclrtMemcpy(y, vecByteSize, yDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(aDevice);
-    aclrtFree(xDevice);
-    aclrtFree(yDevice);
-    aclrtFree(tilingDevice);
-
-    return ACLBLAS_STATUS_SUCCESS;
+    return aclblasStpmv(
+        handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, n, packedMatrix.data(), x, y, incx);
 }

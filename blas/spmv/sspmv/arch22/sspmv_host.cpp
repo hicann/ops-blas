@@ -9,7 +9,7 @@
  */
 
 /* !
- * \file tpmv.asc
+ * \file spmv.asc
  * \brief
  */
 
@@ -20,6 +20,7 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 
@@ -28,35 +29,38 @@ constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
 constexpr uint64_t ELEMENTS_PER_BLOCK_TILING = UB_BYTENUM_PER_BLOCK_TILING / BYTENUM_PER_FLOAT32_TILING;
 constexpr uint32_t MAX_CORE_NUM = 50;
 constexpr uint32_t TILE_SIZE = 128;
-constexpr uint32_t MAX_TILE_TASK = 8192;
+constexpr uint32_t MAX_TILE_TASK = 128;
 
-struct tpmvTilingData {
+struct SpmvTilingData {
     uint32_t n;
     uint32_t useCoreNum;
+    float alpha;
+    float beta;
     int64_t incx;
+    int64_t incy;
     uint32_t tileSize;
     uint32_t tileRows;
     uint32_t taskCount;
-    uint16_t taskBi[MAX_TILE_TASK];
+    uint16_t taskBi[MAX_CORE_NUM];
     uint32_t taskStart[MAX_CORE_NUM];
     uint32_t taskStep[MAX_CORE_NUM];
 };
 
-tpmvTilingData CalTilingData(uint32_t totalRows, uint32_t vecCoreNum, int64_t incx)
+SpmvTilingData CalTilingData(
+    uint32_t totalRows, uint32_t vecCoreNum, float alpha, float beta, int64_t incx, int64_t incy)
 {
-    tpmvTilingData tilingData{};
+    SpmvTilingData tilingData{};
     tilingData.n = totalRows;
+    tilingData.alpha = alpha;
+    tilingData.beta = beta;
     tilingData.incx = incx;
+    tilingData.incy = incy;
     tilingData.tileSize = TILE_SIZE;
     tilingData.tileRows = (totalRows + TILE_SIZE - 1) / TILE_SIZE;
 
     // Build 2D lower-triangle tile tasks: (bi, bj), bi >= bj.
-    uint32_t taskCount = 0;
-    for (uint32_t bi = 0; bi < totalRows; ++bi) {
-        tilingData.taskBi[taskCount] = static_cast<uint16_t>(bi);
-        ++taskCount;
-    }
-    tilingData.taskCount = taskCount;
+    uint32_t taskCount = totalRows;
+    tilingData.taskCount = totalRows;
 
     uint32_t availableCoreNum = vecCoreNum;
     if (availableCoreNum == 0) {
@@ -72,15 +76,16 @@ tpmvTilingData CalTilingData(uint32_t totalRows, uint32_t vecCoreNum, int64_t in
     }
 
     for (uint32_t i = 0; i < tilingData.useCoreNum; ++i) {
+        tilingData.taskBi[i] = static_cast<uint16_t>(i);
         tilingData.taskStart[i] = i;
         tilingData.taskStep[i] = tilingData.useCoreNum;
     }
-
     return tilingData;
 }
 
-aclblasStatus_t aclblasTpmv(
-    aclblasHandle_t handle, const float* aPacked, const float* x, float* y, const int64_t n, const int64_t incx)
+aclblasStatus_t aclblasSspmv(
+    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* AP, const float* x, int incx,
+    const float* beta, float* y, int incy)
 {
     aclrtStream useStream = nullptr;
     if (handle != nullptr) {
@@ -90,35 +95,37 @@ aclblasStatus_t aclblasTpmv(
     constexpr uint32_t numBlocks = 8;
     const size_t vecByteSize = static_cast<size_t>(n) * sizeof(float);
     const size_t nSize = static_cast<size_t>(n);
-    const size_t packedEleNum = nSize * (nSize + 1U) / 2U;
+    const size_t packedEleNum = (nSize * (nSize + 3U) - 2U) / 2U;
     const size_t packedByteSize = packedEleNum * sizeof(float);
 
-    tpmvTilingData tiling = CalTilingData(static_cast<uint32_t>(n), numBlocks, incx);
+    SpmvTilingData tiling = CalTilingData(static_cast<uint32_t>(n), numBlocks, *alpha, *beta, incx, incy);
 
     uint8_t* aDevice = nullptr;
     uint8_t* xDevice = nullptr;
     uint8_t* yDevice = nullptr;
+    uint8_t* zDevice = nullptr;
     uint8_t* tilingDevice = nullptr;
 
     aclrtMalloc((void**)&aDevice, packedByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc((void**)&xDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc((void**)&yDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&tilingDevice, sizeof(tpmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&zDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&tilingDevice, sizeof(SpmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
 
-    aclrtMemcpy(aDevice, packedByteSize, aPacked, packedByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(aDevice, packedByteSize, AP, packedByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(xDevice, vecByteSize, x, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(tpmvTilingData), &tiling, sizeof(tpmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-
     aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(tilingDevice, sizeof(SpmvTilingData), &tiling, sizeof(SpmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
 
-    tpmv_kernel_do(aDevice, xDevice, yDevice, nullptr, tilingDevice, numBlocks, useStream);
+    spmv_kernel_do(aDevice, xDevice, yDevice, zDevice, nullptr, tilingDevice, numBlocks, useStream);
     aclrtSynchronizeStream(useStream);
 
-    aclrtMemcpy(y, vecByteSize, yDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    aclrtMemcpy(y, vecByteSize, zDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
 
     aclrtFree(aDevice);
     aclrtFree(xDevice);
     aclrtFree(yDevice);
+    aclrtFree(zDevice);
     aclrtFree(tilingDevice);
 
     return ACLBLAS_STATUS_SUCCESS;

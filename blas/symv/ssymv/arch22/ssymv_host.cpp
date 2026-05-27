@@ -27,6 +27,7 @@ extern void symv_kernel_do(
 constexpr uint32_t SYMV_MAX_CORE_NUM = 50;
 constexpr uint32_t SYMV_TILE_SIZE = 128;
 constexpr uint32_t SYMV_MAX_TILE_TASK = 4096;
+constexpr uint32_t NUM_BLOCKS = 8;
 
 struct SymvTilingData {
     uint32_t n;
@@ -58,11 +59,7 @@ static SymvTilingData CalSymvTilingData(
     tilingData.incy = incy;
     tilingData.tileSize = SYMV_TILE_SIZE;
 
-    uint32_t taskCount = totalRows;
-    for (uint32_t bi = 0; bi < totalRows; ++bi) {
-        tilingData.taskBi[bi] = static_cast<uint16_t>(bi);
-        tilingData.taskBj[bi] = static_cast<uint16_t>(bi) * lda;
-    }
+    uint32_t taskCount = std::min(totalRows, SYMV_MAX_TILE_TASK);
     tilingData.taskCount = taskCount;
 
     uint32_t availableCoreNum = vecCoreNum == 0 ? 1U : vecCoreNum;
@@ -74,18 +71,24 @@ static SymvTilingData CalSymvTilingData(
         return tilingData;
     }
 
+    for (uint32_t taskIdx = 0; taskIdx < taskCount; ++taskIdx) {
+        tilingData.taskBi[taskIdx] = static_cast<uint16_t>(taskIdx);
+        tilingData.taskBj[taskIdx] = 0;
+        tilingData.taskType[taskIdx] = 0;
+    }
+
     for (uint32_t i = 0; i < tilingData.useCoreNum; ++i) {
         tilingData.taskStart[i] = i;
         tilingData.taskStep[i] = tilingData.useCoreNum;
     }
-
     return tilingData;
 }
 
-aclblasStatus_t aclblasSymv(
-    aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, const float* y, float* z,
-    const float alpha, const float beta, const int64_t n, const int64_t incx, const int64_t incy)
+aclblasStatus_t aclblasSsymv(
+    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* a, int lda,
+    const float* x, int incx, const float* beta, float* y, int incy)
 {
+    (void)uplo;
     aclrtStream useStream = nullptr;
     if (handle != nullptr) {
         auto* h = reinterpret_cast<_aclblas_handle*>(handle);
@@ -97,8 +100,8 @@ aclblasStatus_t aclblasSymv(
     const size_t vecByteSize = vecElementCount * sizeof(float);
     const size_t matrixByteSize = matrixElementCount * sizeof(float);
 
-    SymvTilingData tiling =
-        CalSymvTilingData(static_cast<uint32_t>(n), static_cast<uint32_t>(lda), numBlocks, alpha, beta, incx, incy);
+    SymvTilingData tiling = CalSymvTilingData(
+        static_cast<uint32_t>(n), static_cast<uint32_t>(lda), numBlocks, *alpha, *beta, incx, incy);
 
     uint8_t* aDevice = nullptr;
     uint8_t* xDevice = nullptr;
@@ -119,7 +122,7 @@ aclblasStatus_t aclblasSymv(
 
     symv_kernel_do(aDevice, xDevice, yDevice, zDevice, nullptr, tilingDevice, numBlocks, useStream);
     aclrtSynchronizeStream(useStream);
-    aclrtMemcpy(z, vecByteSize, zDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    aclrtMemcpy(y, vecByteSize, zDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
 
     aclrtFree(aDevice);
     aclrtFree(xDevice);

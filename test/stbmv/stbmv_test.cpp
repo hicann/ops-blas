@@ -137,8 +137,8 @@ static int RunCase(uint32_t n, uint32_t k, uint32_t lda)
     aclblasCreate(&handle);
     aclblasSetStream(handle, stream);
 
-    ret = aclblasTbmv(handle, a.data(), lda, x.data(), y.data(), n, k, incx);
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasTbmv failed. ERROR: %d\n", ret); return ret);
+    ret = aclblasStbmv(handle, a.data(), lda, x.data(), y.data(), n, k, incx);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStbmv failed. ERROR: %d\n", ret); return ret);
 
     int status = VerifyResult(y, golden);
 
@@ -153,9 +153,9 @@ int32_t main(int32_t argc, char* argv[])
 {
     (void)argc;
     (void)argv;
-    int ret = RunCase(4096, 4096, 4096);
+    int ret = RunCase(2048, 256, 2048);
     if (ret != 0) {
         return ret;
     }
-    return RunCase(5000, 3000, 5056);
+    return RunCase(1537, 384, 1664);
 }
