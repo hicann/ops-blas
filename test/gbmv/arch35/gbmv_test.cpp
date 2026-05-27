@@ -11,19 +11,9 @@
 /* !
  * \file gbmv_test.cpp
  * \brief ST test for GBMV (General Banded Matrix-Vector multiplication) - FP32.
- *
- * Tests the aclblasSgbmv host API against a CPU double-precision golden reference.
- * Precision verification follows experimental_standard.md:
- *   MERE = avg(|actual - golden| / (|golden| + 1e-7))
- *   MARE = max(|actual - golden| / (|golden| + 1e-7))
- *   Pass: MERE < 2^-13 && MARE < 10 * 2^-13
- * L0 test cases (14): trans=N (7) + trans=T/C (7), covering basic functionality,
- *                     alpha/beta edge cases, non-unit strides, rectangular matrices.
- * L1 test cases (37): trans=N (19) + trans=T/C (18), covering bandwidth variants,
- *                     edge shapes, negative strides, non-compact lda, large scale,
- *                     zero-output verification.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iomanip>
@@ -31,7 +21,50 @@
 #include <random>
 #include <vector>
 
-#include "gbmv_test_utils.h"
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+// ---------------------------------------------------------------------------
+// Data helpers (inline, same style as sbmv test)
+// ---------------------------------------------------------------------------
+
+static void FillBandedMatrix(float* A, int64_t m, int64_t n, int64_t kl, int64_t ku, int64_t lda, std::mt19937& rng)
+{
+    std::uniform_real_distribution<float> dist(-2.0f, 2.0f);
+    std::fill(A, A + static_cast<size_t>(lda) * static_cast<size_t>(n), 0.0f);
+    for (int64_t j = 0; j < n; ++j) {
+        int64_t iStart = (j > ku) ? (j - ku) : 0;
+        int64_t iEnd = (j + kl < m - 1) ? (j + kl) : (m - 1);
+        for (int64_t i = iStart; i <= iEnd; ++i) {
+            int64_t bandedRow = ku + i - j;
+            A[bandedRow + j * lda] = dist(rng);
+        }
+    }
+}
+
+static float* FillStridedVector(float* v, int64_t len, int64_t inc, std::mt19937& rng)
+{
+    std::uniform_real_distribution<float> dist(-2.0f, 2.0f);
+    int64_t absInc = (inc < 0) ? -inc : inc;
+    std::fill(v, v + static_cast<size_t>((len - 1) * absInc + 1), 0.0f);
+    for (int64_t i = 0; i < len; ++i) {
+        v[i * absInc] = dist(rng);
+    }
+    return (inc < 0) ? (v + (len - 1) * absInc) : v;
+}
 
 // ---------------------------------------------------------------------------
 // Test case descriptor
@@ -108,7 +141,7 @@ static const GbmvTestCase kTestCasesL1[] = {
     {"TC-L1-019", "Zero output large scale (alpha=beta=0)", ACLBLAS_OP_N, 128, 128, 4, 4, 0.0f, 0.0f, 1, 1, 9, 20260541,
      true},
 
-    // --- trans=T / trans=C cases (exercises ProcessTransT + ReduceSum path) ---
+    // --- trans=T / trans=C cases ---
     {"TC-L1-020", "trans=T tri-diagonal (kl=ku=1)", ACLBLAS_OP_T, 8, 8, 1, 1, 0.9f, 0.3f, 1, 1, 3, 20260549, true},
     {"TC-L1-021", "trans=T wide bandwidth (kl=ku=7)", ACLBLAS_OP_T, 8, 8, 7, 7, 0.8f, 0.4f, 1, 1, 15, 20260550, true},
     {"TC-L1-022", "trans=T only lower band (ku=0)", ACLBLAS_OP_T, 8, 8, 4, 0, 1.0f, 0.5f, 1, 1, 5, 20260551, true},
@@ -137,8 +170,7 @@ static const GbmvTestCase kTestCasesL1[] = {
 static constexpr int kNumL1Cases = sizeof(kTestCasesL1) / sizeof(kTestCasesL1[0]);
 
 // ---------------------------------------------------------------------------
-// Precision thresholds (per experimental_standard.md)
-// FP32: threshold = 2^(-13), pass condition: MERE < threshold && MARE < 10*threshold
+// Precision thresholds
 // ---------------------------------------------------------------------------
 static constexpr double kFp32Threshold = 1.0 / 8192.0; // 2^(-13)
 
@@ -146,18 +178,18 @@ static constexpr double kFp32Threshold = 1.0 / 8192.0; // 2^(-13)
 // Golden reference
 // ===========================================================================
 
-static void gbmv_golden(
+static void GbmvGolden(
     aclblasOperation_t trans, int64_t m, int64_t n, int64_t kl, int64_t ku, float alpha, const float* A, int64_t lda,
     const float* x, int64_t incx, float beta, const float* y, int64_t incy, float* yGolden)
 {
     int64_t absIncy = (incy < 0) ? -incy : incy;
 
     if (trans == ACLBLAS_OP_N) {
-        for (int64_t i = 0; i < m; i++) {
+        for (int64_t i = 0; i < m; ++i) {
             double sum = 0.0;
             int64_t jStart = (i > static_cast<int64_t>(kl)) ? (i - kl) : 0;
             int64_t jEnd = (i + ku < n - 1) ? (i + ku) : (n - 1);
-            for (int64_t j = jStart; j <= jEnd; j++) {
+            for (int64_t j = jStart; j <= jEnd; ++j) {
                 int64_t bandIdx = (ku + i - j) + j * lda;
                 sum += static_cast<double>(A[bandIdx]) * static_cast<double>(x[j * incx]);
             }
@@ -165,11 +197,11 @@ static void gbmv_golden(
                 static_cast<double>(alpha) * sum + static_cast<double>(beta) * static_cast<double>(y[i * incy]));
         }
     } else {
-        for (int64_t j = 0; j < n; j++) {
+        for (int64_t j = 0; j < n; ++j) {
             double sum = 0.0;
             int64_t firstRow = (j > ku) ? (j - ku) : 0;
             int64_t lastRow = (j + kl < m - 1) ? (j + kl) : (m - 1);
-            for (int64_t i = firstRow; i <= lastRow; i++) {
+            for (int64_t i = firstRow; i <= lastRow; ++i) {
                 int64_t bandIdx = (ku + i - j) + j * lda;
                 sum += static_cast<double>(A[bandIdx]) * static_cast<double>(x[i * incx]);
             }
@@ -183,180 +215,228 @@ static void gbmv_golden(
 // Result verification
 // ===========================================================================
 
-static uint32_t verify_result(const float* output, const float* golden, int64_t m, int64_t incy, const char* caseId)
+static void PrintTensors(const float* output, const float* golden, int64_t count, int64_t inc, int64_t absInc,
+    const char* caseId)
 {
-    int64_t absIncy = (incy < 0) ? -incy : incy;
-
-    std::cout << std::fixed << std::setprecision(6);
-
     constexpr size_t kMaxPrintElems = 20;
     std::cout << "[" << caseId << "] Output: ";
-    for (size_t k = 0; k < static_cast<size_t>(m) && k < kMaxPrintElems; k++) {
-        std::cout << output[k * incy] << " ";
+    for (size_t k = 0; k < static_cast<size_t>(count) && k < kMaxPrintElems; ++k) {
+        std::cout << output[k * inc] << " ";
     }
-    if (static_cast<size_t>(m) > kMaxPrintElems)
+    if (static_cast<size_t>(count) > kMaxPrintElems) {
         std::cout << "...";
+    }
     std::cout << std::endl;
 
     std::cout << "[" << caseId << "] Golden: ";
-    for (size_t k = 0; k < static_cast<size_t>(m) && k < kMaxPrintElems; k++) {
-        std::cout << golden[k * static_cast<size_t>(absIncy)] << " ";
+    for (size_t k = 0; k < static_cast<size_t>(count) && k < kMaxPrintElems; ++k) {
+        std::cout << golden[k * static_cast<size_t>(absInc)] << " ";
     }
-    if (static_cast<size_t>(m) > kMaxPrintElems)
+    if (static_cast<size_t>(count) > kMaxPrintElems) {
         std::cout << "...";
+    }
     std::cout << std::endl;
+}
 
-    // Compute MERE (Mean Relative Error) and MARE (Max Relative Error)
-    // per experimental_standard.md:
-    //   relErr = |actual - golden| / (|golden| + 1e-7)
-    double sumRelErr = 0.0;
-    double maxRelErr = 0.0;
-    int64_t outlierCount = 0;
+static void ComputeErrorMetrics(const float* output, const float* golden, int64_t count, int64_t inc, int64_t absInc,
+    double& sumRelErr, double& maxRelErr, int64_t& outlierCount, double outlierLimit, const char* caseId)
+{
     static constexpr double kEpsilon = 1e-7;
-    double outlierLimit = 10.0 * kFp32Threshold;
+    sumRelErr = 0.0;
+    maxRelErr = 0.0;
+    outlierCount = 0;
 
-    for (int64_t i = 0; i < m; i++) {
-        float outVal = output[i * incy];
-        float goldVal = golden[i * absIncy];
+    for (int64_t i = 0; i < count; ++i) {
+        float outVal = output[i * inc];
+        float goldVal = golden[i * absInc];
         double relErr =
             static_cast<double>(std::abs(outVal - goldVal)) / (static_cast<double>(std::abs(goldVal)) + kEpsilon);
         sumRelErr += relErr;
-        if (relErr > maxRelErr)
+        if (relErr > maxRelErr) {
             maxRelErr = relErr;
-
+        }
         if (relErr > outlierLimit) {
             if (outlierCount < 5) {
                 std::cout << "[" << caseId << "] outlier at index " << i << ": kernel=" << outVal
                           << " golden=" << goldVal << " relErr=" << relErr << std::endl;
             }
-            outlierCount++;
+            ++outlierCount;
         }
     }
+}
+
+static uint32_t VerifyResult(const float* output, const float* golden, int64_t count, int64_t inc, const char* caseId)
+{
+    int64_t absInc = (inc < 0) ? -inc : inc;
+    std::cout << std::fixed << std::setprecision(6);
+    PrintTensors(output, golden, count, inc, absInc, caseId);
+
+    double sumRelErr, maxRelErr;
+    int64_t outlierCount;
+    double outlierLimit = 10.0 * kFp32Threshold;
+    ComputeErrorMetrics(output, golden, count, inc, absInc, sumRelErr, maxRelErr, outlierCount, outlierLimit, caseId);
+
     if (outlierCount > 5) {
         std::cout << "[" << caseId << "] ... and " << (outlierCount - 5) << " more outliers" << std::endl;
     }
-
-    double mere = (m > 0) ? sumRelErr / static_cast<double>(m) : 0.0;
-
+    double mere = (count > 0) ? sumRelErr / static_cast<double>(count) : 0.0;
     std::cout << "[" << caseId << "] MERE=" << mere << " MARE=" << maxRelErr << " (threshold=" << kFp32Threshold
               << ", outlier_limit=" << outlierLimit << ")" << std::endl;
 
     bool pass = (mere < kFp32Threshold) && (maxRelErr < outlierLimit);
-
     if (pass) {
         std::cout << "[" << caseId << "] PASSED (MERE < threshold && MARE < 10*threshold, " << outlierCount
-                  << " outliers out of " << m << " elements)" << std::endl;
+                  << " outliers out of " << count << " elements)" << std::endl;
         return 0;
     }
     std::cout << "[" << caseId << "] FAILED (MERE=" << mere << " vs threshold=" << kFp32Threshold
               << ", MARE=" << maxRelErr << " vs limit=" << outlierLimit << ", " << outlierCount << " outliers out of "
-              << m << " elements)" << std::endl;
+              << count << " elements)" << std::endl;
     return 1;
 }
 
 // ===========================================================================
-// ACL lifecycle helpers
+// Device lifecycle RAII (same style as sbmv test)
 // ===========================================================================
 
-static int SetupAclForTest(int32_t deviceId, aclrtStream& stream, aclblasHandle_t& handle)
-{
-    aclError aclRet = aclInit(nullptr);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", aclRet); return aclRet);
+struct TestContext {
+    int32_t deviceId = 0;
+    aclrtStream stream = nullptr;
+    aclblasHandle_t handle = nullptr;
+    uint8_t* aDevice = nullptr;
+    uint8_t* xDevice = nullptr;
+    uint8_t* yDevice = nullptr;
 
-    aclRet = aclrtSetDevice(deviceId);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", aclRet); aclFinalize(); return aclRet);
+    bool Init()
+    {
+        if (aclInit(nullptr) != ACL_SUCCESS) {
+            return false;
+        }
+        return aclrtSetDevice(deviceId) == ACL_SUCCESS && aclrtCreateStream(&stream) == ACL_SUCCESS &&
+               aclblasCreate(&handle) == ACL_SUCCESS && aclblasSetStream(handle, stream) == ACL_SUCCESS;
+    }
 
-    aclRet = aclrtCreateStream(&stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", aclRet); aclrtResetDevice(deviceId);
-        aclFinalize(); return aclRet);
+    bool AllocBuffers(const void* aSrc, size_t aSz, const void* xSrc, size_t xSz, const void* ySrc, size_t ySz)
+    {
+        aclError r;
+        r = aclrtMalloc(reinterpret_cast<void**>(&aDevice), aSz, ACL_MEM_MALLOC_HUGE_FIRST);
+        CHECK_RET(r == ACL_SUCCESS, LOG_PRINT("malloc aDevice failed: %d\n", r); return false);
+        r = aclrtMalloc(reinterpret_cast<void**>(&xDevice), xSz, ACL_MEM_MALLOC_HUGE_FIRST);
+        CHECK_RET(r == ACL_SUCCESS, LOG_PRINT("malloc xDevice failed: %d\n", r);
+                  aclrtFree(aDevice); aDevice = nullptr; return false);
+        r = aclrtMalloc(reinterpret_cast<void**>(&yDevice), ySz, ACL_MEM_MALLOC_HUGE_FIRST);
+        CHECK_RET(r == ACL_SUCCESS, LOG_PRINT("malloc yDevice failed: %d\n", r);
+                  aclrtFree(aDevice); aclrtFree(xDevice); aDevice = xDevice = nullptr; return false);
+        aclrtMemcpy(aDevice, aSz, aSrc, aSz, ACL_MEMCPY_HOST_TO_DEVICE);
+        aclrtMemcpy(xDevice, xSz, xSrc, xSz, ACL_MEMCPY_HOST_TO_DEVICE);
+        aclrtMemcpy(yDevice, ySz, ySrc, ySz, ACL_MEMCPY_HOST_TO_DEVICE);
+        return true;
+    }
 
-    aclblasStatus_t blasRet = aclblasCreate(&handle);
-    CHECK_RET(
-        blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
-        aclrtDestroyStream(stream); aclrtResetDevice(deviceId); aclFinalize(); return blasRet);
+    ~TestContext()
+    {
+        aclrtFree(aDevice);
+        aclrtFree(xDevice);
+        aclrtFree(yDevice);
+        aclblasDestroy(handle);
+        if (stream) {
+            aclrtDestroyStream(stream);
+        }
+        aclrtResetDevice(deviceId);
+        aclFinalize();
+    }
 
-    blasRet = aclblasSetStream(handle, stream);
-    CHECK_RET(
-        blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
-        aclblasDestroy(handle); aclrtDestroyStream(stream); aclrtResetDevice(deviceId); aclFinalize(); return blasRet);
-
-    return 0;
-}
-
-static void CleanupAclForTest(aclblasHandle_t handle, aclrtStream stream, int32_t deviceId)
-{
-    aclblasDestroy(handle);
-    aclrtDestroyStream(stream);
-    aclrtResetDevice(deviceId);
-    aclFinalize();
-}
+    TestContext() = default;
+    TestContext(const TestContext&) = delete;
+    TestContext& operator=(const TestContext&) = delete;
+};
 
 // ===========================================================================
 // Test case runner
 // ===========================================================================
 
-static int run_test_case(const GbmvTestCase& tc)
+static int RunCaseMain(
+    const GbmvTestCase& tc, TestContext& ctx, const std::vector<float>& aHost, const std::vector<float>& xHost,
+    std::vector<float>& yHost, float* xBlasPtr, float* yBlasPtr, const float* yInitBlasPtr, int64_t xCount,
+    int64_t yCount, size_t aBytes, size_t xBytes, size_t yBytes, size_t ySize)
 {
-    bool isTransN = (tc.trans == ACLBLAS_OP_N);
-    const char* transStr = isTransN ? "N" : (tc.trans == ACLBLAS_OP_T ? "T" : "C");
-    int32_t deviceId = 0;
-    int64_t absIncx = (tc.incx < 0) ? -tc.incx : tc.incx;
-    int64_t absIncy = (tc.incy < 0) ? -tc.incy : tc.incy;
-
-    int64_t xCount = isTransN ? tc.n : tc.m;
-    int64_t yCount = isTransN ? tc.m : tc.n;
-
-    size_t aSize = (tc.n > 0) ? static_cast<size_t>(tc.lda) * static_cast<size_t>(tc.n) : 1;
-    std::vector<float> aHost(aSize, 0.0f);
-    size_t xSize = (xCount > 0) ? static_cast<size_t>((xCount - 1) * absIncx + 1) : 1;
-    std::vector<float> xHost(xSize, 0.0f);
-    size_t ySize = (yCount > 0) ? static_cast<size_t>((yCount - 1) * absIncy + 1) : 1;
-    std::vector<float> yHost(ySize, 0.0f);
-
-    std::mt19937 rng(tc.seed);
-    fill_banded_matrix(aHost.data(), tc.m, tc.n, tc.kl, tc.ku, tc.lda, rng);
-    float* xBlasPtr = fill_strided_vector(xHost.data(), xCount, tc.incx, rng);
-    float* yBlasPtr = fill_strided_vector(yHost.data(), yCount, tc.incy, rng);
-    std::vector<float> yInitial = yHost;
-    float* yInitBlasPtr = (tc.incy < 0) ? yInitial.data() + (yCount - 1) * absIncy : yInitial.data();
-
-    aclrtStream stream = nullptr;
-    aclblasHandle_t handle = nullptr;
-    int setupRet = SetupAclForTest(deviceId, stream, handle);
-    if (setupRet != 0)
-        return setupRet;
-
-    aclblasStatus_t blasRet = aclblasSgbmv(
-        handle, tc.trans, tc.m, tc.n, tc.kl, tc.ku, &tc.alpha, aHost.data(), tc.lda, xBlasPtr, tc.incx, &tc.beta,
-        yBlasPtr, tc.incy);
-
-    if (!tc.expectSuccess) {
-        bool earlyReturnOk = (blasRet == ACLBLAS_STATUS_SUCCESS);
-        std::cout << "[" << tc.caseId << "] early-return " << (earlyReturnOk ? "OK" : "FAILED (unexpected error)")
-                  << " (ret=" << blasRet << ")" << std::endl;
-        CleanupAclForTest(handle, stream, deviceId);
-        return earlyReturnOk ? 0 : 1;
+    if (!ctx.AllocBuffers(aHost.data(), aBytes, xHost.data(), xBytes, yHost.data(), yBytes)) {
+        return -1;
     }
-
+    aclblasStatus_t blasRet = aclblasSgbmv(
+        ctx.handle, tc.trans, tc.m, tc.n, tc.kl, tc.ku, &tc.alpha, (const float*)ctx.aDevice, tc.lda,
+        (const float*)ctx.xDevice, tc.incx, &tc.beta, (float*)ctx.yDevice, tc.incy);
     CHECK_RET(
         blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("[%s] aclblasSgbmv failed. ERROR: %d\n", tc.caseId, blasRet);
-        CleanupAclForTest(handle, stream, deviceId); return blasRet);
+        return blasRet);
 
-    aclError aclRet = aclrtSynchronizeStream(stream);
+    aclError aclRet = aclrtSynchronizeStream(ctx.stream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("[%s] aclrtSynchronizeStream failed. ERROR: %d\n", tc.caseId, aclRet);
-        CleanupAclForTest(handle, stream, deviceId); return aclRet);
+        return aclRet);
+
+    aclrtMemcpy(yHost.data(), yBytes, ctx.yDevice, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
 
     std::vector<float> yGolden(ySize, 0.0f);
-    gbmv_golden(
+    GbmvGolden(
         tc.trans, tc.m, tc.n, tc.kl, tc.ku, tc.alpha, aHost.data(), tc.lda, xBlasPtr, tc.incx, tc.beta, yInitBlasPtr,
         tc.incy, yGolden.data());
 
-    int status = static_cast<int>(verify_result(yBlasPtr, yGolden.data(), yCount, tc.incy, tc.caseId));
-    CleanupAclForTest(handle, stream, deviceId);
-    return status;
+    return static_cast<int>(VerifyResult(yBlasPtr, yGolden.data(), yCount, tc.incy, tc.caseId));
+}
+
+static int RunCase(const GbmvTestCase& tc)
+{
+    bool isTransN = (tc.trans == ACLBLAS_OP_N);
+    int64_t absIncx = (tc.incx < 0) ? -tc.incx : tc.incx;
+    int64_t absIncy = (tc.incy < 0) ? -tc.incy : tc.incy;
+    int64_t xCount = isTransN ? tc.n : tc.m;
+    int64_t yCount = isTransN ? tc.m : tc.n;
+
+    TestContext ctx;
+    if (!ctx.Init()) {
+        return -1;
+    }
+
+    if (!tc.expectSuccess) {
+        size_t dummySz = sizeof(float);
+        float dummyVal = 0.0f;
+        if (!ctx.AllocBuffers(&dummyVal, dummySz, &dummyVal, dummySz, &dummyVal, dummySz)) {
+            return -1;
+        }
+        aclblasStatus_t blasRet = aclblasSgbmv(
+            ctx.handle, tc.trans, tc.m, tc.n, tc.kl, tc.ku, &tc.alpha, (const float*)ctx.aDevice, tc.lda,
+            (const float*)ctx.xDevice, tc.incx, &tc.beta, (float*)ctx.yDevice, tc.incy);
+        bool earlyReturnOk = (blasRet == ACLBLAS_STATUS_SUCCESS);
+        std::cout << "[" << tc.caseId << "] early-return "
+                  << (earlyReturnOk ? "OK" : "FAILED (unexpected error)") << " (ret=" << blasRet << ")" << std::endl;
+        return earlyReturnOk ? 0 : 1;
+    }
+
+    size_t aSize = (tc.n > 0) ? static_cast<size_t>(tc.lda) * static_cast<size_t>(tc.n) : 1;
+    size_t xSize = (xCount > 0) ? static_cast<size_t>((xCount - 1) * absIncx + 1) : 1;
+    size_t ySize = (yCount > 0) ? static_cast<size_t>((yCount - 1) * absIncy + 1) : 1;
+    std::vector<float> aHost(aSize, 0.0f);
+    std::vector<float> xHost(xSize, 0.0f);
+    std::vector<float> yHost(ySize, 0.0f);
+
+    std::mt19937 rng(tc.seed);
+    FillBandedMatrix(aHost.data(), tc.m, tc.n, tc.kl, tc.ku, tc.lda, rng);
+    float* xBlasPtr = FillStridedVector(xHost.data(), xCount, tc.incx, rng);
+    float* yBlasPtr = FillStridedVector(yHost.data(), yCount, tc.incy, rng);
+    std::vector<float> yInitial = yHost;
+    float* yInitBlasPtr = (tc.incy < 0) ? yInitial.data() + (yCount - 1) * absIncy : yInitial.data();
+
+    const char* transStr = isTransN ? "N" : (tc.trans == ACLBLAS_OP_T ? "T" : "C");
+    std::cout << "\n[" << tc.caseId << "] " << tc.description << " trans=" << transStr << " m=" << tc.m
+              << " n=" << tc.n << " kl=" << tc.kl << " ku=" << tc.ku << " lda=" << tc.lda << " incx=" << tc.incx
+              << " incy=" << tc.incy << " alpha=" << tc.alpha << " beta=" << tc.beta << std::endl;
+
+    size_t aBytes = aSize * sizeof(float);
+    size_t xBytes = xSize * sizeof(float);
+    size_t yBytes = ySize * sizeof(float);
+    return RunCaseMain(
+        tc, ctx, aHost, xHost, yHost, xBlasPtr, yBlasPtr, yInitBlasPtr, xCount, yCount, aBytes, xBytes, yBytes, ySize);
 }
 
 // ===========================================================================
@@ -366,12 +446,12 @@ static int run_test_case(const GbmvTestCase& tc)
 static void RunTestSuite(
     const GbmvTestCase* cases, int numCases, bool stopOnFailure, int& passed, int& failed, bool& stopped)
 {
-    for (int i = 0; i < numCases; i++) {
-        int ret = run_test_case(cases[i]);
+    for (int i = 0; i < numCases; ++i) {
+        int ret = RunCase(cases[i]);
         if (ret == 0) {
-            passed++;
+            ++passed;
         } else {
-            failed++;
+            ++failed;
             if (stopOnFailure) {
                 std::cout << "\n[FATAL] " << cases[i].caseId << " failed. Stopping." << std::endl;
                 stopped = true;
@@ -420,8 +500,9 @@ int32_t main(int32_t argc, char* argv[])
         std::cout << "Pass rate: " << std::fixed << std::setprecision(2) << (100.0 * passed / total) << "%"
                   << std::endl;
     }
-    if (l1Skipped)
+    if (l1Skipped) {
         std::cout << "L1 cases: SKIPPED" << std::endl;
+    }
     std::cout << "===================================" << std::endl;
 
     return (failed > 0) ? -1 : 0;
