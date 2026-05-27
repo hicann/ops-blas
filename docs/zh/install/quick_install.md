@@ -104,7 +104,7 @@ docker run --name cann_container --device /dev/davinci0 --device /dev/davinci_ma
             # 确保安装包具有可执行权限
             chmod +x Ascend-cann-toolkit_${cann_version}_linux-${arch}.run
             # 安装命令
-           ./Ascend-cann-toolkit_${cann_version}_linux-${arch}.run --install --install-path=${install_path}
+           ./Ascend-cann-toolkit_${cann_version}_linux-${arch}.run --install --quiet --install-path=${install_path}
            ```
 
         - 安装CANN ops包（运行态依赖）
@@ -115,7 +115,7 @@ docker run --name cann_container --device /dev/davinci0 --device /dev/davinci_ma
             # 确保安装包具有可执行权限
             chmod +x Ascend-cann-${soc_name}-ops_${cann_version}_linux-${arch}.run
             # 安装命令
-            ./Ascend-cann-${soc_name}-ops_${cann_version}_linux-${arch}.run --install --install-path=${install_path}
+            ./Ascend-cann-${soc_name}-ops_${cann_version}_linux-${arch}.run --install --quiet --install-path=${install_path}
            ```
 
             - \$\{cann\_version\}：表示CANN包版本号。
