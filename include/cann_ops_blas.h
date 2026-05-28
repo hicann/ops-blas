@@ -150,6 +150,10 @@ aclblasStatus_t aclblasSsymv(
     aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy);
 
+aclblasStatus_t aclblasSsymv(
+    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* A, int lda, const float* x,
+    int incx, const float* beta, float* y, int incy);
+
 aclblasStatus_t aclblasSsbmv(
     aclblasHandle_t handle, aclblasFillMode uplo, int n, int k, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy);
