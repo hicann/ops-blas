@@ -9,7 +9,7 @@
  */
 
 /* !
- * \file spmv_test.cpp
+ * \file sspmv_test.cpp
  * \brief ST test for aclblasSspmv (ascend950 SIMT VF)
  */
 

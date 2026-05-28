@@ -35,13 +35,13 @@
 source /usr/local/Ascend/ascend-toolkit/latest/set_env.sh
 
 # 编译算子及测试
-bash build.sh --ops=spmv --soc=ascend950
+bash build.sh --ops=sspmv --soc=ascend950
 
 # 编译并运行测试
-bash build.sh --ops=spmv --soc=ascend950 --run
+bash build.sh --ops=sspmv --soc=ascend950 --run
 
 # 直接运行已编译的测试
-LD_LIBRARY_PATH=$(pwd)/build:$LD_LIBRARY_PATH ./build/test/spmv/spmv_test
+LD_LIBRARY_PATH=$(pwd)/build:$LD_LIBRARY_PATH ./build/test/sspmv/sspmv_test
 ```
 
 ## 精度标准

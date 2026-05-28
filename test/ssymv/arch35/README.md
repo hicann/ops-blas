@@ -48,13 +48,13 @@
 source /usr/local/Ascend/ascend-toolkit/latest/set_env.sh
 
 # 编译算子及测试
-bash build.sh --ops=symv --soc=ascend950
+bash build.sh --ops=ssymv --soc=ascend950
 
 # 编译并运行测试
-bash build.sh --ops=symv --soc=ascend950 --run
+bash build.sh --ops=ssymv --soc=ascend950 --run
 
 # 直接运行已编译的测试
-LD_LIBRARY_PATH=$(pwd)/build:$LD_LIBRARY_PATH ./build/test/symv/symv_test
+LD_LIBRARY_PATH=$(pwd)/build:$LD_LIBRARY_PATH ./build/test/ssymv/ssymv_test
 ```
 
 ## 精度标准

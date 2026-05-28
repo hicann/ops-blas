@@ -10,7 +10,7 @@
 
 
 /* !
-* \file spmv_test.cpp
+* \file sspmv_test.cpp
 * \brief
 */
 
