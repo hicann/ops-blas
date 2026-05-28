@@ -2,10 +2,23 @@
 #define OPS_BLAS_TEST_UTILS_ERROR_CHECK_H
 
 #include <cstdlib>
+#include <cstdio>
 #include <iostream>
 
 #include "acl/acl.h"
 #include "cann_ops_blasLt.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 #define CHECK_ACLRT(func)                                                               \
   {                                                                                     \

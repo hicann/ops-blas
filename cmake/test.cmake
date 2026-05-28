@@ -131,6 +131,8 @@ function(_ops_blas_register_test_target target link_lib)
 
     target_include_directories(${target} PRIVATE
         ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/test/frame
+        ${CMAKE_CURRENT_SOURCE_DIR}
         $ENV{LINUX_INCLUDE_PATH}
     )
     target_compile_features(${target} PRIVATE cxx_std_17)
@@ -138,6 +140,77 @@ function(_ops_blas_register_test_target target link_lib)
         ${link_lib}
         $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
     )
+
+    _ops_blas_copy_test_config_files(${target})
+endfunction()
+
+# Locate GTest once per configure (CSV-driven ST uses custom main, not gtest_main).
+function(_ops_blas_ensure_gtest_found)
+    if(NOT GTEST_LIB OR NOT GTEST_INCLUDE_DIR)
+        find_path(GTEST_INCLUDE_DIR gtest/gtest.h PATHS /usr/local/include /usr/include)
+        find_library(GTEST_LIB gtest PATHS /usr/local/lib /usr/lib)
+    endif()
+endfunction()
+
+# Copy CSV/JSON from test root and from current-SOC arch subdirs (e.g. arch35/).
+function(_ops_blas_copy_test_config_files target)
+    set(_cfg_files "")
+    file(GLOB _root_json "${CMAKE_CURRENT_SOURCE_DIR}/*.json")
+    file(GLOB _root_csv "${CMAKE_CURRENT_SOURCE_DIR}/*.csv")
+    list(APPEND _cfg_files ${_root_json} ${_root_csv})
+
+    foreach(arch_dir ${SOC_ARCH_DIRS})
+        file(GLOB _arch_json "${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}/*.json")
+        file(GLOB _arch_csv "${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}/*.csv")
+        list(APPEND _cfg_files ${_arch_json} ${_arch_csv})
+    endforeach()
+
+    # Legacy single-file JSON under build/json_configs/
+    set(_json_src "${CMAKE_BINARY_DIR}/json_configs/${target}_testcases.json")
+    set(_json_src_alt "${CMAKE_SOURCE_DIR}/build/test/json_configs/${target}_testcases.json")
+    if(EXISTS ${_json_src})
+        list(APPEND _cfg_files ${_json_src})
+    elseif(EXISTS ${_json_src_alt})
+        list(APPEND _cfg_files ${_json_src_alt})
+    endif()
+
+    foreach(_cfg_file ${_cfg_files})
+        add_custom_command(TARGET ${target} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy ${_cfg_file}
+                    $<TARGET_FILE_DIR:${target}>)
+    endforeach()
+endfunction()
+
+# Register GTest-based CSV/JSON ST target (custom main; links gtest only, not gtest_main).
+function(_ops_blas_register_gtest_target target link_lib)
+    _ops_blas_ensure_gtest_found()
+    ops_blas_get_test_target_sources(${target} _test_srcs)
+    add_executable(${target} ${_test_srcs})
+
+    set(_extra_includes "")
+    foreach(arch_dir ${SOC_ARCH_DIRS})
+        if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}")
+            list(APPEND _extra_includes "${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}")
+        endif()
+    endforeach()
+
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/test/frame
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${_extra_includes}
+        $ENV{LINUX_INCLUDE_PATH}
+        ${GTEST_INCLUDE_DIR}
+    )
+    target_compile_features(${target} PRIVATE cxx_std_17)
+    target_link_libraries(${target} PRIVATE
+        ${link_lib}
+        $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
+        ${GTEST_LIB}
+        pthread
+    )
+
+    _ops_blas_copy_test_config_files(${target})
 endfunction()
 
 function(_ops_blas_discover_test_targets out_var)
@@ -183,5 +256,25 @@ function(ops_blas_add_tests link_lib)
             continue()
         endif()
         _ops_blas_register_test_target(${target} ${link_lib})
+    endforeach()
+endfunction()
+
+# Register GTest CSV/JSON ST targets. ARGN empty -> auto-discover *_test.cpp in root/arch dirs.
+function(ops_blas_add_gtest_tests link_lib)
+    if(ARGN)
+        set(targets ${ARGN})
+    else()
+        _ops_blas_discover_test_targets(targets)
+    endif()
+
+    if(NOT targets)
+        message(FATAL_ERROR "No GTest test targets to register in ${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
+
+    foreach(target ${targets})
+        if(TARGET ${target})
+            continue()
+        endif()
+        _ops_blas_register_gtest_target(${target} ${link_lib})
     endforeach()
 endfunction()

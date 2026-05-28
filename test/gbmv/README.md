@@ -4,23 +4,27 @@
 
 BLAS gbmv算子实现。
 
-gbmv(General Banded Matrix-Vector Multiplication)算子实现了带状矩阵与向量的乘法运算，是BLAS基础线性代数库中的核心算子之一。
+gbmv(General Banded Matrix-Vector Multiplication)算子实现了带状矩阵与向量的乘法运算，针对带状矩阵的稀疏存储特性进行了优化，支持转置操作和多核并行归约。
 
-该算子针对带状矩阵的稀疏存储特性进行了优化，支持转置操作和多核并行归约。
+## 产品支持情况
 
-## 支持的产品
-
-- Atlas A5 训练系列产品/Atlas A5 推理系列产品
+| 产品                                                         |  是否支持 |
+| :----------------------------------------------------------- |:-------:|
+| <term>Ascend 950PR/Ascend 950DT</term>                       |    ✓    |
+| <term>Atlas A3 训练系列产品/Atlas A3 推理系列产品</term>       |    ✓    |
+| <term>Atlas A2 训练系列产品/Atlas A2 推理系列产品</term>       |    ✓    |
 
 ## 目录结构介绍
 
 ```
-├── gbmv
-│   ├── CMakeLists.txt        // 编译工程文件
-│   ├── README.md             // 说明文档
-│   ├── gbmv_test.cpp         // 精度测试用例
-│   ├── gbmv_perf_test.cpp    // 性能测试用例
-│   └── gbmv_test_utils.h     // 测试工具函数
+test/gbmv/
+├── CMakeLists.txt            // 编译工程文件
+├── README.md                 // 说明文档
+├── gbmv_test.cpp             // 精度测试
+├── gbmv_perf_test.cpp        // 性能测试
+├── gbmv_golden.h             // CPU golden实现
+├── gbmv_testcases.csv        // 精度测试用例表
+└── gbmv_config.json          // 算子测试配置（指针类型、精度模式等）
 ```
 
 ## 算子描述
@@ -206,8 +210,17 @@ aclblasStatus_t aclblasSgbmv(
 
 - 样例执行
   ```bash
-  bash build.sh --ops=gbmv --run # --ops=<算子名> --run可选参数，执行测试样例
+  bash build.sh --ops=gbmv --soc=ascend950 --run
   ```
+
+  其中`--soc` 为**可选**参数，用于指定目标硬件平台（与上文「产品支持情况」对应）。按实际硬件选用：
+
+  | 产品 | `--soc` 取值 |
+  |------|----------------|
+  | Ascend 950PR / Ascend 950DT | `ascend950` |
+  | Atlas A3 训练系列产品 / Atlas A3 推理系列产品 | `ascend910_93` |
+  | Atlas A2 训练系列产品 / Atlas A2 推理系列产品 | `ascend910b` |
+
   执行结果如下，说明精度对比成功。
   ```bash
   [PASS] gbmv_test

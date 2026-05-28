@@ -11,7 +11,6 @@
 
 set -e
 
-BUILD_DIR=build
 BUILD_OPS=""
 RUN_TEST=OFF
 ENABLE_PACKAGE=FALSE
@@ -20,6 +19,7 @@ export BASE_PATH=$(
   cd "$(dirname $0)"
   pwd
 )
+BUILD_DIR="${BASE_PATH}/build"
 export BUILD_PATH="${BASE_PATH}/build"
 export BUILD_OUT_PATH="${BASE_PATH}/build_out"
 CORE_NUMS=$(cat /proc/cpuinfo | grep "processor" | wc -l)
@@ -179,7 +179,7 @@ if [ "${ENABLE_PACKAGE}" == "TRUE" ]; then
     CMAKE_OPTIONS="${CMAKE_OPTIONS} -DENABLE_PACKAGE=ON"
 fi
 
-cmake -B ${BUILD_DIR} ${CMAKE_OPTIONS}
+cmake -S "${BASE_PATH}" -B "${BUILD_DIR}" ${CMAKE_OPTIONS}
 cmake --build ${BUILD_DIR} -j
 if [ "${ENABLE_PACKAGE}" == "TRUE" ]; then
     cmake --build ${BUILD_DIR} --target package
@@ -233,9 +233,11 @@ if [ "${RUN_TEST}" == "ON" ]; then
             continue
         fi
 
+        TEST_CFG_DIR="${BUILD_DIR}/test/${op}"
+
         # 临时禁用 errexit 以捕获测试退出码
         set +e
-        "${TEST_BIN}"
+        "${TEST_BIN}" "${TEST_CFG_DIR}"
         exit_code=$?
         set -e
         if [ $exit_code -eq 0 ]; then

@@ -9,16 +9,37 @@
  */
 
 #include <cstdint>
-#include <cmath>
-#include <cfloat>
 #include <vector>
+#include <string>
+
 #include <gtest/gtest.h>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "config.h"
+#include "verify.h"
+#include "gtest.h"
+#include "stpttr_golden.h"
 
-constexpr float kSentinel = -999.0f;
+// Set in main() before RUN_ALL_TESTS(); ConfigLoader reads CSV/JSON from this dir.
+static std::string g_configDir = ".";
 
-class StpttrTest : public ::testing::Test {
+namespace {
+
+// Release packed AP (dP) and dense output A (dA) device buffers after a test case.
+void freeDeviceBuffers(void* dP, void* dA) {
+    if (dP != nullptr) {
+        aclrtFree(dP);
+    }
+    if (dA != nullptr) {
+        aclrtFree(dA);
+    }
+}
+
+}  // namespace
+
+// CSV-driven ST for aclblasStpttr (packed triangular AP -> dense triangular A).
+// One handle/stream for the whole suite; aclInit/aclFinalize must not run per case.
+class StpttrTest : public ::testing::TestWithParam<TestCaseConfig> {
 protected:
     static void SetUpTestSuite()
     {
@@ -38,374 +59,201 @@ protected:
 
     static aclblasHandle_t handle_;
     static aclrtStream stream_;
-
-    static void Golden(int n, aclblasFillMode_t uplo, const float* ap, int lda, float* a)
-    {
-        for (int j = 0; j < n; j++)
-            for (int i = 0; i < lda; i++)
-                a[j * lda + i] = kSentinel;
-        int idx = 0;
-        if (uplo == ACLBLAS_LOWER) {
-            for (int j = 0; j < n; j++)
-                for (int i = j; i < n; i++)
-                    a[j * lda + i] = ap[idx++];
-        } else {
-            for (int j = 0; j < n; j++)
-                for (int i = 0; i <= j; i++)
-                    a[j * lda + i] = ap[idx++];
-        }
-    }
-
-    bool Run(int n, int lda, aclblasFillMode_t uplo)
-    {
-        std::vector<float> ap(n * (n + 1) / 2);
-        for (size_t i = 0; i < ap.size(); i++)
-            ap[i] = static_cast<float>(i + 1);
-        return Run(n, lda, uplo, ap);
-    }
-
-    bool Run(int n, int lda, aclblasFillMode_t uplo, const std::vector<float>& ap)
-    {
-        int aLen = lda * n;
-        std::vector<float> a(aLen, kSentinel), gld(aLen);
-        Golden(n, uplo, ap.data(), lda, gld.data());
-
-        void *dP = nullptr, *dA = nullptr;
-        aclError aclRet = aclrtMalloc(&dP, ap.size() * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
-        if (aclRet != ACL_SUCCESS)
-            return false;
-        aclRet = aclrtMalloc(&dA, aLen * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
-        if (aclRet != ACL_SUCCESS) {
-            aclrtFree(dP);
-            return false;
-        }
-
-        aclRet =
-            aclrtMemcpy(dP, ap.size() * sizeof(float), ap.data(), ap.size() * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
-        if (aclRet != ACL_SUCCESS) {
-            aclrtFree(dP);
-            aclrtFree(dA);
-            return false;
-        }
-        aclRet = aclrtMemcpy(dA, aLen * sizeof(float), a.data(), aLen * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
-        if (aclRet != ACL_SUCCESS) {
-            aclrtFree(dP);
-            aclrtFree(dA);
-            return false;
-        }
-
-        auto ret = aclblasStpttr(handle_, uplo, n, static_cast<const float*>(dP), static_cast<float*>(dA), lda);
-        if (ret != ACLBLAS_STATUS_SUCCESS) {
-            aclrtFree(dP);
-            aclrtFree(dA);
-            return false;
-        }
-        aclrtSynchronizeStream(stream_);
-
-        aclRet = aclrtMemcpy(a.data(), aLen * sizeof(float), dA, aLen * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
-        aclrtFree(dP);
-        aclrtFree(dA);
-        if (aclRet != ACL_SUCCESS)
-            return false;
-
-        for (int i = 0; i < aLen; i++) {
-            if (a[i] != a[i] && gld[i] != gld[i])
-                continue;
-            if (a[i] != gld[i])
-                return false;
-        }
-        return true;
-    }
 };
 
 aclblasHandle_t StpttrTest::handle_ = nullptr;
 aclrtStream StpttrTest::stream_ = nullptr;
 
-// L0 — parameter validation
-TEST_F(StpttrTest, L0_01_handle_null)
-{
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(nullptr, ACLBLAS_LOWER, 5, nullptr, nullptr, 5)),
-        static_cast<int>(ACLBLAS_STATUS_NOT_INITIALIZED));
-}
-TEST_F(StpttrTest, L0_02_n_negative)
-{
-    void *d1, *d2;
-    aclrtMalloc(&d1, 4, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(&d2, 4, ACL_MEM_MALLOC_HUGE_FIRST);
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, -1, (const float*)d1, (float*)d2, 1)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-    aclrtFree(d1);
-    aclrtFree(d2);
-}
-TEST_F(StpttrTest, L0_03_lda_small)
-{
-    void *dP, *dA;
-    aclrtMalloc(&dP, 60, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(&dA, 60, ACL_MEM_MALLOC_HUGE_FIRST);
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 5, (const float*)dP, (float*)dA, 3)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-    aclrtFree(dP);
-    aclrtFree(dA);
-}
-TEST_F(StpttrTest, L0_04_uplo_bad)
-{
-    void *d1, *d2;
-    aclrtMalloc(&d1, 4, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(&d2, 4, ACL_MEM_MALLOC_HUGE_FIRST);
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, (aclblasFillMode_t)0xFF, 5, (const float*)d1, (float*)d2, 5)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-    aclrtFree(d1);
-    aclrtFree(d2);
-}
-TEST_F(StpttrTest, L0_05_n_zero)
-{
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 0, nullptr, nullptr, 1)),
-        static_cast<int>(ACLBLAS_STATUS_SUCCESS));
+// Loaded when GTest registers parameters; g_configDir is already set in main().
+static std::vector<TestCaseConfig> loadStpttrCases() {
+    auto [cases, cfg] = ConfigLoader::loadAllForOp(g_configDir, "stpttr");
+    (void)cfg;
+    for (auto& tc : cases) {
+        tc.verifyCfg.mode = PrecisionMode::EXACT;
+    }
+    return cases;
 }
 
-// L0 — normal shapes
-TEST_F(StpttrTest, L0_06_n1_lower) { EXPECT_TRUE(Run(1, 1, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L0_07_n1_upper) { EXPECT_TRUE(Run(1, 1, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L0_08_n2_lower) { EXPECT_TRUE(Run(2, 2, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L0_09_n2_upper) { EXPECT_TRUE(Run(2, 2, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L0_10_n4_lower) { EXPECT_TRUE(Run(4, 4, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L0_11_n4_upper) { EXPECT_TRUE(Run(4, 4, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L0_12_n32_lower) { EXPECT_TRUE(Run(32, 32, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L0_13_n32_upper) { EXPECT_TRUE(Run(32, 32, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L0_14_n128_lower) { EXPECT_TRUE(Run(128, 128, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L0_15_n128_upper) { EXPECT_TRUE(Run(128, 128, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L0_16_n512_lower) { EXPECT_TRUE(Run(512, 512, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L0_17_n512_upper) { EXPECT_TRUE(Run(512, 512, ACLBLAS_UPPER)); }
+INSTANTIATE_TEST_SUITE_P(
+    Stpttr, StpttrTest,
+    ::testing::ValuesIn(loadStpttrCases()),
+    gtestParamNameFromTestCase);
 
-// L1 — extended shapes
-TEST_F(StpttrTest, L1_01_n8_lower) { EXPECT_TRUE(Run(8, 8, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_02_n8_upper) { EXPECT_TRUE(Run(8, 8, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L1_03_n9_lower) { EXPECT_TRUE(Run(9, 9, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_04_n9_upper) { EXPECT_TRUE(Run(9, 9, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L1_05_n64_lower) { EXPECT_TRUE(Run(64, 64, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_06_n64_upper) { EXPECT_TRUE(Run(64, 64, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L1_07_n100_lower) { EXPECT_TRUE(Run(100, 100, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_08_n100_upper) { EXPECT_TRUE(Run(100, 100, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L1_09_n256_lower) { EXPECT_TRUE(Run(256, 256, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_10_n256_upper) { EXPECT_TRUE(Run(256, 256, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L1_11_n500_lower) { EXPECT_TRUE(Run(500, 500, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_12_n500_upper) { EXPECT_TRUE(Run(500, 500, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L1_13_n1024_lower) { EXPECT_TRUE(Run(1024, 1024, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_14_n1024_upper) { EXPECT_TRUE(Run(1024, 1024, ACLBLAS_UPPER)); }
+TEST_P(StpttrTest, CsvDriven) {
+    const TestCaseConfig& tc = GetParam();
+    const aclblasFillMode_t uplo = parseUplo(tc.uplo.value_or("LOWER"));
+    const int n = static_cast<int>(tc.n.value_or(0));
+    const int lda = static_cast<int>(tc.lda.value_or(n));
 
-// L1 — non-compact lda
-TEST_F(StpttrTest, L1_15_lda12_lower) { EXPECT_TRUE(Run(8, 12, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_16_lda12_upper) { EXPECT_TRUE(Run(8, 12, ACLBLAS_UPPER)); }
-TEST_F(StpttrTest, L1_17_lda32_lower) { EXPECT_TRUE(Run(16, 32, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_18_lda32_upper) { EXPECT_TRUE(Run(16, 32, ACLBLAS_UPPER)); }
+    // expect_success=false: each caseId checks a specific error return (no golden).
+    if (!tc.expectSuccess) {
+        if (tc.caseId == "TC_L0_01") {
+            // Uninitialized handle
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(nullptr, ACLBLAS_LOWER, 5, nullptr, nullptr, 5)),
+                      static_cast<int>(ACLBLAS_STATUS_NOT_INITIALIZED));
+        } else if (tc.caseId == "TC_L0_02") {
+            // Invalid n < 0
+            void *d1 = nullptr, *d2 = nullptr;
+            ASSERT_EQ(aclrtMalloc(&d1, 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            ASSERT_EQ(aclrtMalloc(&d2, 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, -1, (const float*)d1, (float*)d2, 1)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+            aclrtFree(d1);
+            aclrtFree(d2);
+        } else if (tc.caseId == "TC_L0_03") {
+            // lda too small for n
+            void *dP = nullptr, *dA = nullptr;
+            ASSERT_EQ(aclrtMalloc(&dP, 60, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            ASSERT_EQ(aclrtMalloc(&dA, 60, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 5, (const float*)dP, (float*)dA, 3)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+            aclrtFree(dP);
+            aclrtFree(dA);
+        } else if (tc.caseId == "TC_L0_04") {
+            // Invalid uplo enum
+            void *d1 = nullptr, *d2 = nullptr;
+            ASSERT_EQ(aclrtMalloc(&d1, 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            ASSERT_EQ(aclrtMalloc(&d2, 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, (aclblasFillMode_t)0xFF, 5, (const float*)d1, (float*)d2, 5)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+            aclrtFree(d1);
+            aclrtFree(d2);
+        } else if (tc.caseId == "TC_L1_31") {
+            // AP pointer is nullptr
+            void *dA = nullptr;
+            ASSERT_EQ(aclrtMalloc(&dA, 100, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 5, nullptr, (float*)dA, 5)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+            aclrtFree(dA);
+        } else if (tc.caseId == "TC_L1_32") {
+            // A pointer is nullptr
+            void *dP = nullptr;
+            ASSERT_EQ(aclrtMalloc(&dP, 60, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 5, (const float*)dP, nullptr, 5)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+            aclrtFree(dP);
+        } else if (tc.caseId == "TC_L1_33") {
+            // Uninitialized handle with other invalid args
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(nullptr, (aclblasFillMode_t)0xFF, -1, nullptr, nullptr, 3)),
+                      static_cast<int>(ACLBLAS_STATUS_NOT_INITIALIZED));
+        } else if (tc.caseId == "TC_L1_34") {
+            // Invalid uplo with n=0
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, (aclblasFillMode_t)0xFF, 0, nullptr, nullptr, 1)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+        } else if (tc.caseId == "TC_L1_36") {
+            // Both AP and A are nullptr (n > 0)
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 5, nullptr, nullptr, 5)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+        } else if (tc.caseId == "TC_L1_37") {
+            // uplo below valid range (121=UPPER, 122=LOWER)
+            void *d1 = nullptr, *d2 = nullptr;
+            ASSERT_EQ(aclrtMalloc(&d1, 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            ASSERT_EQ(aclrtMalloc(&d2, 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, static_cast<aclblasFillMode_t>(120), 3,
+                      (const float*)d1, (float*)d2, 3)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+            aclrtFree(d1);
+            aclrtFree(d2);
+        } else if (tc.caseId == "TC_L1_38") {
+            // uplo above valid range
+            void *d1 = nullptr, *d2 = nullptr;
+            ASSERT_EQ(aclrtMalloc(&d1, 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            ASSERT_EQ(aclrtMalloc(&d2, 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+            EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, static_cast<aclblasFillMode_t>(123), 3,
+                      (const float*)d1, (float*)d2, 3)),
+                      static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+            aclrtFree(d1);
+            aclrtFree(d2);
+        }
+        return;
+    }
 
-// L1 — special values
-TEST_F(StpttrTest, L1_19_zeros_lower)
-{
-    std::vector<float> ap(36, 0);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_LOWER, ap));
-}
-TEST_F(StpttrTest, L1_20_zeros_upper)
-{
-    std::vector<float> ap(36, 0);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_UPPER, ap));
-}
-TEST_F(StpttrTest, L1_21_large_lower)
-{
-    std::vector<float> ap(36, 1e10f);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_LOWER, ap));
-}
-TEST_F(StpttrTest, L1_22_large_upper)
-{
-    std::vector<float> ap(36, 1e10f);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_UPPER, ap));
-}
-TEST_F(StpttrTest, L1_23_neg_lower)
-{
-    std::vector<float> ap(36);
-    for (int i = 0; i < 36; i++)
-        ap[i] = -static_cast<float>(i + 1);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_LOWER, ap));
-}
-TEST_F(StpttrTest, L1_24_neg_upper)
-{
-    std::vector<float> ap(36);
-    for (int i = 0; i < 36; i++)
-        ap[i] = -static_cast<float>(i + 1);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_UPPER, ap));
-}
-TEST_F(StpttrTest, L1_25_inf_lower)
-{
-    std::vector<float> ap(36, INFINITY);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_LOWER, ap));
-}
-TEST_F(StpttrTest, L1_26_inf_upper)
-{
-    std::vector<float> ap(36, INFINITY);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_UPPER, ap));
-}
-TEST_F(StpttrTest, L1_27_nan_lower)
-{
-    std::vector<float> ap(36, NAN);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_LOWER, ap));
-}
-TEST_F(StpttrTest, L1_28_nan_upper)
-{
-    std::vector<float> ap(36, NAN);
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_UPPER, ap));
-}
-TEST_F(StpttrTest, L1_29_extr_lower)
-{
-    std::vector<float> ap(36);
-    float v[] = {1, 0, -1, FLT_MAX, FLT_MIN, -FLT_MAX, FLT_TRUE_MIN};
-    for (int i = 0; i < 36; i++)
-        ap[i] = v[i % 7];
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_LOWER, ap));
-}
-TEST_F(StpttrTest, L1_30_extr_upper)
-{
-    std::vector<float> ap(36);
-    float v[] = {1, 0, -1, FLT_MAX, FLT_MIN, -FLT_MAX, FLT_TRUE_MIN};
-    for (int i = 0; i < 36; i++)
-        ap[i] = v[i % 7];
-    EXPECT_TRUE(Run(8, 8, ACLBLAS_UPPER, ap));
-}
+    // n=0 with expect_success=true: early return SUCCESS; nullptr buffers are valid.
+    if (n == 0) {
+        EXPECT_EQ(static_cast<int>(aclblasStpttr(handle_, uplo, 0, nullptr, nullptr, lda)),
+                  static_cast<int>(ACLBLAS_STATUS_SUCCESS));
+        return;
+    }
 
-// L1 — null pointers
-TEST_F(StpttrTest, L1_31_ap_null)
-{
-    void* dA;
-    aclrtMalloc(&dA, 100, ACL_MEM_MALLOC_HUGE_FIRST);
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 5, nullptr, (float*)dA, 5)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-    aclrtFree(dA);
-}
-TEST_F(StpttrTest, L1_32_a_null)
-{
-    void* dP;
-    aclrtMalloc(&dP, 60, ACL_MEM_MALLOC_HUGE_FIRST);
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 5, (const float*)dP, nullptr, 5)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-    aclrtFree(dP);
-}
+    // Roundtrip: dense S -> aclblasStrttp -> packed P -> aclblasStpttr -> dense D; compare D vs S.
+    if (tc.caseId == "TC_L1_39" || tc.caseId == "TC_L1_40") {
+        const uint32_t rn = 32;
+        const uint32_t rlda = 32;
+        const size_t rap = rn * (rn + 1) / 2;
+        const size_t ral = rlda * rn;
+        std::vector<float> s(ral);
+        for (uint32_t j = 0; j < rn; j++) {
+            for (uint32_t i = 0; i < rn; i++) {
+                s[j * rlda + i] = static_cast<float>(j * rn + i + 1);
+            }
+        }
+        void *dS = nullptr, *dP = nullptr, *dD = nullptr;
+        ASSERT_EQ(aclrtMalloc(&dS, ral * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+        ASSERT_EQ(aclrtMalloc(&dP, rap * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+        ASSERT_EQ(aclrtMalloc(&dD, ral * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+        ASSERT_EQ(aclrtMemcpy(dS, ral * 4, s.data(), ral * 4, ACL_MEMCPY_HOST_TO_DEVICE), ACL_SUCCESS);
+        const aclblasFillMode_t rtUplo = (uplo == ACLBLAS_UPPER) ? ACLBLAS_UPPER : ACLBLAS_LOWER;
+        ASSERT_EQ(static_cast<int>(aclblasStrttp(handle_, rtUplo, rn, (const float*)dS, rlda, (float*)dP)),
+                  static_cast<int>(ACLBLAS_STATUS_SUCCESS));
+        ASSERT_EQ(aclrtSynchronizeStream(stream_), ACL_SUCCESS);
+        ASSERT_EQ(static_cast<int>(aclblasStpttr(handle_, rtUplo, rn, (const float*)dP, (float*)dD, rlda)),
+                  static_cast<int>(ACLBLAS_STATUS_SUCCESS));
+        ASSERT_EQ(aclrtSynchronizeStream(stream_), ACL_SUCCESS);
+        std::vector<float> r(ral);
+        ASSERT_EQ(aclrtMemcpy(r.data(), ral * 4, dD, ral * 4, ACL_MEMCPY_DEVICE_TO_HOST), ACL_SUCCESS);
+        // Only the stored triangle must match; the complementary part is undefined.
+        if (rtUplo == ACLBLAS_LOWER) {
+            for (uint32_t j = 0; j < rn; j++) {
+                for (uint32_t i = j; i < rn; i++) {
+                    ASSERT_EQ(r[j * rlda + i], s[j * rlda + i]);
+                }
+            }
+        } else {
+            for (uint32_t j = 0; j < rn; j++) {
+                for (uint32_t i = 0; i <= j; i++) {
+                    ASSERT_EQ(r[j * rlda + i], s[j * rlda + i]);
+                }
+            }
+        }
+        aclrtFree(dS);
+        aclrtFree(dP);
+        aclrtFree(dD);
+        return;
+    }
 
-// L1 — error interception
-TEST_F(StpttrTest, L1_33_handle_priority)
-{
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(nullptr, (aclblasFillMode_t)0xFF, -1, nullptr, nullptr, 3)),
-        static_cast<int>(ACLBLAS_STATUS_NOT_INITIALIZED));
-}
-TEST_F(StpttrTest, L1_34_uplo_before_n0)
-{
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, (aclblasFillMode_t)0xFF, 0, nullptr, nullptr, 1)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-}
-TEST_F(StpttrTest, L1_35_n0_overrides_lda)
-{
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 0, nullptr, nullptr, 0)),
-        static_cast<int>(ACLBLAS_STATUS_SUCCESS));
-}
-TEST_F(StpttrTest, L1_36_both_ptrs_null)
-{
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, 5, nullptr, nullptr, 5)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-}
-TEST_F(StpttrTest, L1_37_uplo_120)
-{
-    void *d1, *d2;
-    aclrtMalloc(&d1, 4, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(&d2, 4, ACL_MEM_MALLOC_HUGE_FIRST);
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, (aclblasFillMode_t)120, 3, (const float*)d1, (float*)d2, 3)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-    aclrtFree(d1);
-    aclrtFree(d2);
-}
-TEST_F(StpttrTest, L1_38_uplo_123)
-{
-    void *d1, *d2;
-    aclrtMalloc(&d1, 4, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(&d2, 4, ACL_MEM_MALLOC_HUGE_FIRST);
-    EXPECT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, (aclblasFillMode_t)123, 3, (const float*)d1, (float*)d2, 3)),
-        static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
-    aclrtFree(d1);
-    aclrtFree(d2);
-}
+    // Normal path: kernel reads/writes device memory directly.
+    const StpttrSpecialValueType svt = specialValueTypeFromDescription(tc.description);
+    const std::vector<float> ap = makeStpttrApData(n, svt);  // packed AP, size n*(n+1)/2
+    const int aLen = lda * n;
+    std::vector<float> aHost(aLen, kStpttrSentinel);  // untouched entries stay sentinel (-999)
 
-// L1 — roundtrip
-TEST_F(StpttrTest, L1_39_roundtrip_lower)
-{
-    uint32_t n = 32, lda = 32;
-    size_t ap = n * (n + 1) / 2, al = lda * n;
-    std::vector<float> s(al);
-    for (uint32_t j = 0; j < n; j++)
-        for (uint32_t i = 0; i < n; i++)
-            s[j * lda + i] = static_cast<float>(j * n + i + 1);
-    void *dS, *dP, *dD;
-    ASSERT_EQ(aclrtMalloc(&dS, al * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
-    ASSERT_EQ(aclrtMalloc(&dP, ap * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
-    ASSERT_EQ(aclrtMalloc(&dD, al * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
-    ASSERT_EQ(aclrtMemcpy(dS, al * 4, s.data(), al * 4, ACL_MEMCPY_HOST_TO_DEVICE), ACL_SUCCESS);
-    ASSERT_EQ(
-        static_cast<int>(aclblasStrttp(handle_, ACLBLAS_LOWER, n, (const float*)dS, lda, (float*)dP)),
-        static_cast<int>(ACLBLAS_STATUS_SUCCESS));
-    aclrtSynchronizeStream(stream_);
-    ASSERT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_LOWER, n, (const float*)dP, (float*)dD, lda)),
-        static_cast<int>(ACLBLAS_STATUS_SUCCESS));
-    aclrtSynchronizeStream(stream_);
-    std::vector<float> r(al);
-    ASSERT_EQ(aclrtMemcpy(r.data(), al * 4, dD, al * 4, ACL_MEMCPY_DEVICE_TO_HOST), ACL_SUCCESS);
-    for (uint32_t j = 0; j < n; j++)
-        for (uint32_t i = j; i < n; i++)
-            ASSERT_EQ(r[j * lda + i], s[j * lda + i]);
-    aclrtFree(dS);
-    aclrtFree(dP);
-    aclrtFree(dD);
-}
-TEST_F(StpttrTest, L1_40_roundtrip_upper)
-{
-    uint32_t n = 32, lda = 32;
-    size_t ap = n * (n + 1) / 2, al = lda * n;
-    std::vector<float> s(al);
-    for (uint32_t j = 0; j < n; j++)
-        for (uint32_t i = 0; i < n; i++)
-            s[j * lda + i] = static_cast<float>(j * n + i + 1);
-    void *dS, *dP, *dD;
-    ASSERT_EQ(aclrtMalloc(&dS, al * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
-    ASSERT_EQ(aclrtMalloc(&dP, ap * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
-    ASSERT_EQ(aclrtMalloc(&dD, al * 4, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
-    ASSERT_EQ(aclrtMemcpy(dS, al * 4, s.data(), al * 4, ACL_MEMCPY_HOST_TO_DEVICE), ACL_SUCCESS);
-    ASSERT_EQ(
-        static_cast<int>(aclblasStrttp(handle_, ACLBLAS_UPPER, n, (const float*)dS, lda, (float*)dP)),
-        static_cast<int>(ACLBLAS_STATUS_SUCCESS));
-    aclrtSynchronizeStream(stream_);
-    ASSERT_EQ(
-        static_cast<int>(aclblasStpttr(handle_, ACLBLAS_UPPER, n, (const float*)dP, (float*)dD, lda)),
-        static_cast<int>(ACLBLAS_STATUS_SUCCESS));
-    aclrtSynchronizeStream(stream_);
-    std::vector<float> r(al);
-    ASSERT_EQ(aclrtMemcpy(r.data(), al * 4, dD, al * 4, ACL_MEMCPY_DEVICE_TO_HOST), ACL_SUCCESS);
-    for (uint32_t j = 0; j < n; j++)
-        for (uint32_t i = 0; i <= j; i++)
-            ASSERT_EQ(r[j * lda + i], s[j * lda + i]);
-    aclrtFree(dS);
-    aclrtFree(dP);
-    aclrtFree(dD);
+    void* dP = nullptr;  // packed input AP on device
+    void* dA = nullptr;  // dense output A on device (column-major, lda stride)
+    ASSERT_EQ(aclrtMalloc(&dP, ap.size() * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+    ASSERT_EQ(aclrtMalloc(&dA, static_cast<size_t>(aLen) * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+    ASSERT_EQ(aclrtMemcpy(dP, ap.size() * sizeof(float), ap.data(), ap.size() * sizeof(float),
+                          ACL_MEMCPY_HOST_TO_DEVICE), ACL_SUCCESS);
+    ASSERT_EQ(aclrtMemcpy(dA, static_cast<size_t>(aLen) * sizeof(float), aHost.data(),
+                          static_cast<size_t>(aLen) * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE), ACL_SUCCESS);
+
+    const aclblasStatus_t ret = aclblasStpttr(handle_, uplo, n, static_cast<const float*>(dP),
+                                              static_cast<float*>(dA), lda);
+    ASSERT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
+    ASSERT_EQ(aclrtSynchronizeStream(stream_), ACL_SUCCESS);
+
+    ASSERT_EQ(aclrtMemcpy(aHost.data(), static_cast<size_t>(aLen) * sizeof(float), dA,
+                          static_cast<size_t>(aLen) * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST), ACL_SUCCESS);
+    freeDeviceBuffers(dP, dA);
+
+    // Golden + EXACT verify (only the active triangle; sentinel elsewhere).
+    std::vector<float> goldenOutput;
+    stpttr_golden_impl(tc, uplo, ap, goldenOutput);
+    EXPECT_TRUE(verifyDenseVector(tc, aHost, goldenOutput));
 }
 
-// L1 — extreme scale
-TEST_F(StpttrTest, L1_41_n10240_lower) { EXPECT_TRUE(Run(10240, 10240, ACLBLAS_LOWER)); }
-TEST_F(StpttrTest, L1_42_n10240_upper) { EXPECT_TRUE(Run(10240, 10240, ACLBLAS_UPPER)); }
+// Custom main: argv[1] is the config dir (build.sh passes build/test/stpttr).
+int main(int argc, char* argv[]) {
+    g_configDir = (argc > 1) ? argv[1] : ".";
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}
