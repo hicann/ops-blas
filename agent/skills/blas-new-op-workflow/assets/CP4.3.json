@@ -1,0 +1,24 @@
+{
+  "checkpoint": "CP4.3",
+  "title": "最终审批",
+  "summary": {
+    "最终检视结论": "{✅通过 / ❌有问题}",
+    "交付物清单": {
+      "代码": {"Host": "{路径}", "Kernel": "{路径}", "TilingData": "{路径}"},
+      "测试": {"测试代码": "{路径}"},
+      "文档": {"需求分析": "✓", "方案设计": "✓", "测试设计": "✓", "README": "✓"},
+      "报告": {"评审报告": "✓", "联调报告": "✓", "验收报告": "✓", "性能报告": "✓"}
+    },
+    "提交信息": "Feat: 新增面向{archXX}的aclblasXxx接口"
+  },
+  "questions": [
+    {
+      "header": "上库确认",
+      "question": "全部开发工作已完成，是否批准 squash 合并？",
+      "options": [
+        {"label": "批准", "description": "squash 所有 commit 为单一 commit"},
+        {"label": "需要修改", "description": "提出修改意见"}
+      ]
+    }
+  ]
+}

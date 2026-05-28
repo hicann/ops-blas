@@ -68,3 +68,10 @@ makeself
 # tbetoolkits log files
 tbetoolkits-*.log
 *_result.csv
+
+# profiler output
+perf/
+
+# agent
+.claude
+.opencode

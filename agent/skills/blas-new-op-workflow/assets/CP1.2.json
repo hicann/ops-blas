@@ -1,0 +1,18 @@
+{
+  "checkpoint": "CP1.2",
+  "title": "需求分析确认",
+  "summary": {
+    "算子名称": "{aclblasXxx}",
+    "前期对齐": "CP1.1 已确认：dtype/目标芯片/编程模型/精度标准",
+    "本次确认": "需求分析文档中的参数约束、可行性评估等分析结论"
+  },
+  "questions": [
+    {
+      "header": "综合确认",
+      "question": "请阅读需求分析文档（路径：.claude/dev-docs/{operator_name}/1.2-需求分析.md），确认其内容是否正确。批准进入方案设计阶段？",
+      "options": [
+        {"label": "批准", "description": "需求分析无误，进入方案设计"}
+      ]
+    }
+  ]
+}

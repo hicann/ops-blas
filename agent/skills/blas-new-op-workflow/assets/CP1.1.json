@@ -1,0 +1,51 @@
+{
+  "checkpoint": "CP1.1",
+  "title": "算子基本信息对齐",
+  "summary": {
+    "算子名称": "{aclblasXxx}",
+    "需求来源": "{用户原始描述}",
+    "说明": "一次性确认数据类型、目标芯片、编程模型和精度标准，后续设计阶段直接用结论不再重复确认"
+  },
+  "questions": [
+    {
+      "header": "数据类型",
+      "multiSelect": true,
+      "question": "需要支持哪些数据类型？",
+      "options": [
+        {"label": "S (FP32)", "description": "float，单精度实数，4 字节"},
+        {"label": "D (FP64)", "description": "double，双精度实数，8 字节"},
+        {"label": "C (Complex FP32)", "description": "std::complex<float>，单精度复数，8 字节"},
+        {"label": "Z (Complex FP64)", "description": "std::complex<double>，双精度复数，16 字节"}
+      ]
+    },
+    {
+      "header": "目标芯片",
+      "question": "目标芯片是什么？",
+      "options": [
+        {"label": "ascend950 (arch35)", "description": "DAV_3510，Atlas A5 训练/推理，支持 SIMT/SIMD/RegBase"},
+        {"label": "ascend910B / ascend910_93 (arch22)", "description": "DAV_2201，Atlas A2/A3 训练/推理"},
+        {"label": "ascend310P (arch20)", "description": "DAV_2002，Atlas 推理系列"},
+        {"label": "ascend910 (arch10)", "description": "DAV_1001，Atlas 训练系列"}
+      ]
+    },
+    {
+      "header": "编程模型",
+      "question": "使用哪种编程模型？仅 DAV_3510 (arch35) 支持 SIMT 和 SIMD regbase，其他芯片仅支持 SIMD membase。",
+      "options": [
+        {"label": "SIMD membase", "description": "传统 SIMD 编程模型，使用 TPipe/TQue 流水线"},
+        {"label": "SIMD regbase", "description": "寄存器级 SIMD 编程，使用 RegTensor/MaskReg/__simd_vf__，适合需要精细寄存器控制的场景"},
+        {"label": "SIMT", "description": "__simt_vf__ 修饰，asc_vf_call 启动，适合 data-parallel 场景"}
+      ]
+    },
+    {
+      "header": "精度标准",
+      "question": "采用什么精度验证标准？",
+      "options": [
+        {"label": "MARE=0, MERE=0", "description": "逐位一致 — 非计算类/数据搬运类算子适用"},
+        {"label": "MARE<=10*2^-13, MERE<=2^-13", "description": "FP32 单标杆 — 浮点计算类算子适用"},
+        {"label": "MARE<=10*2^-10, MERE<=2^-10", "description": "FP16 单标杆 — 半精度计算类算子适用"},
+        {"label": "MARE<=10*2^-7, MERE<=2^-7", "description": "BF16 单标杆 — BF16 计算类算子适用"}
+      ]
+    }
+  ]
+}
