@@ -241,8 +241,8 @@ aclblasStatus_t aclblasSsyr(
     float* A, const int lda);
 
 aclblasStatus_t aclblasSsyr2(
-    aclblasHandle_t handle, aclblasFillMode uplo, const int64_t n, const float alpha, uint8_t* x, const int64_t incx,
-    uint8_t* y, const int64_t incy, uint8_t* A, const int64_t lda);
+    aclblasHandle handle, aclblasFillMode uplo, const int n, const float *alpha, const float *x,
+    const int incx, const float *y, const int incy, float *A, const int lda);
 
 aclblasStatus_t aclblasCtrmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n,

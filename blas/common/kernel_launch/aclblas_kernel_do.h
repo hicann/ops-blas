@@ -89,6 +89,9 @@ void syr_kernel_do(GM_ADDR x, GM_ADDR A, GM_ADDR alpha, GM_ADDR tilingGm,
 void ssyr2_kernel_do(GM_ADDR gm_x, GM_ADDR gm_y, GM_ADDR gm_A, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream);
 
+void syr2_kernel_do(GM_ADDR x, GM_ADDR y, GM_ADDR A, GM_ADDR workSpace, GM_ADDR tilingGm,
+                     uint32_t numBlocks, void *stream);
+
 void strmm_kernel_do(GM_ADDR d_A, GM_ADDR d_B, GM_ADDR d_C, GM_ADDR workspace,
                      GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream);

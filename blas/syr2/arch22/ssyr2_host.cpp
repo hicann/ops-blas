@@ -38,9 +38,13 @@ struct Ssyr2TilingData {
     uint32_t coreNum;
 };
 
-aclblasStatus_t aclblasSsyr2(
-    aclblasHandle_t handle, aclblasFillMode uplo, const int64_t n, const float alpha, uint8_t* x, const int64_t incx,
-    uint8_t* y, const int64_t incy, uint8_t* A, const int64_t lda)
+aclblasStatus_t aclblasSsyr2(aclblasHandle handle,
+                             aclblasFillMode uplo,
+                             const int n,
+                             const float *alpha,
+                             const float *x, const int incx,
+                             const float *y, const int incy,
+                             float *A, const int lda)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -50,7 +54,7 @@ aclblasStatus_t aclblasSsyr2(
     Ssyr2TilingData tiling;
     tiling.uplo = (uplo == ACLBLAS_UPPER) ? 1 : 0;
     tiling.n = n;
-    tiling.alpha = alpha;
+    tiling.alpha = *alpha;
     tiling.coreNum = vecCoreNum;
 
     uint8_t* workSpaceDevice = nullptr;
@@ -66,17 +70,19 @@ aclblasStatus_t aclblasSsyr2(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice);
         return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(Ssyr2TilingData), &tiling, sizeof(Ssyr2TilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMemcpy(tilingDevice, sizeof(Ssyr2TilingData), &tiling, sizeof(Ssyr2TilingData), ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
-        aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    ssyr2_kernel_do(x, y, A, workSpaceDevice, tilingDevice, vecCoreNum, useStream);
+    ssyr2_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(x)),
+                    reinterpret_cast<GM_ADDR>(const_cast<float*>(y)),
+                    reinterpret_cast<GM_ADDR>(A),
+                    workSpaceDevice, tilingDevice, vecCoreNum, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
-        aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(workSpaceDevice);
     aclrtFree(tilingDevice);

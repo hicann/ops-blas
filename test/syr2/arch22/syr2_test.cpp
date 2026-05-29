@@ -140,7 +140,7 @@ int TestSsyr2Upper()
     aclRet = aclrtMemcpy(yDevice, yByteSize, y.data(), yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasSsyr2(handle, ACLBLAS_UPPER, N, alpha, xDevice, incx, yDevice, incy, aDevice, lda);
+    ret = aclblasSsyr2(handle, ACLBLAS_UPPER, N, &alpha, (float*)xDevice, incx, (float*)yDevice, incy, (float*)aDevice, lda);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSsyr2 failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
@@ -218,7 +218,7 @@ int TestSsyr2Lower()
     aclRet = aclrtMemcpy(yDevice, yByteSize, y.data(), yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasSsyr2(handle, ACLBLAS_LOWER, N, alpha, xDevice, incx, yDevice, incy, aDevice, lda);
+    ret = aclblasSsyr2(handle, ACLBLAS_LOWER, N, &alpha, (float*)xDevice, incx, (float*)yDevice, incy, (float*)aDevice, lda);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSsyr2 failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);

@@ -1,0 +1,121 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+/* !
+ * \file syr2_host.cpp
+ * \brief single-precision syr2 host-side implementation
+ */
+
+#include <algorithm>
+#include <cstdint>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
+#include "syr2_tiling_data.h"
+#include "common/kernel_launch/aclblas_kernel_do.h"
+#include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/kernel_constant.h"
+#include "common/helper/host_utils.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+static aclblasStatus_t ValidateSyr2Params(
+    aclblasFillMode uplo, int n, int lda, int incx, int incy, const float* alpha, const float* x, const float* y,
+    const float* A)
+{
+    CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(lda >= std::max(1, n), return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incy != 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(alpha != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(y != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(A != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+static uint32_t GetVectorCoreCount()
+{
+    int32_t deviceId = 0;
+    int64_t vecCoreNum = 0;
+    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
+        return 0;
+    }
+    aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
+    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
+}
+
+static Syr2TilingData CalSyr2TilingData(
+    uint32_t useNumBlocks, int n, int lda, aclblasFillMode uplo, float alpha, int incx, int incy)
+{
+    Syr2TilingData tilingData{};
+    tilingData.numThreads =
+        std::min(CeilAlign<uint32_t>(CeilDiv<uint32_t>(n, useNumBlocks), SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
+    tilingData.rowsPerBlock =
+        static_cast<uint32_t>((n + static_cast<int>(useNumBlocks) - 1) / static_cast<int>(useNumBlocks));
+    tilingData.n = static_cast<uint32_t>(n);
+    tilingData.lda = static_cast<uint32_t>(lda);
+    tilingData.uplo = static_cast<uint32_t>(uplo);
+    tilingData.alpha = alpha;
+    tilingData.incx = static_cast<int64_t>(incx);
+    tilingData.incy = static_cast<int64_t>(incy);
+
+    return tilingData;
+}
+
+aclblasStatus_t aclblasSsyr2(
+    aclblasHandle handle, aclblasFillMode uplo, int n, const float* alpha, const float* x, int incx, const float* y,
+    int incy, float* A, int lda)
+{
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    CHECK_RET(h != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+
+    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    if (n == 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    aclblasStatus_t st = ValidateSyr2Params(uplo, n, lda, incx, incy, alpha, x, y, A);
+    if (st != ACLBLAS_STATUS_SUCCESS) {
+        return st;
+    }
+
+    uint32_t aivCoreNum = GetVectorCoreCount();
+    if (aivCoreNum == 0) {
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
+    uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
+
+    Syr2TilingData tiling = CalSyr2TilingData(useNumBlocks, n, lda, uplo, *alpha, incx, incy);
+
+    uint8_t* tilingDevice = nullptr;
+    aclError aclRet =
+        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(Syr2TilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(Syr2TilingData), &tiling, sizeof(Syr2TilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    syr2_kernel_do(
+        (GM_ADDR) const_cast<float*>(x), (GM_ADDR) const_cast<float*>(y), (GM_ADDR)A, nullptr, tilingDevice,
+        useNumBlocks, h->stream);
+
+    aclRet = aclrtSynchronizeStream(h->stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    aclrtFree(tilingDevice);
+
+    return ACLBLAS_STATUS_SUCCESS;
+}
