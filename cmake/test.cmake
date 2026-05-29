@@ -129,6 +129,10 @@ function(_ops_blas_register_test_target target link_lib)
     ops_blas_get_test_target_sources(${target} _test_srcs)
     add_executable(${target} ${_test_srcs})
 
+    if(DEFINED TEST_DEVICE_ID)
+        target_compile_definitions(${target} PRIVATE TEST_DEVICE_ID=${TEST_DEVICE_ID})
+    endif()
+
     target_include_directories(${target} PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/test/frame
@@ -185,7 +189,12 @@ endfunction()
 function(_ops_blas_register_gtest_target target link_lib)
     _ops_blas_ensure_gtest_found()
     ops_blas_get_test_target_sources(${target} _test_srcs)
+    list(APPEND _test_srcs ${CMAKE_SOURCE_DIR}/test/frame/test_main.cpp)
     add_executable(${target} ${_test_srcs})
+
+    if(DEFINED TEST_DEVICE_ID)
+        target_compile_definitions(${target} PRIVATE TEST_DEVICE_ID=${TEST_DEVICE_ID})
+    endif()
 
     set(_extra_includes "")
     foreach(arch_dir ${SOC_ARCH_DIRS})

@@ -8,117 +8,60 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-#include "config.h"
-#include "device.h"
-#include "gtest.h"
-#include "gbmv_test_utils.h"
+#include "verify.h"
+#include "blas_test.h"
+#include "csv_loader.h"
+#include "gbmv_param.h"
 #include "gbmv_golden.h"
+#include "gbmv_npu_wrapper.h"
 
-static std::string g_configDir = ".";
-
-namespace {
-
-struct GbmvKernelArgs {
-    const float* a = nullptr;
-    const float* x = nullptr;
-    float* y = nullptr;
-    int incx = 1;
-    int incy = 1;
-};
-
-GbmvKernelArgs makeGbmvKernelArgs(void* dA, void* dX, void* dY,
-                                  int64_t incx, int64_t incy) {
-    return {
-        static_cast<const float*>(dA),
-        static_cast<const float*>(dX),
-        static_cast<float*>(dY),
-        static_cast<int>(incx),
-        static_cast<int>(incy),
-    };
-}
-
-}  // namespace
-
-class GbmvTest : public ::testing::TestWithParam<TestCaseConfig> {
-protected:
-    static void SetUpTestSuite() {
-        aclInit(nullptr);
-        aclrtSetDevice(0);
-        aclblasCreate(&handle_);
-        aclrtCreateStream(&stream_);
-        aclblasSetStream(handle_, stream_);
-    }
-    static void TearDownTestSuite() {
-        aclrtDestroyStream(stream_);
-        aclblasDestroy(handle_);
-        aclrtResetDevice(0);
-        aclFinalize();
-    }
-
-    static aclblasHandle_t handle_;
-    static aclrtStream stream_;
-};
-
-aclblasHandle_t GbmvTest::handle_ = nullptr;
-aclrtStream GbmvTest::stream_ = nullptr;
-
-static std::vector<TestCaseConfig> loadGbmvCases() {
-    auto [cases, cfg] = ConfigLoader::loadAllForOp(g_configDir, "gbmv");
-    (void)cfg;
-    return cases;
-}
+class GbmvArch35Test : public BlasTest<GbmvParam> { };
 
 INSTANTIATE_TEST_SUITE_P(
-    Gbmv, GbmvTest,
-    ::testing::ValuesIn(loadGbmvCases()),
-    gtestParamNameFromTestCase);
+    Gbmv, GbmvArch35Test,
+    ::testing::ValuesIn(GetCasesFromCsv<GbmvParam>(ReplaceFileExtension2Csv(__FILE__))),
+    PrintCaseInfoString<GbmvParam>);
 
-TEST_P(GbmvTest, CsvDriven) {
-    const TestCaseConfig& tc = GetParam();
+TEST_P(GbmvArch35Test, CsvDriven) {
+    const auto& p = GetParam();
 
-    auto hostData = generateHostDataGbmv(tc);
-    auto devBufs = allocAndCopyToDevice({hostData[0], hostData[1], hostData[2]});
+    const bool isTransN = (p.trans == ACLBLAS_OP_N);
+    const int xCount = isTransN ? p.n : p.m;
+    const int yCount = isTransN ? p.m : p.n;
 
-    const float alpha = tc.alphaReal.value_or(1.0f);
-    const float beta = tc.betaReal.value_or(0.0f);
-    const aclblasOperation_t transOp = parseTrans(tc.trans.value_or("N"));
-    const GbmvKernelArgs kernelArgs = makeGbmvKernelArgs(
-        devBufs[0]->ptr(), devBufs[1]->ptr(), devBufs[2]->ptr(),
-        tc.incx.value_or(1), tc.incy.value_or(1));
+    auto a = makeBlasBanded(p.m, p.n, p.kl, p.ku, p.lda, p.a, p.randomSeed);
+    auto x = makeBlasStrided(xCount, p.incx, p.x, p.randomSeed);
+    auto y = makeBlasStrided(yCount, p.incy, p.y, p.randomSeed);
+    std::vector<float> result = y;
+    std::vector<float> golden = y;
 
-    const aclblasStatus_t ret = aclblasSgbmv(
-        handle_, transOp,
-        static_cast<int>(tc.m.value_or(0)),
-        static_cast<int>(tc.n.value_or(0)),
-        static_cast<int>(tc.kl.value_or(0)),
-        static_cast<int>(tc.ku.value_or(0)),
-        &alpha, kernelArgs.a,
-        static_cast<int>(tc.lda.value_or(0)),
-        kernelArgs.x, kernelArgs.incx,
-        &beta, kernelArgs.y, kernelArgs.incy);
+    aclblasStatus_t ret = aclblasSgbmv_npu(
+        GbmvArch35Test::handle_, p.trans, p.m, p.n, p.kl, p.ku,
+        &p.alpha, a.data(), p.lda,
+        x.data(), p.incx,
+        &p.beta, result.data(), p.incy);
 
-    if (!tc.expectSuccess) {
-        EXPECT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
+    if (p.expectResult != ACLBLAS_STATUS_SUCCESS) {
+        EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
         return;
     }
     ASSERT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
-    ASSERT_EQ(aclrtSynchronizeStream(stream_), ACL_SUCCESS);
 
-    std::vector<float> outputHost = hostData[2];
-    devBufs[2]->copyToHost(outputHost.data(), outputHost.size() * sizeof(float));
+    aclblasSgbmv_cpu(
+        GbmvArch35Test::handle_, p.trans, p.m, p.n, p.kl, p.ku,
+        &p.alpha, a.data(), p.lda,
+        x.data(), p.incx,
+        &p.beta, golden.data(), p.incy);
 
-    std::vector<float> goldenOutput;
-    gbmv_golden_impl(tc, hostData, goldenOutput);
+    const float* outPtr  = (p.incy < 0 && yCount > 0) ? result.data() + (yCount - 1) * (-p.incy) : result.data();
+    const float* goldPtr = (p.incy < 0 && yCount > 0) ? golden.data() + (yCount - 1) * (-p.incy) : golden.data();
 
-    EXPECT_TRUE(verifyGbmvResult(tc, outputHost, goldenOutput));
-}
-
-int main(int argc, char *argv[]) {
-    g_configDir = (argc > 1) ? argv[1] : ".";
-    ::testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+    VerifyConfig cfg;
+    cfg.mode = PrecisionMode::MERE_MARE;
+    cfg.mereThreshold = p.mereThreshold;
+    cfg.mareMultiplier = p.mareMultiplier;
+    EXPECT_TRUE(Verifier::verifyVector(outPtr, goldPtr,
+        static_cast<size_t>(yCount), p.incy, cfg, p.caseName));
 }

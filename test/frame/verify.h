@@ -8,7 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#pragma once
+#ifndef VERIFY_H
+#define VERIFY_H
 
 #include <cmath>
 #include <cstdint>
@@ -26,9 +27,13 @@ public:
                               const VerifyConfig& cfg, const std::string& caseId) {
         switch (cfg.mode) {
             case PrecisionMode::ABS:       return verifyAbs(output, golden, count, stride, cfg.absTol, caseId);
-            case PrecisionMode::REL:       return verifyRel(output, golden, count, stride, cfg.relTol, cfg.epsilonForRel, caseId);
-            case PrecisionMode::COMBINED:  return verifyCombined(output, golden, count, stride, cfg.absTol, cfg.relTol, caseId);
-            case PrecisionMode::MERE_MARE: return verifyMereMare(output, golden, count, stride, cfg.mereThreshold, cfg.mareMultiplier, caseId);
+            case PrecisionMode::REL:
+                return verifyRel(output, golden, count, stride, cfg.relTol, cfg.epsilonForRel, caseId);
+            case PrecisionMode::COMBINED:
+                return verifyCombined(output, golden, count, stride, cfg.absTol, cfg.relTol, caseId);
+            case PrecisionMode::MERE_MARE:
+                return verifyMereMare(output, golden, count, stride, cfg.mereThreshold,
+                                      cfg.mareMultiplier, caseId);
             case PrecisionMode::EXACT:     return verifyExact(output, golden, count, stride, caseId);
             case PrecisionMode::INTEGER:   return verifyIntegerVec(output, golden, count, stride, caseId);
             default:                       return verifyAbs(output, golden, count, stride, cfg.absTol, caseId);
@@ -73,7 +78,8 @@ private:
         constexpr size_t kMaxPrint = 10;
         std::cout << "[" << caseId << "] " << label << ": ";
         for (size_t i = 0; i < count && i < kMaxPrint; i++) {
-            std::cout << data[i * static_cast<size_t>(stride)] << " ";
+            int64_t idx = static_cast<int64_t>(i) * stride;
+            std::cout << data[idx] << " ";
         }
         if (count > kMaxPrint) std::cout << "...";
         std::cout << std::endl;
@@ -83,12 +89,12 @@ private:
                           size_t count, int64_t stride, double absTol,
                           const std::string& caseId) {
         printHead(output, count, stride, "Output", caseId);
-        int64_t absStride = (stride < 0) ? -stride : stride;
-        printHead(golden, count, absStride, "Golden", caseId);
+        // absStride removed — use signed idx with stride directly
+        printHead(golden, count, stride, "Golden", caseId);
 
         size_t failCount = 0;
         for (size_t i = 0; i < count; i++) {
-            float diff = std::abs(output[i * static_cast<size_t>(stride)] - golden[i * static_cast<size_t>(absStride)]);
+            float diff = std::abs(output[static_cast<int64_t>(i) * stride] - golden[static_cast<int64_t>(i) * stride]);
             if (diff > absTol) failCount++;
         }
 
@@ -103,13 +109,13 @@ private:
                           double relTol, double eps,
                           const std::string& caseId) {
         printHead(output, count, stride, "Output", caseId);
-        int64_t absStride = (stride < 0) ? -stride : stride;
-        printHead(golden, count, absStride, "Golden", caseId);
+        // absStride removed — use signed idx with stride directly
+        printHead(golden, count, stride, "Golden", caseId);
 
         double maxRelErr = 0.0;
         for (size_t i = 0; i < count; i++) {
-            float outVal = output[i * static_cast<size_t>(stride)];
-            float goldVal = golden[i * static_cast<size_t>(absStride)];
+            float outVal = output[static_cast<int64_t>(i) * stride];
+            float goldVal = golden[static_cast<int64_t>(i) * stride];
             double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + eps);
             if (relErr > maxRelErr) maxRelErr = relErr;
         }
@@ -125,13 +131,13 @@ private:
                                 double absTol, double relTol,
                                 const std::string& caseId) {
         printHead(output, count, stride, "Output", caseId);
-        int64_t absStride = (stride < 0) ? -stride : stride;
-        printHead(golden, count, absStride, "Golden", caseId);
+        // absStride removed — use signed idx with stride directly
+        printHead(golden, count, stride, "Golden", caseId);
 
         size_t failCount = 0;
         for (size_t i = 0; i < count; i++) {
-            float outVal = output[i * static_cast<size_t>(stride)];
-            float goldVal = golden[i * static_cast<size_t>(absStride)];
+            float outVal = output[static_cast<int64_t>(i) * stride];
+            float goldVal = golden[static_cast<int64_t>(i) * stride];
             double diff = std::abs(outVal - goldVal);
             double scale = std::abs(goldVal) + 1e-7;
             if (diff > absTol && diff > relTol * scale) failCount++;
@@ -149,8 +155,8 @@ private:
                                 double threshold, double multiplier,
                                 const std::string& caseId) {
         printHead(output, count, stride, "Output", caseId);
-        int64_t absStride = (stride < 0) ? -stride : stride;
-        printHead(golden, count, absStride, "Golden", caseId);
+        // absStride removed — use signed idx with stride directly
+        printHead(golden, count, stride, "Golden", caseId);
 
         constexpr double kEpsilon = 1e-7;
         double outlierLimit = multiplier * threshold;
@@ -159,8 +165,8 @@ private:
         size_t outlierCount = 0;
 
         for (size_t i = 0; i < count; i++) {
-            float outVal = output[i * static_cast<size_t>(stride)];
-            float goldVal = golden[i * static_cast<size_t>(absStride)];
+            float outVal = output[static_cast<int64_t>(i) * stride];
+            float goldVal = golden[static_cast<int64_t>(i) * stride];
             double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + kEpsilon);
             sumRelErr += relErr;
             if (relErr > maxRelErr) maxRelErr = relErr;
@@ -183,13 +189,13 @@ private:
                              size_t count, int64_t stride,
                              const std::string& caseId) {
         printHead(output, count, stride, "Output", caseId);
-        int64_t absStride = (stride < 0) ? -stride : stride;
-        printHead(golden, count, absStride, "Golden", caseId);
+        // absStride removed — use signed idx with stride directly
+        printHead(golden, count, stride, "Golden", caseId);
 
         size_t failCount = 0;
         for (size_t i = 0; i < count; i++) {
-            const float outVal = output[i * static_cast<size_t>(stride)];
-            const float goldVal = golden[i * static_cast<size_t>(absStride)];
+            const float outVal = output[static_cast<int64_t>(i) * stride];
+            const float goldVal = golden[static_cast<int64_t>(i) * stride];
             if (std::isnan(outVal) && std::isnan(goldVal)) {
                 continue;
             }
@@ -208,13 +214,13 @@ private:
                                   size_t count, int64_t stride,
                                   const std::string& caseId) {
         printHead(output, count, stride, "Output", caseId);
-        int64_t absStride = (stride < 0) ? -stride : stride;
-        printHead(golden, count, absStride, "Golden", caseId);
+        // absStride removed — use signed idx with stride directly
+        printHead(golden, count, stride, "Golden", caseId);
 
         size_t failCount = 0;
         for (size_t i = 0; i < count; i++) {
-            int64_t outVal = static_cast<int64_t>(output[i * static_cast<size_t>(stride)]);
-            int64_t goldVal = static_cast<int64_t>(golden[i * static_cast<size_t>(absStride)]);
+            int64_t outVal = static_cast<int64_t>(output[static_cast<int64_t>(i) * stride]);
+            int64_t goldVal = static_cast<int64_t>(golden[static_cast<int64_t>(i) * stride]);
             if (outVal != goldVal) failCount++;
         }
 
@@ -225,23 +231,4 @@ private:
     }
 };
 
-inline bool verifyDenseVector(const TestCaseConfig& tc,
-                              const std::vector<float>& output,
-                              const std::vector<float>& golden) {
-    const size_t count = output.size();
-    return Verifier::verifyVector(output.data(), golden.data(), count,
-                                  1, tc.verifyCfg, tc.caseId);
-}
-
-inline bool verifyStridedVector(const TestCaseConfig& tc,
-                                const std::vector<float>& outputHost,
-                                const std::vector<float>& goldenOutput,
-                                size_t count, int64_t stride) {
-    const int64_t absStride = (stride < 0) ? -stride : stride;
-    const float* outputPtr = outputHost.data();
-    if (stride < 0 && count > 0) {
-        outputPtr += static_cast<int64_t>(count - 1) * absStride;
-    }
-    return Verifier::verifyVector(outputPtr, goldenOutput.data(), count,
-                                  stride, tc.verifyCfg, tc.caseId);
-}
+#endif // VERIFY_H

@@ -8,23 +8,9 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#pragma once
-
-#include <string>
-
 #include <gtest/gtest.h>
-#include "types.h"
 
-inline std::string sanitizeGTestParamName(std::string name) {
-    for (auto& c : name) {
-        if (c == '-') {
-            c = '_';
-        }
-    }
-    return name;
-}
-
-inline std::string gtestParamNameFromTestCase(
-    const ::testing::TestParamInfo<TestCaseConfig>& info) {
-    return sanitizeGTestParamName(info.param.caseId);
+int main(int argc, char* argv[]) {
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
 }

@@ -20,11 +20,12 @@ stpttr(Symmetric Triangular matrix, Packed format To Triangular matrix, Regular 
 test/stpttr/
 ├── CMakeLists.txt              // 编译工程文件
 ├── README.md                   // 说明文档
+├── stpttr_param.h              // 参数结构体（继承 BlasTestParamBase）
+├── stpttr_golden.h             // CPU golden（签名与 BLAS API 一致）
 └── arch35/
-    ├── stpttr_test.cpp         // 精度测试
-    ├── stpttr_golden.h         // CPU golden 实现
-    ├── stpttr_testcases.csv    // 精度测试用例表
-    └── stpttr_config.json      // 算子测试配置（指针类型、精度模式等）
+    ├── stpttr_npu_wrapper.h    // NPU wrapper（封装 aclrtMalloc/H2D/kernel/D2H/free）
+    ├── stpttr_test.cpp         // 精度测试（GTest 入口）
+    └── stpttr_test.csv         // 精度测试用例表
 ```
 
 ## 算子描述
@@ -130,7 +131,9 @@ aclblasStatus_t aclblasStpttr(
 | L1 参数校验 | 8 | AP/A 空指针、非法 uplo、n=0 与 lda 组合 |
 | L1 往返与大规模 | 4 | strttp→stpttr 往返（32×32）、n=10240 |
 
-ST 采用 GTest 参数化 + `stpttr_testcases.csv` / `stpttr_config.json`，精度模式为 **EXACT**（仅比对有效三角区，其余位置为 sentinel -999）。
+ST 采用 GTest 参数化 + `stpttr_test.csv`，`BlasTest<StpttrParam>` fixture，精度模式为 **EXACT**（仅比对有效三角区，其余位置为 sentinel -999）。
+
+**注意**：`makeBlasArray` 的 size 参数为 `int64_t`，调用时需显式转换：`makeBlasArray(static_cast<int64_t>(p.lda) * p.n, p.a)`，确保负值 n 正确返回空数组。
 
 ## 编译运行
 

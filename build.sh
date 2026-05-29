@@ -14,6 +14,7 @@ set -e
 BUILD_OPS=""
 RUN_TEST=OFF
 ENABLE_PACKAGE=FALSE
+TEST_DEVICE_ID=0
 
 export BASE_PATH=$(
   cd "$(dirname $0)"
@@ -76,6 +77,9 @@ for arg in "$@"; do
         --pkg)
             ENABLE_PACKAGE=TRUE
             ;;
+        --device=*)
+            TEST_DEVICE_ID="${arg#*=}"
+            ;;
         *)
             echo "Unknown option: $arg"
             echo "Usage:"
@@ -86,6 +90,7 @@ for arg in "$@"; do
             echo "  bash build.sh --pkg                           # 编译并打包run包"
             echo "  bash build.sh --pkg --soc=ascend950           # 打包指定SOC的run包"
             echo "  bash build.sh --pkg --soc=ascend950 --ops=scopy --run  # 编译指定算子打包并运行测试"
+            echo "  bash build.sh --ops=scopy --run --device=1     # 指定测试运行设备(默认0)"
             exit 1
             ;;
     esac
@@ -174,6 +179,8 @@ if [ -n "${BUILD_OPS}" ]; then
     TEST_NAMES_CMAKE="${BUILD_OPS//,/;}"
     CMAKE_OPTIONS="${CMAKE_OPTIONS} -DBUILD_TEST=ON -DTEST_NAMES=${TEST_NAMES_CMAKE}"
 fi
+
+CMAKE_OPTIONS="${CMAKE_OPTIONS} -DTEST_DEVICE_ID=${TEST_DEVICE_ID}"
 
 if [ "${ENABLE_PACKAGE}" == "TRUE" ]; then
     CMAKE_OPTIONS="${CMAKE_OPTIONS} -DENABLE_PACKAGE=ON"

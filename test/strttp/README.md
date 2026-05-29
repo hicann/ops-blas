@@ -37,3 +37,9 @@ aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo,
 ```bash
 bash build.sh --ops=strttp --run --soc=ascend950
 ```
+
+## 测试说明
+
+ST 采用 GTest 参数化 + `strttp_test.csv`，`BlasTest<StrttpParam>` fixture，精度模式为 **EXACT**。
+
+**注意**：`makeBlasArray` 的 size 参数为 `int64_t`，调用时需显式转换：`makeBlasArray(static_cast<int64_t>(p.lda) * p.n, p.a)`，确保负值 n 正确返回空数组。

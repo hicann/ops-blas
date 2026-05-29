@@ -190,14 +190,16 @@ scene: test-development
   - 1.3.B-测试方案设计.md (按迭代指定 L0 或 L0+L1 范围)
   - 加载 blas-ST-develop 技能获取 GTest+CSV 开发规范
 输出:
-  - test/{operator_name}/{routine}_testcases.csv
-  - test/{operator_name}/{routine}_golden.h (CPU 参考实现，不区分架构)
-  - test/{operator_name}/arch35/{routine}_test.cpp (架构相关，放 arch35 子目录)
+  - test/{operator_name}/{routine}_param.h (参数结构体，继承 BlasTestParamBase)
+  - test/{operator_name}/{routine}_golden.h (CPU golden，签名与 BLAS API 一致)
+  - test/{operator_name}/arch35/{routine}_npu_wrapper.h (NPU wrapper，封装 ACL 操作)
+  - test/{operator_name}/arch35/{routine}_test.cpp (GTest 入口，5 步流程)
+  - test/{operator_name}/arch35/{routine}_test.csv (CSV 用例表，列名=API 参数名)
   - test/{operator_name}/CMakeLists.txt
 验收标准:
   - CSV 用例覆盖测试设计文档中的所有场景
-  - GTest+CSV 参数化模式，自定义 main，ACL 只初始化一次
-  - golden.h CPU 参考实现正确
+  - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
+  - golden.h / npu_wrapper.h 实现正确
   - CMake 使用 ops_blas_add_gtest_tests
   - 编译通过
 ```

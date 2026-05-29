@@ -8,7 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#pragma once
+#ifndef DEVICE_H
+#define DEVICE_H
 
 #include <cstdint>
 #include <memory>
@@ -101,3 +102,5 @@ inline float* adjustStridedBase(float* base, int64_t count, int64_t stride) {
 inline const float* adjustStridedBase(const float* base, int64_t count, int64_t stride) {
     return adjustStridedBase(const_cast<float*>(base), count, stride);
 }
+
+#endif // DEVICE_H
