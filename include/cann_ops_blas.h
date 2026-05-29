@@ -258,6 +258,10 @@ aclblasStatus_t aclblasStpttr(
 aclblasStatus_t aclblasStrttp(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* A, int lda, float* AP);
 
+aclblasStatus_t aclblasSrotm(
+    aclblasHandle handle, float* x, float* y, const float* sparam, const int64_t n, const int64_t incx,
+    const int64_t incy);
+
 #ifdef __cplusplus
 }
 #endif
