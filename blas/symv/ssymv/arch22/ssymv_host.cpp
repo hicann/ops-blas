@@ -85,7 +85,7 @@ static SymvTilingData CalSymvTilingData(
 }
 
 aclblasStatus_t aclblasSsymv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* a, int lda,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* a, int lda,
     const float* x, int incx, const float* beta, float* y, int incy)
 {
     (void)uplo;

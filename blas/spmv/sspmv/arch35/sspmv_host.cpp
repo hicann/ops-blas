@@ -30,7 +30,7 @@
     } while (0)
 
 static aclblasStatus_t ValidateSspmvParams(
-    aclblasFillMode uplo, int incx, int incy, const float* alpha, const float* beta, const float* ap, const float* x,
+    aclblasFillMode_t uplo, int incx, int incy, const float* alpha, const float* beta, const float* ap, const float* x,
     const float* y)
 {
     CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
@@ -56,7 +56,7 @@ static uint32_t GetVectorCoreCount()
 }
 
 static SspmvTilingData CalSspmvTilingData(
-    uint32_t useNumBlocks, int n, aclblasFillMode uplo, float alpha, float beta, int incx, int incy)
+    uint32_t useNumBlocks, int n, aclblasFillMode_t uplo, float alpha, float beta, int incx, int incy)
 {
     SspmvTilingData tilingData{};
     tilingData.nthreads =
@@ -71,7 +71,7 @@ static SspmvTilingData CalSspmvTilingData(
 }
 
 aclblasStatus_t aclblasSspmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* ap, const float* x, int incx,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* ap, const float* x, int incx,
     const float* beta, float* y, int incy)
 {
     // 1. n < 0 check

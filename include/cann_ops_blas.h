@@ -135,7 +135,7 @@ aclblasStatus_t aclblasSpmv(
     const float beta, const int64_t n, const int64_t incx, const int64_t incy);
 
 aclblasStatus_t aclblasSspmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* AP, const float* x, int incx,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* AP, const float* x, int incx,
     const float* beta, float* y, int incy);
 
 aclblasStatus_t aclblasSger(
@@ -147,15 +147,11 @@ aclblasStatus_t aclblasStrsv(
     const float* A, int64_t lda, float* x, int64_t incx);
 
 aclblasStatus_t aclblasSsymv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* A, int lda,
-    const float* x, int incx, const float* beta, float* y, int incy);
-
-aclblasStatus_t aclblasSsymv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* A, int lda, const float* x,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* A, int lda, const float* x,
     int incx, const float* beta, float* y, int incy);
 
 aclblasStatus_t aclblasSsbmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n, int k, const float* alpha, const float* A, int lda,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, int k, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy);
 
 aclblasStatus_t aclblasStpsv(
@@ -237,8 +233,8 @@ aclblasStatus_t aclblasCgemv(
     const int64_t incy);
 
 aclblasStatus_t aclblasStrmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, const int64_t n,
-    uint8_t* A, const int64_t lda, uint8_t* x, const int64_t incx);
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
+    const float* A, int lda, float* x, int incx);
 
 aclblasStatus_t aclblasSsyr(
     aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,

@@ -166,8 +166,8 @@ int TestStrmvUpperN()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
+    float* aDevice = nullptr;
+    float* xDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
     aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -230,8 +230,8 @@ int TestStrmvLowerN()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
+    float* aDevice = nullptr;
+    float* xDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
     aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -294,8 +294,8 @@ int TestStrmvUpperT()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
+    float* aDevice = nullptr;
+    float* xDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
     aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -358,8 +358,8 @@ int TestStrmvLowerT()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
+    float* aDevice = nullptr;
+    float* xDevice = nullptr;
     size_t aByteSize = N * N * sizeof(float);
     size_t xByteSize = N * sizeof(float);
     aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);

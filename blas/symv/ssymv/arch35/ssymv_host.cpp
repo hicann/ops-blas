@@ -43,7 +43,7 @@ static inline R CeilAlign(T1 val, T2 align)
 }
 
 static aclblasStatus_t ValidateSsymvParams(
-    aclblasFillMode uplo, int n, int lda, int incx, int incy,
+    aclblasFillMode_t uplo, int n, int lda, int incx, int incy,
     const float* alpha, const float* beta, const float* A, const float* x, const float* y)
 {
     CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
@@ -70,7 +70,7 @@ static uint32_t GetVectorCoreCount()
 }
 
 static SsymvTilingData CalSsymvTilingData(
-    uint32_t useNumBlocks, int n, int lda, aclblasFillMode uplo, float alpha, float beta, int incx, int incy)
+    uint32_t useNumBlocks, int n, int lda, aclblasFillMode_t uplo, float alpha, float beta, int incx, int incy)
 {
     SsymvTilingData tilingData{};
     tilingData.nthreads =
@@ -86,7 +86,7 @@ static SsymvTilingData CalSsymvTilingData(
 }
 
 aclblasStatus_t aclblasSsymv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n,
     const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta,
     float* y, int incy)

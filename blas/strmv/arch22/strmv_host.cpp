@@ -58,8 +58,8 @@ static float* CreateUploMatrix(int64_t uplo)
 }
 
 aclblasStatus_t aclblasStrmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, const int64_t n,
-    uint8_t* A, const int64_t lda, uint8_t* x, const int64_t incx)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
+    const float* A, int lda, float* x, int incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -123,7 +123,9 @@ aclblasStatus_t aclblasStrmv(
         aclrtFree(workSpaceDevice); aclrtFree(wkspDevice); aclrtFree(uploDevice); delete[] uploMatrix;
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    strmv_kernel_do(A, x, uploDevice, x, wkspDevice, workSpaceDevice, tilingDevice, numBlocks, useStream);
+    strmv_kernel_do(
+        (GM_ADDR)const_cast<float*>(A), (GM_ADDR)x, uploDevice, (GM_ADDR)x, wkspDevice, workSpaceDevice, tilingDevice,
+        numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);

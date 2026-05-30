@@ -84,7 +84,7 @@ SpmvTilingData CalTilingData(
 }
 
 aclblasStatus_t aclblasSspmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* AP, const float* x, int incx,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* AP, const float* x, int incx,
     const float* beta, float* y, int incy)
 {
     aclrtStream useStream = nullptr;

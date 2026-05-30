@@ -32,7 +32,7 @@
     } while (0)
 
 static aclblasStatus_t ValidateSbmvParams(
-    aclblasFillMode uplo, int k, int lda, int incx, int incy, const float* alpha, const float* beta, const float* A,
+    aclblasFillMode_t uplo, int k, int lda, int incx, int incy, const float* alpha, const float* beta, const float* A,
     const float* x, const float* y)
 {
     CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
@@ -60,7 +60,7 @@ static uint32_t GetVectorCoreCount()
 }
 
 static SsbmvTilingData CalSsbmvTilingData(
-    uint32_t useNumBlocks, int n, int k, int lda, aclblasFillMode uplo, float alpha, float beta, int incx, int incy)
+    uint32_t useNumBlocks, int n, int k, int lda, aclblasFillMode_t uplo, float alpha, float beta, int incx, int incy)
 {
     SsbmvTilingData tilingData{};
     tilingData.numThreads =
@@ -81,7 +81,7 @@ static SsbmvTilingData CalSsbmvTilingData(
 }
 
 aclblasStatus_t aclblasSsbmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, int n, int k, const float* alpha, const float* A, int lda,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, int k, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
