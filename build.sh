@@ -96,22 +96,115 @@ for arg in "$@"; do
     esac
 done
 
+# 默认 SOC_VERSION
+if [ -z "${SOC_VERSION}" ]; then
+    SOC_VERSION="ascend910b3"
+fi
+
+# SOC_VERSION -> SOC_ARCH_DIRS 映射（与 CMakeLists.txt 保持一致）
+soc_lower=$(echo "${SOC_VERSION}" | tr '[:upper:]' '[:lower:]')
+if [[ "${soc_lower}" == ascend910b* ]] || [[ "${soc_lower}" == ascend910_93* ]]; then
+    SOC_ARCH_DIRS=("arch22")
+elif [[ "${soc_lower}" == ascend950* ]]; then
+    SOC_ARCH_DIRS=("arch35")
+elif [[ "${soc_lower}" == ascend310p* ]]; then
+    SOC_ARCH_DIRS=("arch20")
+else
+    SOC_ARCH_DIRS=()
+fi
+
+
+# 展开家族名为具体算子列表
+# 例如: --ops=gbmv → --ops=sgbmv (如果 test/gbmv/sgbmv/CMakeLists.txt 存在)
+# 搜索逻辑: 在家族目录下遍历各算子子目录,检查是否有目标 archXX 目录
+expand_family_ops() {
+  local ops_str="$1"
+  local expanded=""
+  IFS=',' read -ra OPS_ARRAY <<< "${ops_str}"
+  for op in "${OPS_ARRAY[@]}"; do
+    if [ -f "${BASE_PATH}/test/${op}/CMakeLists.txt" ]; then
+      # 直接算子名 (如 scopy, sgbmv)
+      if [ -z "${expanded}" ]; then
+        expanded="${op}"
+      else
+        expanded="${expanded},${op}"
+      fi
+    elif [ -d "${BASE_PATH}/test/${op}" ]; then
+      # 可能是家族名,遍历子目录查找具体算子
+      local found_any=FALSE
+      for sub_dir in "${BASE_PATH}/test/${op}"/*/; do
+        [ -d "${sub_dir}" ] || continue
+        [ -f "${sub_dir}/CMakeLists.txt" ] || continue
+        local sub_name=$(basename "${sub_dir}")
+        # 检查该算子是否有当前 SOC 对应的 archXX 目录
+        local has_arch=FALSE
+        for arch_dir in "${SOC_ARCH_DIRS[@]}"; do
+          if [ -d "${sub_dir}/${arch_dir}" ]; then
+            has_arch=TRUE
+            break
+          fi
+        done
+        if [ "${has_arch}" = "TRUE" ]; then
+          if [ -z "${expanded}" ]; then
+            expanded="${sub_name}"
+          else
+            expanded="${expanded},${sub_name}"
+          fi
+          found_any=TRUE
+        else
+          echo "[INFO] ${sub_name}: skipped (no ${SOC_ARCH_DIRS[*]} implementation)"
+        fi
+      done
+      if [ "${found_any}" = "FALSE" ]; then
+        echo "[WARN] Family '${op}' has no operators with ${SOC_ARCH_DIRS[*]} implementation"
+      fi
+    else
+      # 未知算子名,保留原样让 CMake 报错
+      if [ -z "${expanded}" ]; then
+        expanded="${op}"
+      else
+        expanded="${expanded},${op}"
+      fi
+    fi
+  done
+  echo "${expanded}"
+}
+
+# 展开家族名
+if [ -n "${BUILD_OPS}" ]; then
+  BUILD_OPS=$(expand_family_ops "${BUILD_OPS}")
+fi
 
 # 如果 --run 单独使用（没有指定算子），自动发现所有测试目录
 if [ "${RUN_TEST}" == "ON" ] && [ -z "${BUILD_OPS}" ]; then
-  # 从 test 目录下查找所有包含 CMakeLists.txt 的子目录
+  # 从 test 目录下查找所有包含 CMakeLists.txt 的子目录（支持家族嵌套）
   AUTO_DISCOVER_OPS=""
   for dir in ${BASE_PATH}/test/*/; do
+    [ -d "${dir}" ] || continue
+    dir_name=$(basename "${dir}")
+    # 排除非算子目录
+    if [ "${dir_name}" = "frame" ] || [ "${dir_name}" = "utils" ] || [ "${dir_name}" = "common" ]; then
+      continue
+    fi
     if [ -f "${dir}/CMakeLists.txt" ]; then
-      op_name=$(basename "${dir}")
-      # 排除 common 目录（非算子测试目录）
-      if [ "${op_name}" != "common" ]; then
-        if [ -z "${AUTO_DISCOVER_OPS}" ]; then
-          AUTO_DISCOVER_OPS="${op_name}"
-        else
-          AUTO_DISCOVER_OPS="${AUTO_DISCOVER_OPS},${op_name}"
-        fi
+      # 直接算子目录 (如 test/scopy/)
+      if [ -z "${AUTO_DISCOVER_OPS}" ]; then
+        AUTO_DISCOVER_OPS="${dir_name}"
+      else
+        AUTO_DISCOVER_OPS="${AUTO_DISCOVER_OPS},${dir_name}"
       fi
+    else
+      # 可能是家族目录 (如 test/gbmv/sgbmv/)
+      for sub_dir in "${dir}"/*/; do
+        [ -d "${sub_dir}" ] || continue
+        [ -f "${sub_dir}/CMakeLists.txt" ] || continue
+        sub_name=$(basename "${sub_dir}")
+        if [ -z "${AUTO_DISCOVER_OPS}" ]; then
+          AUTO_DISCOVER_OPS="${sub_name}"
+        else
+          AUTO_DISCOVER_OPS="${AUTO_DISCOVER_OPS},${sub_name}"
+        fi
+      done
     fi
   done
   BUILD_OPS="${AUTO_DISCOVER_OPS}"
@@ -221,7 +314,17 @@ if [ "${RUN_TEST}" == "ON" ]; then
     fi
 
     for op in "${OP_ARRAY[@]}"; do
+        # 解析测试二进制路径：支持直接目录 (test/scopy/) 和家族嵌套 (test/gbmv/sgbmv/)
         TEST_BIN="${BUILD_DIR}/test/${op}/${op}_test"
+        if [ ! -f "${TEST_BIN}" ]; then
+            # 搜索家族子目录
+            for family_dir in "${BUILD_DIR}/test"/*/; do
+                if [ -f "${family_dir}${op}/${op}_test" ]; then
+                    TEST_BIN="${family_dir}${op}/${op}_test"
+                    break
+                fi
+            done
+        fi
 
         # 当前 SOC 不支持该算子时，直接标记为 skip，避免误报 fail/error
         if [ -n "${SKIP_REASON_MAP[${op}]+x}" ]; then
@@ -240,7 +343,7 @@ if [ "${RUN_TEST}" == "ON" ]; then
             continue
         fi
 
-        TEST_CFG_DIR="${BUILD_DIR}/test/${op}"
+        TEST_CFG_DIR="$(dirname "${TEST_BIN}")"
 
         # 临时禁用 errexit 以捕获测试退出码
         set +e

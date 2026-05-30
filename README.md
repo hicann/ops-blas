@@ -2,7 +2,7 @@
 
 ## 🔥Latest News
 
-- [2026/05] blas目录新增[cgemm](blas/cgemm/)、[cgemm_batched](blas/cgemm_batched/)、[cgemv_batched](blas/cgemv_batched/)、[complex_mat_dot](blas/complex_mat_dot/)、[colwise_mul](blas/colwise_mul/)、[trsv](blas/trsv/)等计算接口。
+- [2026/05] blas目录新增[cgemv_batched](blas/gemv_batched/cgemv_batched/)、[complex_mat_dot](blas/complex_mat_dot/complex_mat_dot/)、[colwise_mul](blas/colwise_mul/colwise_mul/)、[trsv](blas/trsv/)等计算接口。
 - [2026/03] ops-blas项目上线，提供BLAS计算的API以及现代灵活接口aclBLASLt。
 
 ## 🚀概述

@@ -7,9 +7,25 @@ if(BUILD_TEST)
 
     # 支持多算子列表（TEST_NAMES 是分号分隔的 CMake 列表）
     foreach(TEST_NAME ${TEST_NAMES})
-        if(NOT EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME})
+        # 解析测试目录路径：支持直接目录 (test/scopy/) 和家族嵌套 (test/gbmv/sgbmv/)
+        set(TEST_DIR "")
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME})
+            set(TEST_DIR "${TEST_NAME}")
+        else()
+            # 搜索家族子目录
+            file(GLOB family_dirs RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/*)
+            foreach(family_dir ${family_dirs})
+                if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${family_dir}
+                   AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${family_dir}/${TEST_NAME})
+                    set(TEST_DIR "${family_dir}/${TEST_NAME}")
+                    break()
+                endif()
+            endforeach()
+        endif()
+
+        if("${TEST_DIR}" STREQUAL "")
             message(FATAL_ERROR
-                "Test directory 'test/${TEST_NAME}' does not exist. "
+                "Test directory 'test/${TEST_NAME}' does not exist (checked flat and family layouts). "
                 "Please check the operator name specified in --ops or TEST_NAMES.")
         endif()
 
@@ -19,16 +35,16 @@ if(BUILD_TEST)
         # 检查当前 SOC 架构下是否有可编译的测试源码
         set(TEST_HAS_TEST_SOURCES FALSE)
         set(TEST_CPP "${TEST_NAME}_test.cpp")
-        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}/${TEST_CPP})
+        if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_DIR}/${TEST_CPP})
             set(TEST_HAS_TEST_SOURCES TRUE)
         endif()
         foreach(arch_dir ${SOC_ARCH_DIRS})
-            if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}/${arch_dir}/${TEST_CPP})
+            if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_DIR}/${arch_dir}/${TEST_CPP})
                 set(TEST_HAS_TEST_SOURCES TRUE)
                 break()
             endif()
             file(GLOB arch_test_supp_srcs
-                ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_NAME}/${arch_dir}/${TEST_NAME}_test_*.cpp)
+                ${CMAKE_CURRENT_SOURCE_DIR}/${TEST_DIR}/${arch_dir}/${TEST_NAME}_test_*.cpp)
             if(arch_test_supp_srcs)
                 set(TEST_HAS_TEST_SOURCES TRUE)
                 break()
@@ -44,7 +60,7 @@ if(BUILD_TEST)
             endif()
             if(NOT TEST_HAS_TEST_SOURCES)
                 list(APPEND SKIP_REASONS
-                    "test directory 'test/${TEST_NAME}/' contains no test sources for '${SOC_VERSION}'")
+                    "test directory 'test/${TEST_DIR}/' contains no test sources for '${SOC_VERSION}'")
             endif()
             string(JOIN "; " SKIP_REASONS_STR ${SKIP_REASONS})
             if(TEST_NAME MATCHES "^blasLt")
@@ -66,7 +82,7 @@ if(BUILD_TEST)
         endif()
 
         list(APPEND _OPS_BLAS_BUILT_TESTS "${TEST_NAME}")
-        add_subdirectory(${TEST_NAME})
+        add_subdirectory(${TEST_DIR})
     endforeach()
 
     # 生成测试清单，供 build.sh --run 区分 skip / fail

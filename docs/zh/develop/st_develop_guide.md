@@ -277,11 +277,10 @@ bash build.sh --ops=<op> --run
 
 | 文件 | 必需 | 说明 |
 |------|------|------|
-| `test/<op>/{op}_param.h` | 是 | 参数结构体 |
-| `test/<op>/<op>_param.h` | 是 | 参数结构体 |
-| `test/<op>/<op>_golden.h` | 是 | CPU golden |
-| `test/<op>/arch35/<op>_npu_wrapper.h` | 是 | NPU wrapper |
-| `test/<op>/arch35/<op>_test.cpp` | 是 | GTest 入口 |
-| `test/<op>/arch35/<op>_test.csv` | 是 | CSV 用例表 |
-| `test/<op>/CMakeLists.txt` | 是 | `ops_blas_add_gtest_tests` |
-| `test/<op>/README.md` | 推荐 | 算子 ST 说明 |
+| `test/<family>/<op>/<op>_param.h` | 是 | 参数结构体 |
+| `test/<family>/<op>/<op>_golden.h` | 是 | CPU golden |
+| `test/<family>/<op>/arch35/<op>_npu_wrapper.h` | 是 | NPU wrapper |
+| `test/<family>/<op>/arch35/<op>_test.cpp` | 是 | GTest 入口 |
+| `test/<family>/<op>/arch35/<op>_test.csv` | 是 | CSV 用例表 |
+| `test/<family>/<op>/CMakeLists.txt` | 是 | `ops_blas_add_gtest_tests` |
+| `blas/<family>/<op>/README.md` | 推荐 | 算子说明 |

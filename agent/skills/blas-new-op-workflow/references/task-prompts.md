@@ -205,9 +205,9 @@ subagent: developer
 输入:
   - 1.3.A-开发方案设计.md
 输出:
-  - blas/{operator_name}/{routine}/archXX/{routine}_host.cpp
-  - blas/{operator_name}/{routine}/archXX/{routine}_kernel.cpp
-  - blas/{operator_name}/{routine}/archXX/{routine}_tiling_data.h
+  - blas/{family}/{operator_name}/archXX/{operator_name}_host.cpp
+  - blas/{family}/{operator_name}/archXX/{operator_name}_kernel.cpp
+  - blas/{family}/{operator_name}/archXX/{operator_name}_tiling_data.h
 验收标准:
   - 编译通过
   - 编码规范符合 blas-ascendc-coding-rules
@@ -222,12 +222,12 @@ scene: test-development
   - 1.3.B-测试方案设计.md (按迭代指定 L0 或 L0+L1 范围)
   - 加载 blas-ST-develop 技能获取 GTest+CSV 开发规范
 输出:
-  - test/{operator_name}/{routine}_param.h (参数结构体，继承 BlasTestParamBase)
-  - test/{operator_name}/{routine}_golden.h (CPU golden，签名与 BLAS API 一致)
-  - test/{operator_name}/arch35/{routine}_npu_wrapper.h (NPU wrapper，封装 ACL 操作)
-  - test/{operator_name}/arch35/{routine}_test.cpp (GTest 入口，5 步流程)
-  - test/{operator_name}/arch35/{routine}_test.csv (CSV 用例表，列名=API 参数名)
-  - test/{operator_name}/CMakeLists.txt
+  - test/{family}/{operator_name}/{operator_name}_param.h (参数结构体，继承 BlasTestParamBase)
+  - test/{family}/{operator_name}/{operator_name}_golden.h (CPU golden，签名与 BLAS API 一致)
+  - test/{family}/{operator_name}/arch35/{operator_name}_npu_wrapper.h (NPU wrapper，封装 ACL 操作)
+  - test/{family}/{operator_name}/arch35/{operator_name}_test.cpp (GTest 入口，5 步流程)
+  - test/{family}/{operator_name}/arch35/{operator_name}_test.csv (CSV 用例表，列名=API 参数名)
+  - test/{family}/{operator_name}/CMakeLists.txt
 验收标准:
   - CSV 用例覆盖测试设计文档中的所有场景
   - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
@@ -297,8 +297,8 @@ subagent: developer
 验收标准:
   - 性能指标已采集
   - 瓶颈分析完整
-  - 性能测试的中间文件/结果文件统一存放在 test/{operator_name}/perf/ 目录下
-  - 性能分析结束后及时删除 test/{operator_name}/perf/ 下的所有中间文件和结果文件
+  - 性能测试的中间文件/结果文件统一存放在 test/{family}/{operator_name}/perf/ 目录下
+  - 性能分析结束后及时删除 test/{family}/{operator_name}/perf/ 下的所有中间文件和结果文件
 ```
 
 ### 4.1 编写文档
@@ -311,7 +311,7 @@ scene: write-readme
   - 全部设计文档
   - README.md 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/README.md)
 输出:
-  - blas/{operator_name}/{routine}/README.md
+  - blas/{family}/{operator_name}/README.md
 验收标准:
   - 接口说明完整
   - 调用示例正确

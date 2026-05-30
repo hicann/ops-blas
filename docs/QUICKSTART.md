@@ -2,7 +2,7 @@
 
 ## 使用须知
 
-本指南旨在帮助您快速上手CANN和`ops-blas`算子仓的使用。为方便快速了解算子开发全流程，将以**scopy**算子为实践对象，其源文件位于`ops-blas/blas/copy`，具体操作流程如下：
+本指南旨在帮助您快速上手CANN和`ops-blas`算子仓的使用。为方便快速了解算子开发全流程，将以**scopy**算子为实践对象，其源文件位于`ops-blas/blas/copy/scopy`，具体操作流程如下：
 
 1. **[环境部署](zh/install/quick_install.md)**：完成软件包安装和源码下载，此处不再赘述。快速入门场景下，**推荐WebIDE或Docker环境**，安装操作简单。
 
@@ -55,7 +55,7 @@ Self-extractable archive "cann-ops-blas_${cann_version}_linux-${arch}.run" succe
 
 通用的运行命令格式：`bash build.sh --soc=${soc_version} --ops=<算子名> --run`。
 
-以scopy算子为例，其提供了简单算子样例`test/scopy/scopy_test.cpp`，运行该样例验证算子功能是否正常。
+以scopy算子为例，其提供了简单算子样例`test/copy/scopy/scopy_test.cpp`，运行该样例验证算子功能是否正常。
 
 ```bash
 bash build.sh --pkg --soc=${soc_version} --ops=scopy --run
@@ -69,10 +69,10 @@ Golden: 1.2 1.2 1.2 1.2 1.2 1.2 1.2 1.2 ...
 [Success] Case accuracy is verification passed.
 ```
 
-> **提示**：若已完成编译且仅需重新验证功能，可直接运行已编译的二进制文件，无需再次编译。编译完成后，测试二进制文件位于`build/test/<算子名>/<算子名>_test`，例如scopy算子的测试文件为`build/test/scopy/scopy_test`，直接执行即可：
+> **提示**：若已完成编译且仅需重新验证功能，可直接运行已编译的二进制文件，无需再次编译。编译完成后，测试二进制文件位于`build/test/<家族>/<算子名>/<算子名>_test`，例如scopy算子的测试文件为`build/test/copy/scopy/scopy_test`，直接执行即可：
 >
 > ```bash
-> ./build/test/scopy/scopy_test
+> ./build/test/copy/scopy/scopy_test
 > ```
 
 ## 二、算子开发
@@ -80,7 +80,7 @@ Golden: 1.2 1.2 1.2 1.2 1.2 1.2 1.2 1.2 ...
 本阶段目的是对已成功运行的scopy算子尝试**修改核函数代码**。
 
 ### 1. 修改Kernel实现
-找到scopy算子的核心kernel实现文件`blas/copy/scopy_kernel.cpp`，尝试修改算子中的DataCopy操作：
+找到scopy算子的核心kernel实现文件`blas/copy/scopy/scopy_kernel.cpp`，尝试修改算子中的DataCopy操作：
 
 ```cpp
 template <typename T>
@@ -137,7 +137,7 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
 ### 1. 打印
 算子如果出现执行失败、精度异常等问题，添加打印进行问题分析和定位。
 
-请在`blas/copy/scopy_kernel.cpp`中进行代码修改。
+请在`blas/copy/scopy/scopy_kernel.cpp`中进行代码修改。
 
 * **printf**
 
@@ -166,16 +166,16 @@ __aicore__ inline void CopyAIV<T>::SingleIteration(uint32_t curOffset, uint32_t 
 
 -  **生成可执行文件**
 
-    调用scopy算子的test样例，生成可执行文件（scopy_test），该文件位于项目`ops-blas/build/test/scopy`目录。
+    调用scopy算子的test样例，生成可执行文件（scopy_test），该文件位于项目`ops-blas/build/test/copy/scopy`目录。
     ```bash
     bash build.sh --soc=${soc_version} --ops=scopy
     ```
 
 -  **采集性能数据**
 
-    进入scopy算子可执行文件目录`ops-blas/build/test/scopy`，执行如下命令：
+    进入scopy算子可执行文件目录`ops-blas/build/test/copy/scopy`，执行如下命令：
 
     ```bash
     msprof --application="./scopy_test"
     ```
-采集结果在项目`ops-blas/build/test/scopy`目录，msprof命令执行完后会自动解析并导出性能数据结果文件，详细内容请参见[msprof](https://www.hiascend.com/document/detail/zh/mindstudio/82RC1/T&ITools/Profiling/atlasprofiling_16_0110.html#ZH-CN_TOPIC_0000002504160251)。
+采集结果在项目`ops-blas/build/test/copy/scopy`目录，msprof命令执行完后会自动解析并导出性能数据结果文件，详细内容请参见[msprof](https://www.hiascend.com/document/detail/zh/mindstudio/82RC1/T&ITools/Profiling/atlasprofiling_16_0110.html#ZH-CN_TOPIC_0000002504160251)。
