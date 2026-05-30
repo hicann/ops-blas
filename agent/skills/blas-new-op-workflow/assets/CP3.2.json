@@ -9,9 +9,10 @@
   "questions": [
     {
       "header": "验收确认",
-      "question": "验收连续3次未通过，请决定如何处理？",
+      "question": "请查阅代码检视报告和性能报告，确认验收结果是否达标。批准进入上库阶段？",
       "options": [
-        {"label": "批准", "description": "忽略剩余问题，强制进入上库阶段"}
+        {"label": "批准", "description": "验收通过，进入上库阶段"},
+        {"label": "需要修改", "description": "验收存在问题，打回修订"}
       ]
     }
   ]

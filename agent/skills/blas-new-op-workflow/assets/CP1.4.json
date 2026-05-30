@@ -13,7 +13,8 @@
       "header": "设计确认",
       "question": "方案设计评审连续3次未通过，请决定如何处理？",
       "options": [
-        {"label": "批准", "description": "忽略剩余问题，强制进入开发阶段"}
+        {"label": "批准", "description": "忽略剩余问题，强制进入开发阶段"},
+        {"label": "终止流程", "description": "放弃当前方案，终止开发流程"}
       ]
     }
   ]

@@ -55,7 +55,7 @@ Examples:
 
 What it does:
   1. Create config directory in ops-blas repo (.claude/ or .opencode/)
-  2. Symlink agent/CLAUDE.md -> config/ (renamed to AGENTS.md for opencode)
+  2. Symlink agent/AGENT.md -> config/ (claude: CLAUDE.md, opencode: AGENTS.md)
   3. Symlink agent/agents/*.md -> config/agents/
   4. Setup cannbot-skills (use local path or clone from official)
   5. Symlink agent/skills/* -> config/skills/ (local skills)
@@ -166,28 +166,30 @@ fi
 
 cd "$OPS_BLAS_DIR"
 
-# --- Step 1: Create config directory ---
+# --- Step 1: Create config directory and .agent/dev-docs ---
 if [ "$CLEAN_MODE" = true ] && [ -d "$CONFIG_DIR" ]; then
     info "Cleaning existing $CONFIG_DIR_NAME/ directory..."
     rm -rf "$CONFIG_DIR"
     ok "$CONFIG_DIR_NAME/ removed"
 fi
-step "[1/6] Creating $CONFIG_DIR_NAME directory..."
+step "[1/6] Creating $CONFIG_DIR_NAME directory and .agent/dev-docs..."
 mkdir -p "$CONFIG_DIR"
 ok "$CONFIG_DIR_NAME/ created"
+mkdir -p "$OPS_BLAS_DIR/.agent/dev-docs"
+ok ".agent/dev-docs/ created"
 
-# --- Step 2: Symlink agent/CLAUDE.md -> config/ (rename for opencode) ---
+# --- Step 2: Symlink agent/AGENT.md -> config/ (claude: CLAUDE.md, opencode: AGENTS.md) ---
 step "[2/6] Linking agent configuration..."
-claude_md="$AGENT_DIR/CLAUDE.md"
-if [ -f "$claude_md" ]; then
+agent_md="$AGENT_DIR/AGENT.md"
+if [ -f "$agent_md" ]; then
     dst="$CONFIG_DIR/$GUIDE_DST_NAME"
     if [ -L "$dst" ] || [ -e "$dst" ]; then
         rm -f "$dst"
     fi
-    ln -sf "$claude_md" "$dst"
-    ok "$GUIDE_DST_NAME -> agent/CLAUDE.md"
+    ln -sf "$agent_md" "$dst"
+    ok "$GUIDE_DST_NAME -> agent/AGENT.md"
 else
-    warn "agent/CLAUDE.md not found, skipping"
+    warn "agent/AGENT.md not found, skipping"
 fi
 
 # --- Step 3: Symlink agent/agents/*.md -> config/agents/ ---

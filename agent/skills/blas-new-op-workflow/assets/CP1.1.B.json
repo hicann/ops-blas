@@ -1,0 +1,30 @@
+{
+  "checkpoint": "CP1.1.B",
+  "title": "精度与编程模型对齐",
+  "summary": {
+    "算子名称": "{aclblasXxx}",
+    "前期对齐": "CP1.1.A 已确认：dtype={已选dtype}，目标芯片={已选芯片}",
+    "说明": "确认精度标准和编程模型"
+  },
+  "questions": [
+    {
+      "header": "精度标准",
+      "question": "采用什么精度验证标准？",
+      "options": [
+        {"label": "MARE=0, MERE=0", "description": "逐位一致 — 非计算类/数据搬运类算子适用"},
+        {"label": "MARE<=10*2^-13, MERE<=2^-13", "description": "FP32 单标杆 — 浮点计算类算子适用"},
+        {"label": "MARE<=10*2^-10, MERE<=2^-10", "description": "FP16 单标杆 — 半精度计算类算子适用"},
+        {"label": "MARE<=10*2^-7, MERE<=2^-7", "description": "BF16 单标杆 — BF16 计算类算子适用"}
+      ]
+    },
+    {
+      "header": "编程模型",
+      "question": "使用哪种编程模型？仅 DAV_3510 (arch35) 支持 SIMT 和 SIMD regbase，其他芯片仅支持 SIMD membase。",
+      "options": [
+        {"label": "SIMD membase", "description": "传统 SIMD 编程模型，使用 TPipe/TQue 流水线"},
+        {"label": "SIMD regbase", "description": "寄存器级 SIMD 编程，使用 RegTensor/MaskReg/__simd_vf__，适合需要精细寄存器控制的场景"},
+        {"label": "SIMT", "description": "__simt_vf__ 修饰，asc_vf_call 启动，适合 data-parallel 场景"}
+      ]
+    }
+  ]
+}

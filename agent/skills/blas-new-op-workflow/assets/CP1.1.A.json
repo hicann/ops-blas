@@ -1,0 +1,40 @@
+{
+  "checkpoint": "CP1.1.A",
+  "title": "算子基础信息对齐",
+  "summary": {
+    "算子名称": "{aclblasXxx}",
+    "需求来源": "{用户原始描述}",
+    "说明": "确认算子名、数据类型和目标芯片，后续问题依赖这些选择"
+  },
+  "questions": [
+    {
+      "header": "算子名",
+      "question": "根据您的需求，推断的算子全名为 {aclblasXxx}（用于目录名、分支名、接口名前缀）。是否使用此命名？",
+      "options": [
+        {"label": "{aclblasXxx}", "description": "使用推断的命名"},
+        {"label": "使用其他命名", "description": "我想指定其他名称"}
+      ]
+    },
+    {
+      "header": "数据类型",
+      "multiSelect": true,
+      "question": "需要支持哪些数据类型？",
+      "options": [
+        {"label": "S (FP32)", "description": "float，单精度实数，4 字节"},
+        {"label": "D (FP64)", "description": "double，双精度实数，8 字节"},
+        {"label": "C (Complex FP32)", "description": "std::complex<float>，单精度复数，8 字节"},
+        {"label": "Z (Complex FP64)", "description": "std::complex<double>，双精度复数，16 字节"}
+      ]
+    },
+    {
+      "header": "目标芯片",
+      "question": "目标芯片是什么？",
+      "options": [
+        {"label": "ascend950 (arch35)", "description": "DAV_3510，Atlas A5 训练/推理，支持 SIMT/SIMD/RegBase"},
+        {"label": "ascend910B / ascend910_93 (arch22)", "description": "DAV_2201，Atlas A2/A3 训练/推理"},
+        {"label": "ascend310P (arch20)", "description": "DAV_2002，Atlas 推理系列"},
+        {"label": "ascend910 (arch10)", "description": "DAV_1001，Atlas 训练系列"}
+      ]
+    }
+  ]
+}

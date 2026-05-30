@@ -13,7 +13,8 @@
       "header": "迭代一确认",
       "question": "迭代一验收连续3次未通过，请决定如何处理？",
       "options": [
-        {"label": "批准", "description": "忽略剩余问题，强制进入迭代二"}
+        {"label": "批准", "description": "忽略剩余问题，强制进入迭代二"},
+        {"label": "终止流程", "description": "放弃当前迭代，终止开发流程"}
       ]
     }
   ]

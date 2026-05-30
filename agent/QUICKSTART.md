@@ -3,13 +3,21 @@
 **Step 1**：初始化
 
 ```bash
+# Claude Code
 bash agent/init.sh claude
+
+# OpenCode
+bash agent/init.sh opencode
 ```
 
 **Step 2**：启动
 
 ```bash
+# Claude Code
 claude
+
+# OpenCode
+opencode
 ```
 
 **Step 3**：描述需求
@@ -26,7 +34,7 @@ claude
 bash agent/init.sh claude --cannbot /path/to/cannbot-skills
 ```
 
-重新初始化（清空 .claude/ 后重建）：
+重新初始化（清空配置目录后重建）：
 
 ```bash
 bash agent/init.sh claude --clean
