@@ -158,6 +158,10 @@ aclblasStatus_t aclblasSsbmv(
     aclblasHandle_t handle, aclblasFillMode uplo, int n, int k, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy);
 
+aclblasStatus_t aclblasStpsv(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
+    const float* AP, float* x, int incx);
+
 aclblasStatus_t aclblasStpmv(
     aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
     int64_t n, const float* aPacked, const float* x, float* y, int64_t incx);
