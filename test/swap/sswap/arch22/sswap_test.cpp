@@ -77,8 +77,8 @@ int32_t main(int32_t argc, char* argv[])
     constexpr float valueY = 2.5f;
     std::vector<float> x(totalLength, valueX);
     std::vector<float> y(totalLength, valueY);
-    int64_t incx = 1;
-    int64_t incy = 1;
+    int incx = 1;
+    int incy = 1;
 
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
@@ -92,8 +92,8 @@ int32_t main(int32_t argc, char* argv[])
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
+    float* xDevice = nullptr;
+    float* yDevice = nullptr;
     size_t totalByteSize = totalLength * sizeof(float);
     aclError aclRet = aclrtMalloc((void**)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
@@ -104,7 +104,7 @@ int32_t main(int32_t argc, char* argv[])
     aclRet = aclrtMemcpy(yDevice, totalByteSize, y.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasSswap(handle, totalLength, xDevice, incx, yDevice, incy);
+    ret = aclblasSswap(handle, static_cast<int>(totalLength), xDevice, incx, yDevice, incy);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSswap failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);

@@ -152,11 +152,11 @@ expand_family_ops() {
           fi
           found_any=TRUE
         else
-          echo "[INFO] ${sub_name}: skipped (no ${SOC_ARCH_DIRS[*]} implementation)"
+          echo "[INFO] ${sub_name}: skipped (no ${SOC_ARCH_DIRS[*]} implementation)" >&2
         fi
       done
       if [ "${found_any}" = "FALSE" ]; then
-        echo "[WARN] Family '${op}' has no operators with ${SOC_ARCH_DIRS[*]} implementation"
+        echo "[WARN] Family '${op}' has no operators with ${SOC_ARCH_DIRS[*]} implementation" >&2
       fi
     else
       # 未知算子名,保留原样让 CMake 报错

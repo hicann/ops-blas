@@ -217,8 +217,7 @@ aclblasStatus_t aclblasCsscal(
 aclblasStatus_t aclblasCscal(
     aclblasHandle_t handle, const int64_t n, const std::complex<float> alpha, uint8_t* x, const int64_t incx);
 
-aclblasStatus_t aclblasSswap(
-    aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy);
+aclblasStatus_t aclblasSswap(aclblasHandle_t handle, int n, float* x, int incx, float* y, int incy);
 
 aclblasStatus_t aclblasCswap(
     aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy);

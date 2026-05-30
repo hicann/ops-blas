@@ -1,128 +1,198 @@
-## Sswap算子实现
+# sswap 算子实现
 
 ## 概述
 
-BLAS Sswap算子实现。
+BLAS sswap 算子实现，提供与 cuBLAS `cublasSswap` 相同的功能。
 
-Sswap(Swap)算子实现了两个实数向量的交换运算，是BLAS基础线性代数库中的核心算子之一。
+sswap (Single-precision SWAP) 实现了两个向量对应元素的交换操作：
+
+```
+对于 i = 0, 1, ..., n-1:
+  temp = x[i * incx]
+  x[i * incx] = y[i * incy]
+  y[i * incy] = temp
+```
+
+swap 是 BLAS Level-1 函数，属于纯数据搬运类算子，不涉及任何数值计算。本实现通过多核并行 + GM↔UB 交叉写回完成向量交换，精度要求为位精确（Bitwise Match）。
 
 ## 支持的产品
 
 - Atlas A3 训练系列产品/Atlas A3 推理系列产品
 - Atlas A2 训练系列产品/Atlas A2 推理系列产品
+- Atlas A5 训练系列产品（ascend950）
 
 ## 目录结构介绍
 
 ```
 ├── sswap
-│   ├── CMakeLists.txt      // 编译工程文件
-│   ├── README.md           // 说明文档
-│   └── sswap_test.cpp       // 算子调用样例
+│   ├── README.md
+│   ├── arch22/
+│   │   ├── sswap_host.cpp
+│   │   └── sswap_kernel.cpp
+│   └── arch35/
+│       ├── sswap_host.cpp
+│       ├── sswap_kernel.cpp
+│       └── sswap_tiling_data.h
 ```
 
 ## 算子描述
 
-- 算子功能：  
-sswap算子实现了两个向量x和y的交换。对应的数学表达式为：  
-```
-x <-> y
-```
+对应的接口为：
 
-- 对应的接口：
 ```cpp
-int aclblasSswap(aclblasHandle handle, float *x, float *y, const int64_t n, const int64_t incx, const int64_t incy);
+aclblasStatus_t aclblasSswap(
+    aclblasHandle_t handle,
+    const int64_t n,
+    uint8_t* x,
+    const int64_t incx,
+    uint8_t* y,
+    const int64_t incy);
 ```
 
-<table>
-   <tr>
-      <td rowspan="1" align="center">参数</td>
-      <td colspan="4" align="center">sswap 参数说明</td>
-   </tr>
-   <tr>
-      <td rowspan="6" align="center">参数列表</td>
-      <td align="center">Param.</td>
-      <td align="center">Memory</td>
-      <td align="center">in/out</td>
-      <td align="center">含义</td>
-   </tr>
-   <tr>
-      <td align="center">handle</td>
-      <td align="center">host</td>
-      <td align="center">in</td>
-      <td align="center">ACL流handle，用于传入stream。</td>
-   </tr>
-   <tr>
-      <td align="center">x</td>
-      <td align="center">device</td>
-      <td align="center">in/out</td>
-      <td align="center">向量，包含n个float元素。</td>
-   </tr>
-   <tr>
-      <td align="center">y</td>
-      <td align="center">device</td>
-      <td align="center">in/out</td>
-      <td align="center">向量，包含n个float元素。</td>
-   </tr>
-   <tr>
-      <td align="center">n</td>
-      <td align="center"></td>
-      <td align="center">in</td>
-      <td align="center">向量中的元素个数。</td>
-   </tr>
-   <tr>
-      <td align="center">incx/incy</td>
-      <td align="center"></td>
-      <td align="center">in</td>
-      <td align="center">x/y中连续元素之间的步长。</td>
-   </tr>
-</table>
+| 参数 | in/out | 设备 | 类型 | 含义 |
+|------|--------|------|------|------|
+| handle | in | host | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream |
+| n | in | host | const int64_t | 向量中参与交换的元素个数 |
+| x | in/out | device | uint8_t* | 指向 float 向量的 device 指针，交换后包含原 y 的元素 |
+| incx | in | host | const int64_t | 向量 x 中相邻元素之间的步长 |
+| y | in/out | device | uint8_t* | 指向 float 向量的 device 指针，交换后包含原 x 的元素 |
+| incy | in | host | const int64_t | 向量 y 中相邻元素之间的步长 |
 
-- 算子规格：
-  <table>
-  <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="4" align="center">Sswap</td></tr>
-  </tr>
-  <tr><td rowspan="2" align="center">算子输入</td><td align="center">name</td><td align="center">shape</td><td align="center">data type</td><td align="center">format</td></tr>
-  <tr><td align="center">x/y</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  <tr><td rowspan="2" align="center">算子输出</td><td align="center">x</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
-  <tr><td align="center">y</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">sswap</td></tr>
-  </table>
+**注意**：x、y 必须为 device 侧指针，由调用者在调用前通过 `aclrtMalloc` 分配并通过 `aclrtMemcpy` 拷入数据。stream 通过 `aclblasSetStream(handle, stream)` 绑定到 handle。
 
-- 算子实现： 
+## 支持规格
 
-    将向量x和y从GM搬运到UB，使用ping-pong双缓冲策略，交换后再搬运回GM。
+| 项目 | 内容 |
+|------|------|
+| 数据类型 | FP32 (float) |
+| 目标芯片 | Ascend950PR |
+| 目标架构 | arch35 (DAV_3510) |
+| 编程模型 | SIMD membase（TPipe/TQue 流水线） |
+| 精度要求 | 位精确（Bitwise Match），MARE=0, MERE=0 |
 
-- 调用实现  
-    使用内核调用符<<<>>>调用核函数。 
+## 参数约束
+
+| 条件 | 返回值 | 说明 |
+|------|--------|------|
+| `n <= 0` | `ACLBLAS_STATUS_SUCCESS` | 直接返回成功，不执行任何操作 |
+| `handle == nullptr` | `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | handle 空指针校验 |
+| `x == nullptr \|\| y == nullptr` | `ACLBLAS_STATUS_INVALID_VALUE` | 数据指针空指针校验 |
+| `incx == 0 \|\| incy == 0` | `ACLBLAS_STATUS_INVALID_VALUE` | 步长不能为零 |
+| `incx != 1 \|\| incy != 1` | `ACLBLAS_STATUS_INVALID_VALUE` | 首期仅支持 unit stride（连续存储） |
+
+> **说明**：当前 arch35 实现仅支持 `incx = incy = 1`（连续存储），后续可扩展支持非连续步长。
 
 ## 编译运行
 
-在本样例根目录下执行如下步骤，编译并执行算子。
-- 配置环境变量  
-  请根据当前环境上CANN开发套件包的安装方式，选择对应配置环境变量的命令。
-  - 默认路径，root用户安装CANN软件包
-    ```bash
-    source /usr/local/Ascend/cann/set_env.sh
-    ```
+```bash
+# 配置环境变量
+source /usr/local/Ascend/ascend-toolkit/latest/set_env.sh
 
-  - 默认路径，非root用户安装CANN软件包
-    ```bash
-    source $HOME/Ascend/cann/set_env.sh
-    ```
+# 编译算子及测试
+bash build.sh --ops=sswap --soc=ascend950
 
-  - 指定路径install_path，安装CANN软件包
-    ```bash
-    source ${install_path}/cann/set_env.sh
-    ```
+# 编译并运行测试
+bash build.sh --ops=sswap --soc=ascend950 --run
 
-- 样例执行
-  ```bash
-  bash build.sh --ops=sswap --run # --ops=<算子名> --run可选参数，执行测试样例
-  ```
-  执行结果如下，说明精度对比成功。
-  ```bash
-  [Success] Case accuracy is verification passed.
-  [PASS] sswap_test
-  ```
+# 直接运行已编译的测试
+LD_LIBRARY_PATH=$(pwd)/build:$LD_LIBRARY_PATH ./build/test/sswap/sswap_test
+```
+
+## 调用示例
+
+```cpp
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    // 1. 初始化 ACL
+    aclInit(nullptr);
+    int32_t deviceId = 0;
+    aclrtSetDevice(deviceId);
+
+    // 2. 创建 handle 和 stream
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
+
+    // 3. 准备数据
+    const int64_t n = 1024;
+    float* hostX = new float[n];
+    float* hostY = new float[n];
+    for (int64_t i = 0; i < n; i++) {
+        hostX[i] = static_cast<float>(i);
+        hostY[i] = static_cast<float>(n - i);
+    }
+
+    // 4. 分配 device 内存并拷贝数据
+    uint8_t* devX = nullptr;
+    uint8_t* devY = nullptr;
+    aclrtMalloc((void**)&devX, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&devY, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(devX, n * sizeof(float), hostX, n * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(devY, n * sizeof(float), hostY, n * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+
+    // 5. 调用 sswap 交换两个向量
+    aclblasStatus_t status = aclblasSswap(handle, n, devX, 1, devY, 1);
+
+    // 6. 同步并拷贝结果回 host
+    aclrtSynchronizeStream(stream);
+    aclrtMemcpy(hostX, n * sizeof(float), devX, n * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
+    aclrtMemcpy(hostY, n * sizeof(float), devY, n * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
+
+    // 7. 验证结果：hostX 应为原 hostY 的数据，hostY 应为原 hostX 的数据
+    // hostX[i] == n - i, hostY[i] == i
+
+    // 8. 释放资源
+    aclrtFree(devX);
+    aclrtFree(devY);
+    delete[] hostX;
+    delete[] hostY;
+    aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
+    aclrtResetDevice(deviceId);
+    aclFinalize();
+
+    return 0;
+}
+```
+
+## 实现要点
+
+### 多核切分
+
+- 将 `n` 个元素按 `ELEMENTS_PER_BLOCK` (8) 对齐后均匀分配给所有 Vector Core，最后一个核吸收剩余元素
+- 核数通过 `aclrtGetDeviceInfo(ACL_DEV_ATTR_VECTOR_CORE_NUM)` 动态获取，不硬编码
+
+### UB 切分与流水线
+
+- 采用 Single Buffer 模式（swap 无 Vector 计算阶段，Double Buffer 无额外收益）
+- tileSize = 31744 个 float（248KB / 2 buffers / 4 bytes，256B 对齐）
+- 使用 `DataCopyPad` 统一处理完整 tile 和尾部 tile，自动处理非对齐填充
+- 同步机制：`SetFlag/WaitFlag<HardEvent::MTE2_MTE3>` 保证 CopyIn 完成后再交叉 CopyOut
+
+### 交叉写回
+
+```
+CopyIn:  xGM → inQueueX (UB)    CopyOut:  inQueueX (UB) → yGM  (x 数据写到 y 位置)
+         yGM → inQueueY (UB)              inQueueY (UB) → xGM  (y 数据写到 x 位置)
+```
+
+## 与 arch22 实现的主要差异
+
+| 项目 | arch22 实现 | arch35 实现 |
+|------|-----------|-------------|
+| TilingData | `startOffset[40]` / `calNum[40]` 数组 | `totalN` / `perCoreN` / `remainder` / `tileSize` 结构 |
+| 核数获取 | 硬编码 `numBlocks = 8` | `aclrtGetDeviceInfo` 动态获取 |
+| 编程风格 | 手写 `gm_to_ub_align` / `ub_to_gm_align` | 标准 AscendC `DataCopyPad` + `TPipe`/`TQue` |
+| 同步机制 | 手写 `SET_FLAG` / `WAIT_FLAG` 宏 | 标准 `SetFlag<HardEvent::MTE2_MTE3>` / `WaitFlag` API |
+
+## 性能特征
+
+- **算子类型**：memory-bound（4 次 GM 访问：2 读 + 2 写）
+- **多核并行**：利用 Ascend950PR 全部 Vector Core 并行处理
+- **流水线**：MTE2（GM→UB）与 MTE3（UB→GM）通过硬件事件同步
+- **负载均衡**：余数元素均匀分配给前几个核，避免长尾效应
