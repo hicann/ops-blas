@@ -17,8 +17,21 @@
 #define HOST_UTILS_H
 
 #include <cstdint>
+#include <cstdio>
 #include <limits>
 #include <type_traits>
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 // ==========================================================================
 //  CeilDiv — integer ceiling division:  ceil(a / b)

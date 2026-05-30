@@ -137,6 +137,7 @@ function(_ops_blas_register_test_target target link_lib)
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/test/frame
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/blas/common/helper
         $ENV{LINUX_INCLUDE_PATH}
     )
     target_compile_features(${target} PRIVATE cxx_std_17)

@@ -205,8 +205,8 @@ aclblasStatus_t aclblasCcopy(
     aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy);
 
 aclblasStatus_t aclblasSdot(
-    aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
-    uint8_t* result);
+    aclblasHandle_t handle, int64_t n, const float* x, int64_t incx, const float* y, int64_t incy,
+    float* result);
 
 aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
 

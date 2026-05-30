@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in the compliance with the License.
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
@@ -16,28 +16,20 @@
 #include <cstdint>
 #include <iostream>
 #include <vector>
-#include <algorithm>
-#include <iterator>
 #include <cmath>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "host_utils.h"
 
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
-
-uint32_t VerifyResult(float output, float golden)
+inline uint32_t VerifyResult(float output, float golden)
 {
     std::cout << "Output: " << output << std::endl;
     std::cout << "Golden: " << golden << std::endl;
+
+    if (golden == 0.0f && output == 0.0f) {
+        std::cout << "[Success] Case accuracy is verification passed." << std::endl;
+        return 0;
+    }
 
     float diff = std::abs(output - golden);
     float maxVal = std::max(std::abs(output), std::abs(golden));
@@ -84,9 +76,9 @@ int32_t main(int32_t argc, char* argv[])
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    uint8_t* resultDevice = nullptr;
+    float* xDevice = nullptr;
+    float* yDevice = nullptr;
+    float* resultDevice = nullptr;
 
     size_t totalByteSize = n * sizeof(float);
     aclError aclRet = aclrtMalloc((void**)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);

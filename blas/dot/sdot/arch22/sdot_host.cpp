@@ -22,18 +22,7 @@
 #include "cann_ops_blas.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
+#include "common/helper/host_utils.h"
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 
@@ -92,8 +81,8 @@ SdotTilingData CalSdotTilingData(uint32_t n, uint32_t vecCoreNum)
 }
 
 aclblasStatus_t aclblasSdot(
-    aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
-    uint8_t* result)
+    aclblasHandle_t handle, const int64_t n, const float* x, const int64_t incx, const float* y, const int64_t incy,
+    float* result)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -122,7 +111,8 @@ aclblasStatus_t aclblasSdot(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    sdot_kernel_do(x, y, result, workspaceDevice, tilingDevice, numBlocks, useStream);
+    sdot_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(x)), reinterpret_cast<GM_ADDR>(const_cast<float*>(y)),
+                   reinterpret_cast<GM_ADDR>(result), workspaceDevice, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
