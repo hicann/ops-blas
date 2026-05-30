@@ -7,9 +7,11 @@ skills:
   - ascendc-crash-debug
   - ascendc-precision-debug
   - ascendc-performance-best-practices
+  - ascendc-env-check
   - ops-profiling
   - ops-simulator
   - blas-new-op-workflow
+  - blas-lib-rules
   - ascendc-regbase-best-practice
   - blas-ascendc-coding-rules
 permission:
@@ -109,6 +111,7 @@ blas/{family}/
    - 创建 `{operator_name}_host.cpp`：参数校验、计算 TilingData、`aclrtMalloc`+`aclrtMemcpy` 传递到 Device、`<<<>>>` 直调 Kernel
    - 架构特定代码放在 `archXX/` 子目录
    - **RegBase 路线**：若设计方案明确选择 RegBase 路线，加载 `ascendc-regbase-best-practice` 获取 API 约束和参考实现
+   - **接口规范**：实现 Host 侧接口签名时，参考 `blas-lib-rules` skill 确保接口命名、参数顺序、参数类型符合 BLAS 标准
 
 3. **编码约束**：遵循 `blas-ascendc-coding-rules` skill 的全部规范
 

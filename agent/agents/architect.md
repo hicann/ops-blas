@@ -7,6 +7,7 @@ skills:
   - ascendc-env-check
   - ascendc-tiling-design
   - blas-new-op-workflow
+  - blas-lib-rules
   - ascendc-docs-gen
   - ascendc-api-best-practices
   - ascendc-docs-search
@@ -129,6 +130,8 @@ ops-blas 采用**直调模式**（Direct Invoke），通过 `aclblasStatus_t acl
 | 支持数据类型 | 与 BLAS 标准对齐 | S(FP32) |
 | 精度要求 | 从 `ops-precision-standard` 获取 | 默认社区标准 |
 
+> **接口命名规范**：加载 `blas-lib-rules` skill，查阅 BLAS 标准命名格式（精度前缀 + 操作名）、操作名分类（Level 1/2/3）、参数顺序规范，确保算子名称和接口签名符合 BLAS 标准。
+
 #### 5. 接口签名
 
 ops-blas 采用 BLAS 风格的单函数接口：
@@ -138,6 +141,8 @@ aclblasStatus_t aclblasXxx(
     aclblasHandle handle,
     {参数列表});
 ```
+
+> **参数规范**：加载 `blas-lib-rules` skill，查阅 BLAS 标准参数顺序（枚举参数 → 维度参数 → 标量参数 → 数组参数 → 步长参数）、参数类型规范（const 修饰规则）、枚举类型定义，确保接口签名与 BLAS 标准一致。
 
 **必需明确的信息**：
 | 项目 | 说明 |

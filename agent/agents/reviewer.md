@@ -8,6 +8,8 @@ skills:
     - ascendc-code-review
     - ascendc-regbase-best-practice
     - blas-new-op-workflow
+    - blas-lib-rules
+    - blas-ascendc-coding-rules
 ---
 
 # Ascend C 算子代码检视 Agent
