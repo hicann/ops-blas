@@ -344,15 +344,36 @@ scene: questionnaire
 输入:
   - 全部交付物文件路径
   - CP4.3.json 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/CP4.3.json)
+  - PR 模板文件路径 (模板路径: agent/skills/blas-pr-issue-template/assets/PULL_REQUEST_TEMPLATE.zh-CN.md)
+  - LOG.md（用于提取开发过程摘要）
+  - 1.2-需求分析.md（用于提取算子功能描述）
+  - 2.1.3-测试验收报告.md / 2.2.3-测试验收报告.md（用于提取测试结论）
+  - 3.2-性能报告.md（用于提取性能结论）
 输出:
   - .agent/dev-docs/{operator_name}/CP4.3.json (按模板填写)
+  - .agent/dev-docs/{operator_name}/4.3-上库PR模板.md (按 PR 模板填写，见下方填写规范)
   - 更新 LOG.md
 验收标准:
   - 交付物清单完整
   - 各阶段记录完整
   - 问题记录完整
   - CP4.3.json 中 {aclblasXxx} 和 {operator_name} 已替换，不修改 question/options 结构
+  - 4.3-上库PR模板.md 各字段已填写（见下方填写规范）
 ```
+
+**4.3-上库PR模板.md 填写规范：**
+
+读取 `agent/skills/blas-pr-issue-template/assets/PULL_REQUEST_TEMPLATE.zh-CN.md` 模板，按以下规则填充各字段：
+
+| 字段 | 填充来源 | 说明 |
+|------|---------|------|
+| 描述 | 1.2-需求分析.md + 交付物清单 | 概述算子功能、目标芯片/dtype、实现方法（Tiling策略、Kernel结构） |
+| 关联的Issue | LOG.md 中的 issue 链接 | 如有则列出，无则填"无" |
+| 测试 | 2.2.3-测试验收报告.md + 3.2-性能报告.md | 列出 ST 通过率、精度标准、性能数据 |
+| 文档更新 | 交付物清单中的文档部分 | 列出新增/修改的文档文件 |
+| 类型标签 | 固定选"新特性" | 算子新增属于新特性 |
+
+输出为 md 格式，保留模板的 `##` 标题结构，删除 HTML 注释，直接填充内容。
 
 ## 日志摘要规范
 

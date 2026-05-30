@@ -59,7 +59,7 @@
 | **阶段4：上库** | | | | | |
 | 4.1 编写文档 | 全部代码和设计文档 | writer | README.md | — | |
 | 4.2 代码检视 | 全部代码和文档 | reviewer | 4.2-代码检视报告.md | 规范 + 冗余清理 | |
-| 4.3 开发总结 | 全部交付物 | writer | CP4.3.json、更新 LOG.md | 整理为问卷 + 更新开发日志 | |
+| 4.3 开发总结 | 全部交付物 | writer | CP4.3.json、4.3-上库PR模板.md、更新 LOG.md | 整理为问卷 + 生成上库 PR 描述 + 更新开发日志 | |
 | ⛔ CP4.3 | CP4.3.json | 用户 | 上库审批 | AskUserQuestion，通过后 squash commit -m "Feat: 新增面向archXX的aclblasXxx接口" | |
 
 **图例**：⛔ 必需确认  ⚪ 仅不通过时直接打回，3次仍失败后询问
