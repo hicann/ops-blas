@@ -139,3 +139,6 @@ void srotm_kernel_do(const SrotmTilingData &tiling, uint32_t numBlocks, void *st
 
 void sspmv_kernel_do(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream);
+
+void sgemv_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm,
+                     uint32_t numBlocks, void *stream);

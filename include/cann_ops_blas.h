@@ -261,6 +261,10 @@ aclblasStatus_t aclblasSrotm(
     aclblasHandle handle, float* x, float* y, const float* sparam, const int64_t n, const int64_t incx,
     const int64_t incy);
 
+aclblasStatus_t aclblasSgemv(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A,
+    int lda, const float* x, int incx, const float* beta, float* y, int incy);
+
 #ifdef __cplusplus
 }
 #endif

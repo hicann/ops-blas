@@ -1,0 +1,154 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+/*!
+ * \file sgemv_host.cpp
+ * \brief Single-precision sgemv host-side implementation (SIMT).
+ *
+ * y = alpha * op(A) * x + beta * y
+ */
+
+#include <algorithm>
+#include <cstdint>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
+#include "sgemv_tiling_data.h"
+#include "common/kernel_launch/aclblas_kernel_do.h"
+#include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/kernel_constant.h"
+#include "common/helper/host_utils.h"
+
+static aclblasStatus_t ValidateSgemvParams(
+    aclblasOperation_t trans, int m, int n, int lda, int incx, int incy, const float* alpha, const float* beta,
+    const float* a, const float* x, const float* y)
+{
+    CHECK_RET(
+        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(m >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(lda >= std::max(1, m), return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != INT32_MIN, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incy != 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incy != INT32_MIN, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(alpha != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(beta != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    if (m > 0 && n > 0) {
+        CHECK_RET(a != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    }
+    // x dimension: trans=N ? n : m
+    uint32_t xDim = (trans == ACLBLAS_OP_N) ? static_cast<uint32_t>(n) : static_cast<uint32_t>(m);
+    if (xDim > 0) {
+        CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    }
+    // y dimension: trans=N ? m : n
+    uint32_t yDim = (trans == ACLBLAS_OP_N) ? static_cast<uint32_t>(m) : static_cast<uint32_t>(n);
+    if (yDim > 0) {
+        CHECK_RET(y != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    }
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+static uint32_t GetVectorCoreCount()
+{
+    int32_t deviceId = 0;
+    int64_t vecCoreNum = 0;
+    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
+        return 0;
+    }
+    if (aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum) != ACL_SUCCESS) {
+        return 0;
+    }
+    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
+}
+
+static SgemvTilingData CalcSgemvTiling(
+    uint32_t useNumBlocks, int m, int n, int lda, aclblasOperation_t trans, float alpha, float beta, int incx, int incy)
+{
+    SgemvTilingData tiling{};
+    bool isTrans = (trans != ACLBLAS_OP_N);
+    uint32_t outDim = isTrans ? static_cast<uint32_t>(n) : static_cast<uint32_t>(m);
+
+    tiling.numThreads = std::min(
+        CeilAlign<uint32_t>(CeilDiv<uint32_t>(outDim, useNumBlocks), SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
+    tiling.rowsPerBlock = CeilDiv<uint32_t>(outDim, useNumBlocks);
+    tiling.m = static_cast<uint32_t>(m);
+    tiling.n = static_cast<uint32_t>(n);
+    tiling.lda = static_cast<uint32_t>(lda);
+    tiling.trans = isTrans ? 1U : 0U;
+    tiling.alpha = alpha;
+    tiling.beta = beta;
+    tiling.incx = static_cast<int64_t>(incx);
+    tiling.incy = static_cast<int64_t>(incy);
+
+    return tiling;
+}
+
+aclblasStatus_t aclblasSgemv(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* a, int lda,
+    const float* x, int incx, const float* beta, float* y, int incy)
+{
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    CHECK_RET(h != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+
+    // Validate parameters
+    aclblasStatus_t st = ValidateSgemvParams(trans, m, n, lda, incx, incy, alpha, beta, a, x, y);
+    if (st != ACLBLAS_STATUS_SUCCESS) {
+        return st;
+    }
+
+    // Early exit for empty matrix
+    if (m == 0 || n == 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    uint32_t aivCoreNum = GetVectorCoreCount();
+    if (aivCoreNum == 0) {
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
+
+    bool isTrans = (trans != ACLBLAS_OP_N);
+    uint32_t outDim = isTrans ? static_cast<uint32_t>(n) : static_cast<uint32_t>(m);
+    uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(outDim, SIMT_MIN_THREAD_NUM), aivCoreNum);
+    if (useNumBlocks == 0) {
+        useNumBlocks = 1;
+    }
+
+    SgemvTilingData tiling = CalcSgemvTiling(useNumBlocks, m, n, lda, trans, *alpha, *beta, incx, incy);
+
+    // Allocate device memory for tiling data
+    uint8_t* tilingDevice = nullptr;
+    aclError aclRet =
+        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SgemvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+
+    // Copy tiling data to device
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(SgemvTilingData), &tiling, sizeof(SgemvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    // Launch kernel
+    sgemv_kernel_do(
+        (GM_ADDR) const_cast<float*>(a), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice,
+        useNumBlocks, h->stream);
+
+    // Synchronize and cleanup
+    aclRet = aclrtSynchronizeStream(h->stream);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    aclError freeRet = aclrtFree(tilingDevice);
+    (void)freeRet;
+    tilingDevice = nullptr;
+
+    return ACLBLAS_STATUS_SUCCESS;
+}
