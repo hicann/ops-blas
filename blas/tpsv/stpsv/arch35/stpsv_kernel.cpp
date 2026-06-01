@@ -36,11 +36,10 @@ template <TpsvUplo UPLO, TpsvTrans TRANS, TpsvDiag DIAG>
 class StpsvKernel {
 public:
     __aicore__ inline StpsvKernel() {}
-    __aicore__ inline void Init(GM_ADDR AP, GM_ADDR x, GM_ADDR tilingGm);
+    __aicore__ inline void Init(StpsvTilingData tiling);
     __aicore__ inline void Process();
 
 private:
-    __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
     __aicore__ inline void ProcessForward();
     __aicore__ inline void ProcessBackward();
     __aicore__ inline float GetDiag(uint32_t row);
@@ -67,14 +66,6 @@ private:
 };
 
 template <TpsvUplo UPLO, TpsvTrans TRANS, TpsvDiag DIAG>
-__aicore__ inline void StpsvKernel<UPLO, TRANS, DIAG>::ParseTilingData(GM_ADDR tilingGm)
-{
-    auto* tiling = reinterpret_cast<__gm__ StpsvTilingData*>(tilingGm);
-    this->n = tiling->n;
-    this->incx = tiling->incx;
-}
-
-template <TpsvUplo UPLO, TpsvTrans TRANS, TpsvDiag DIAG>
 __aicore__ inline uint32_t StpsvKernel<UPLO, TRANS, DIAG>::XOffset(uint32_t idx)
 {
     if (incx >= 0) {
@@ -85,15 +76,16 @@ __aicore__ inline uint32_t StpsvKernel<UPLO, TRANS, DIAG>::XOffset(uint32_t idx)
 }
 
 template <TpsvUplo UPLO, TpsvTrans TRANS, TpsvDiag DIAG>
-__aicore__ inline void StpsvKernel<UPLO, TRANS, DIAG>::Init(GM_ADDR AP, GM_ADDR x, GM_ADDR tilingGm)
+__aicore__ inline void StpsvKernel<UPLO, TRANS, DIAG>::Init(StpsvTilingData tiling)
 {
-    ParseTilingData(tilingGm);
+    this->n = tiling.n;
+    this->incx = tiling.incx;
 
     uint32_t apCount = n * (n + 1) / 2;
     uint32_t absIncx = static_cast<uint32_t>(incx >= 0 ? incx : -incx);
     uint32_t xCount = (n > 0) ? (absIncx * (n - 1) + 1) : 0;
-    apGM.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(AP), apCount);
-    xGM.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(x), xCount);
+    apGM.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(tiling.ap), apCount);
+    xGM.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(tiling.x), xCount);
 
     pipe.InitBuffer(xInQueue, BUFFER_NUM, sizeof(float));
     pipe.InitBuffer(xOutQueue, BUFFER_NUM, sizeof(float));
@@ -205,11 +197,11 @@ __aicore__ inline void StpsvKernel<UPLO, TRANS, DIAG>::Process()
 // ==========================================================================
 
 #define DEFINE_TPSV_KERNEL(uplo, trans, diag, name)                                         \
-    __global__ __aicore__ void name(GM_ADDR AP, GM_ADDR x, GM_ADDR tilingGm)               \
+    __global__ __aicore__ void name(StpsvTilingData tiling)                                \
     {                                                                                       \
         KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);                                     \
         StpsvKernel<TpsvUplo::uplo, TpsvTrans::trans, TpsvDiag::diag> op;                  \
-        op.Init(AP, x, tilingGm);                                                           \
+        op.Init(tiling);                                                                    \
         op.Process();                                                                       \
     }
 
@@ -228,45 +220,43 @@ DEFINE_TPSV_KERNEL(UPPER, TRANS, UNIT, stpsv_kernel_upper_trans_unit)
 //  Kernel dispatcher
 // ==========================================================================
 
-void stpsv_simt_kernel_do(GM_ADDR ap, GM_ADDR x, GM_ADDR tilingGm, void* stream);
+void stpsv_simt_kernel_do(const StpsvTilingData &tiling, void* stream);
 
-void stpsv_kernel_do(
-    GM_ADDR AP, GM_ADDR x, GM_ADDR tilingGm, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
-    uint32_t numThreads, void* stream)
+void stpsv_kernel_do(const StpsvTilingData &tiling, void* stream)
 {
     // SIMT path: dispatch to kernel in stpsv_kernel_simt.cpp for n >= 128
-    if (numThreads > 0) {
-        stpsv_simt_kernel_do(AP, x, tilingGm, stream);
+    if (tiling.numThreads > 0) {
+        stpsv_simt_kernel_do(tiling, stream);
         return;
     }
 
     // Scalar path: n < 128
-    if (uplo == ACLBLAS_LOWER) {
-        if (trans == ACLBLAS_OP_N) {
-            if (diag == ACLBLAS_NON_UNIT) {
-                stpsv_kernel_lower_no_trans_non_unit<<<1, nullptr, stream>>>(AP, x, tilingGm);
+    if (tiling.uplo == ACLBLAS_LOWER) {
+        if (tiling.trans == ACLBLAS_OP_N) {
+            if (tiling.diag == ACLBLAS_NON_UNIT) {
+                stpsv_kernel_lower_no_trans_non_unit<<<1, nullptr, stream>>>(tiling);
             } else {
-                stpsv_kernel_lower_no_trans_unit<<<1, nullptr, stream>>>(AP, x, tilingGm);
+                stpsv_kernel_lower_no_trans_unit<<<1, nullptr, stream>>>(tiling);
             }
         } else {
-            if (diag == ACLBLAS_NON_UNIT) {
-                stpsv_kernel_lower_trans_non_unit<<<1, nullptr, stream>>>(AP, x, tilingGm);
+            if (tiling.diag == ACLBLAS_NON_UNIT) {
+                stpsv_kernel_lower_trans_non_unit<<<1, nullptr, stream>>>(tiling);
             } else {
-                stpsv_kernel_lower_trans_unit<<<1, nullptr, stream>>>(AP, x, tilingGm);
+                stpsv_kernel_lower_trans_unit<<<1, nullptr, stream>>>(tiling);
             }
         }
     } else {
-        if (trans == ACLBLAS_OP_N) {
-            if (diag == ACLBLAS_NON_UNIT) {
-                stpsv_kernel_upper_no_trans_non_unit<<<1, nullptr, stream>>>(AP, x, tilingGm);
+        if (tiling.trans == ACLBLAS_OP_N) {
+            if (tiling.diag == ACLBLAS_NON_UNIT) {
+                stpsv_kernel_upper_no_trans_non_unit<<<1, nullptr, stream>>>(tiling);
             } else {
-                stpsv_kernel_upper_no_trans_unit<<<1, nullptr, stream>>>(AP, x, tilingGm);
+                stpsv_kernel_upper_no_trans_unit<<<1, nullptr, stream>>>(tiling);
             }
         } else {
-            if (diag == ACLBLAS_NON_UNIT) {
-                stpsv_kernel_upper_trans_non_unit<<<1, nullptr, stream>>>(AP, x, tilingGm);
+            if (tiling.diag == ACLBLAS_NON_UNIT) {
+                stpsv_kernel_upper_trans_non_unit<<<1, nullptr, stream>>>(tiling);
             } else {
-                stpsv_kernel_upper_trans_unit<<<1, nullptr, stream>>>(AP, x, tilingGm);
+                stpsv_kernel_upper_trans_unit<<<1, nullptr, stream>>>(tiling);
             }
         }
     }

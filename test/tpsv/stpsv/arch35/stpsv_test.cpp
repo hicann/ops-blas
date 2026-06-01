@@ -17,9 +17,9 @@
 #include "blas_test.h"
 #include "csv_loader.h"
 #include "fill.h"
-#include "tpsv_param.h"
-#include "tpsv_golden.h"
-#include "tpsv_npu_wrapper.h"
+#include "stpsv_param.h"
+#include "stpsv_golden.h"
+#include "stpsv_npu_wrapper.h"
 
 // ── helpers ──
 

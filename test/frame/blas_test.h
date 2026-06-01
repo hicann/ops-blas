@@ -24,8 +24,12 @@ namespace blas_test_detail {
 struct AclGuard {
     aclblasHandle_t handle = nullptr;
     aclrtStream stream = nullptr;
+    bool cleaned = false;
     ~AclGuard()
     {
+        if (cleaned) {
+            return;
+        }
         try {
             if (stream != nullptr) {
                 aclrtDestroyStream(stream);
@@ -68,7 +72,24 @@ protected:
         handle_ = guard.handle;
         stream_ = guard.stream;
     }
-    static void TearDownTestSuite() {}
+    static void TearDownTestSuite()
+    {
+        auto& guard = blas_test_detail::globalAcl();
+        if (guard.cleaned) return;
+
+        if (guard.stream != nullptr) {
+            aclrtSynchronizeStream(guard.stream);
+            aclrtDestroyStream(guard.stream);
+            guard.stream = nullptr;
+        }
+        if (guard.handle != nullptr) {
+            aclblasDestroy(guard.handle);
+            guard.handle = nullptr;
+        }
+        aclrtResetDevice(TEST_DEVICE_ID);
+        aclFinalize();
+        guard.cleaned = true;
+    }
 
     static aclblasHandle_t handle_;
     static aclrtStream stream_;

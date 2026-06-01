@@ -132,48 +132,47 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StpsvSimt(
 //  SIMT kernel dispatcher — single entry, dispatches via asc_vf_call
 // ==========================================================================
 
-__global__ __aicore__ void stpsv_simt_kernel(GM_ADDR ap, GM_ADDR x, GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void stpsv_simt_kernel(StpsvTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
-    const auto* __restrict tdata = reinterpret_cast<__gm__ StpsvTilingData*>(tilingGm);
-    auto* apGm = reinterpret_cast<__gm__ float*>(ap);
-    auto* xGm = reinterpret_cast<__gm__ float*>(x);
+    auto* apGm = reinterpret_cast<__gm__ float*>(tiling.ap);
+    auto* xGm = reinterpret_cast<__gm__ float*>(tiling.x);
 
-    if (tdata->uplo == ACLBLAS_LOWER) {
-        if (tdata->trans == ACLBLAS_OP_N) {
-            if (tdata->diag == ACLBLAS_NON_UNIT) {
+    if (tiling.uplo == ACLBLAS_LOWER) {
+        if (tiling.trans == ACLBLAS_OP_N) {
+            if (tiling.diag == ACLBLAS_NON_UNIT) {
                 asc_vf_call<StpsvSimt<false, false, false>>(
-                    dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->incx, apGm, xGm);
+                    dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.incx, apGm, xGm);
             } else {
                 asc_vf_call<StpsvSimt<false, false, true>>(
-                    dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->incx, apGm, xGm);
+                    dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.incx, apGm, xGm);
             }
         } else {
-            if (tdata->diag == ACLBLAS_NON_UNIT) {
+            if (tiling.diag == ACLBLAS_NON_UNIT) {
                 asc_vf_call<StpsvSimt<false, true, false>>(
-                    dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->incx, apGm, xGm);
+                    dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.incx, apGm, xGm);
             } else {
                 asc_vf_call<StpsvSimt<false, true, true>>(
-                    dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->incx, apGm, xGm);
+                    dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.incx, apGm, xGm);
             }
         }
     } else {
-        if (tdata->trans == ACLBLAS_OP_N) {
-            if (tdata->diag == ACLBLAS_NON_UNIT) {
+        if (tiling.trans == ACLBLAS_OP_N) {
+            if (tiling.diag == ACLBLAS_NON_UNIT) {
                 asc_vf_call<StpsvSimt<true, false, false>>(
-                    dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->incx, apGm, xGm);
+                    dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.incx, apGm, xGm);
             } else {
                 asc_vf_call<StpsvSimt<true, false, true>>(
-                    dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->incx, apGm, xGm);
+                    dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.incx, apGm, xGm);
             }
         } else {
-            if (tdata->diag == ACLBLAS_NON_UNIT) {
+            if (tiling.diag == ACLBLAS_NON_UNIT) {
                 asc_vf_call<StpsvSimt<true, true, false>>(
-                    dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->incx, apGm, xGm);
+                    dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.incx, apGm, xGm);
             } else {
                 asc_vf_call<StpsvSimt<true, true, true>>(
-                    dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->incx, apGm, xGm);
+                    dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.incx, apGm, xGm);
             }
         }
     }
@@ -183,7 +182,7 @@ __global__ __aicore__ void stpsv_simt_kernel(GM_ADDR ap, GM_ADDR x, GM_ADDR work
 //  SIMT kernel launch wrapper — called from stpsv_kernel_do
 // ==========================================================================
 
-void stpsv_simt_kernel_do(GM_ADDR ap, GM_ADDR x, GM_ADDR tilingGm, void* stream)
+void stpsv_simt_kernel_do(const StpsvTilingData &tiling, void* stream)
 {
-    stpsv_simt_kernel<<<1, nullptr, stream>>>(ap, x, nullptr, tilingGm);
+    stpsv_simt_kernel<<<1, nullptr, stream>>>(tiling);
 }

@@ -24,16 +24,6 @@
 #include "common/helper/host_utils.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 
-void stpsv_kernel_do(
-    GM_ADDR AP, GM_ADDR x, GM_ADDR tilingGm, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
-    uint32_t numThreads, void* stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
 
 static constexpr uint32_t SIMT_THRESHOLD = 128;
 
@@ -75,6 +65,8 @@ aclblasStatus_t aclblasStpsv(
     }
 
     StpsvTilingData tiling;
+    tiling.ap = reinterpret_cast<uint64_t>(AP);
+    tiling.x = reinterpret_cast<uint64_t>(x);
     tiling.n = static_cast<uint32_t>(n);
     tiling.uplo = static_cast<uint32_t>(uplo);
     tiling.trans = static_cast<uint32_t>(trans);
@@ -82,24 +74,10 @@ aclblasStatus_t aclblasStpsv(
     tiling.incx = static_cast<int64_t>(incx);
     tiling.numThreads = numThreads;
 
-    uint8_t* tilingDevice = nullptr;
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(StpsvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+    stpsv_kernel_do(tiling, h->stream);
 
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(StpsvTilingData), &tiling, sizeof(StpsvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    stpsv_kernel_do(
-        reinterpret_cast<GM_ADDR>(const_cast<float*>(AP)), reinterpret_cast<GM_ADDR>(x), tilingDevice,
-        static_cast<aclblasFillMode>(uplo), static_cast<aclblasOperation>(trans),
-        static_cast<aclblasDiagType>(diag), numThreads, h->stream);
-
-    aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    aclrtFree(tilingDevice);
+    aclError aclRet = aclrtSynchronizeStream(h->stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

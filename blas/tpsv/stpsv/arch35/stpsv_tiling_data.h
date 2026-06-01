@@ -18,6 +18,8 @@
 #include <cstdint>
 
 struct StpsvTilingData {
+    uint64_t ap;         // device pointer to packed A
+    uint64_t x;          // device pointer to x vector
     uint32_t n;
     uint32_t uplo;       // ACLBLAS_UPPER or ACLBLAS_LOWER
     uint32_t trans;      // ACLBLAS_OP_N, ACLBLAS_OP_T, or ACLBLAS_OP_C
