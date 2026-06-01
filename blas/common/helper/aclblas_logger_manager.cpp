@@ -16,12 +16,10 @@
 #include "aclblas_logger_manager.h"
 
 namespace {
-static _aclblas_logger_configure configure;
+static AclBlas::_aclblas_logger_configure configure;
 }
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+namespace AclBlas {
 
 aclblasStatus_t aclblasLoggerConfigure(const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel)
 {
@@ -29,6 +27,20 @@ aclblasStatus_t aclblasLoggerConfigure(const char* logFile, bool logToStdOut, bo
     configure.logToStdOut = logToStdOut;
     configure.logToKdlls = logToKdlls;
     configure.logLevel = logLevel;
+    switch (configure.logLevel) {
+        case aclblasLogLevel::ACLBLAS_LOG_LEVEL_INFO:
+            dlog_setlevel(OP, DLOG_INFO, 1);
+            break;
+        case aclblasLogLevel::ACLBLAS_LOG_LEVEL_ERROR:
+            dlog_setlevel(OP, DLOG_ERROR, 1);
+            break;
+        case aclblasLogLevel::ACLBLAS_LOG_LEVEL_DEBUG:
+            dlog_setlevel(OP, DLOG_DEBUG, 1);
+            break;
+        default:
+            dlog_setlevel(OP, DLOG_INFO, 1);
+            break;
+    }
     return aclblasStatus_t::ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -50,6 +62,4 @@ aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallbac
     return aclblasStatus_t::ACLBLAS_STATUS_SUCCESS;
 }
 
-#ifdef __cplusplus
 }
-#endif
