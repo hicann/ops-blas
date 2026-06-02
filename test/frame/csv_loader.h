@@ -123,6 +123,14 @@ inline int parseInt(const std::string& s, int def = 0)
         return def;
     }
 }
+inline int64_t parseInt64(const std::string& s, int64_t def = 0)
+{
+    try {
+        return std::stoll(s);
+    } catch (...) {
+        return def;
+    }
+}
 inline float parseFloat(const std::string& s, float def = 0.0f)
 {
     try {
@@ -247,6 +255,8 @@ inline aclblasDiagType_t parseDiagType(const std::string& s)
         return ACLBLAS_NON_UNIT;
     if (s == "ACLBLAS_UNIT" || s == "UNIT" || s == "132")
         return ACLBLAS_UNIT;
+    if (s == "INVALID" || s == "0xFF")
+        return static_cast<aclblasDiagType_t>(0xFF);
     try {
         return static_cast<aclblasDiagType_t>(std::stoi(s));
     } catch (...) {
@@ -279,6 +289,8 @@ inline aclblasOperation_t parseOpTrans(const std::string& s)
         return ACLBLAS_OP_C;
     if (s == "ACLBLAS_OP_H" || s == "H" || s == "113")
         return ACLBLAS_OP_C;
+    if (s == "INVALID" || s == "0xFF")
+        return static_cast<aclblasOperation_t>(0xFF);
     try {
         return static_cast<aclblasOperation_t>(std::stoi(s));
     } catch (...) {

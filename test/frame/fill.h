@@ -21,12 +21,13 @@
 
 // ── BlasDataFill: how to initialise an array/buffer ──
 enum class BlasDataFill {
-    INDEX,   // 1, 2, 3, ...  (default)
-    RANDOM,  // random uniform [-2, 2]
-    ZEROS,   // all zeros
-    ONES,    // all ones
-    NULLPTR, // null pointer (for error-path testing)
-    SENTINEL // sentinel fill (-999)
+    INDEX,    // 1, 2, 3, ...  (default)
+    RANDOM,   // random uniform [-2, 2]
+    ZEROS,    // all zeros
+    ONES,     // all ones
+    NULLPTR,  // null pointer (for error-path testing)
+    SENTINEL, // sentinel fill (-999)
+    MIXED     // alternating positive/negative: (-1)^i * (i+1) * scale
 };
 
 inline BlasDataFill parseDataFill(const std::string& s)
@@ -43,6 +44,8 @@ inline BlasDataFill parseDataFill(const std::string& s)
         return BlasDataFill::NULLPTR;
     if (s == "SENTINEL" || s == "sentinel")
         return BlasDataFill::SENTINEL;
+    if (s == "MIXED" || s == "mixed")
+        return BlasDataFill::MIXED;
     return BlasDataFill::INDEX;
 }
 
@@ -156,6 +159,9 @@ inline std::vector<float> makeBlasStrided(int count, int inc, BlasDataFill fill,
             case BlasDataFill::INDEX:
                 v = static_cast<float>(i + 1);
                 break;
+            case BlasDataFill::MIXED:
+                v = (i % 2 == 0) ? static_cast<float>(i + 1) : -static_cast<float>(i + 1);
+                break;
             default: {
                 std::uniform_real_distribution<float> dist(-2.0f, 2.0f);
                 v = dist(rng);
@@ -169,7 +175,8 @@ inline std::vector<float> makeBlasStrided(int count, int inc, BlasDataFill fill,
 }
 
 // triangular packed matrix — n*(n+1)/2 elements in column-major storage order
-inline std::vector<float> makeBlasTriangular(int n, bool upper, BlasDataFill fill, const std::string& desc = "")
+inline std::vector<float> makeBlasTriangular(
+    int n, bool upper, BlasDataFill fill, const std::string& desc = "", uint32_t seed = 0)
 {
     if (fill == BlasDataFill::NULLPTR)
         return {};
@@ -191,11 +198,17 @@ inline std::vector<float> makeBlasTriangular(int n, bool upper, BlasDataFill fil
         for (size_t i = 0; i < apLen; i++)
             data[i] = vals[i % 7];
     } else {
-        auto fillValue = [fill](size_t idx) -> float {
+        std::mt19937 rng(seed ? seed : 42);
+        std::uniform_real_distribution<float> dist(-2.0f, 2.0f);
+        auto fillValue = [&](size_t idx) -> float {
             if (fill == BlasDataFill::ZEROS)
                 return 0.0f;
             if (fill == BlasDataFill::ONES)
                 return 1.0f;
+            if (fill == BlasDataFill::RANDOM)
+                return dist(rng);
+            if (fill == BlasDataFill::MIXED)
+                return (idx % 2 == 0) ? 0.1f * static_cast<float>(idx + 1) : -0.1f * static_cast<float>(idx + 1);
             return static_cast<float>(idx + 1);
         };
         size_t idx = 0;
