@@ -27,6 +27,8 @@ struct AclGuard {
     bool cleaned = false;
     ~AclGuard()
     {
+        // Cleanup is primarily done in TearDownTestSuite to avoid heap corruption
+        // during global destruction. This destructor is a safety fallback.
         if (cleaned) {
             return;
         }
@@ -72,8 +74,11 @@ protected:
         handle_ = guard.handle;
         stream_ = guard.stream;
     }
+    
     static void TearDownTestSuite()
     {
+        // Explicitly cleanup here instead of relying on global destructor
+        // This avoids heap corruption during global destruction phase
         auto& guard = blas_test_detail::globalAcl();
         if (guard.cleaned) return;
 
@@ -89,6 +94,8 @@ protected:
         aclrtResetDevice(TEST_DEVICE_ID);
         aclFinalize();
         guard.cleaned = true;
+        handle_ = nullptr;
+        stream_ = nullptr;
     }
 
     static aclblasHandle_t handle_;

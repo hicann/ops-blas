@@ -8,103 +8,58 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include <array>
-#include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-#include "cann_ops_blas.h"
-#include "config.h"
-#include "device.h"
+#include "verify.h"
+#include "blas_test.h"
+#include "csv_loader.h"
+#include "fill.h"
+#include "srotm_param.h"
 #include "srotm_golden.h"
-#include "srotm_test_utils.h"
+#include "srotm_npu_wrapper.h"
 
-static std::string getSrotmConfigDir()
-{
-    const std::string filePath = __FILE__;
-    const size_t pos = filePath.find_last_of("/\\");
-    return pos == std::string::npos ? "." : filePath.substr(0, pos);
-}
-
-static std::string gtestParamNameFromTestCase(const ::testing::TestParamInfo<TestCaseConfig>& info)
-{
-    std::string name = info.param.caseId;
-    for (auto& c : name) {
-        if (c == '-') {
-            c = '_';
-        }
-    }
-    return name;
-}
-
-class SrotmTest : public ::testing::TestWithParam<TestCaseConfig> {
-protected:
-    static void SetUpTestSuite()
-    {
-        aclInit(nullptr);
-        aclrtSetDevice(0);
-        aclblasCreate(&handle_);
-        aclrtCreateStream(&stream_);
-        aclblasSetStream(handle_, stream_);
-    }
-
-    static void TearDownTestSuite()
-    {
-        aclrtDestroyStream(stream_);
-        aclblasDestroy(handle_);
-        aclrtResetDevice(0);
-        aclFinalize();
-    }
-
-    static aclblasHandle_t handle_;
-    static aclrtStream stream_;
-};
-
-aclblasHandle_t SrotmTest::handle_ = nullptr;
-aclrtStream SrotmTest::stream_ = nullptr;
-
-static std::vector<TestCaseConfig> loadSrotmCases()
-{
-    auto [cases, cfg] = ConfigLoader::loadAllForOp(getSrotmConfigDir(), "srotm");
-    (void)cfg;
-    return cases;
-}
+class SrotmArch22Test : public BlasTest<SrotmParam> { };
 
 INSTANTIATE_TEST_SUITE_P(
-    Srotm, SrotmTest,
-    ::testing::ValuesIn(loadSrotmCases()),
-    gtestParamNameFromTestCase);
+    Srotm, SrotmArch22Test,
+    ::testing::ValuesIn(GetCasesFromCsv<SrotmParam>(ReplaceFileExtension2Csv(__FILE__))),
+    PrintCaseInfoString<SrotmParam>);
 
-TEST_P(SrotmTest, CsvDriven) {
-    const TestCaseConfig& tc = GetParam();
+TEST_P(SrotmArch22Test, CsvDriven) {
+    const auto& p = GetParam();
 
-    auto hostData = generateHostDataSrotm(tc);
-    auto devBufs = allocAndCopyToDevice(hostData);
+    auto x = makeBlasStrided(p.n, p.incx, BlasDataFill::RANDOM, p.randomSeed);
+    auto y = makeBlasStrided(p.n, p.incy, BlasDataFill::RANDOM, p.randomSeed);
+    std::vector<float> resultX = x;
+    std::vector<float> resultY = y;
+    std::vector<float> goldenX = x;
+    std::vector<float> goldenY = y;
 
-    std::array<float, 5> sparam = getSrotmParams(tc);
-    const int64_t n = tc.n.value_or(0);
-    const int64_t incx = tc.incx.value_or(1);
-    const int64_t incy = tc.incy.value_or(1);
+    std::array<float, 5> sparam = p.sparam;
 
-    const aclblasStatus_t ret = aclblasSrotm(
-        handle_, devBufs[0]->floatPtr(), devBufs[1]->floatPtr(), sparam.data(), n, incx, incy);
+    aclblasStatus_t ret = aclblasSrotm_npu(
+        SrotmArch22Test::handle_,
+        resultX.data(), resultY.data(), sparam.data(),
+        p.n, p.incx, p.incy);
 
-    if (!tc.expectSuccess) {
-        EXPECT_NE(ret, ACLBLAS_STATUS_SUCCESS);
+    if (p.expectResult != ACLBLAS_STATUS_SUCCESS) {
+        EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
         return;
     }
     ASSERT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
-    ASSERT_EQ(aclrtSynchronizeStream(stream_), ACL_SUCCESS);
 
-    std::vector<float> outputX = hostData[0];
-    std::vector<float> outputY = hostData[1];
-    devBufs[0]->copyToHost(outputX.data(), outputX.size() * sizeof(float));
-    devBufs[1]->copyToHost(outputY.data(), outputY.size() * sizeof(float));
+    aclblasSrotm_cpu(
+        SrotmArch22Test::handle_,
+        goldenX.data(), goldenY.data(), sparam.data(),
+        p.n, p.incx, p.incy);
 
-    std::vector<float> goldenX;
-    std::vector<float> goldenY;
-    srotm_golden_impl(tc, hostData, goldenX, goldenY);
+    VerifyConfig cfg;
+    cfg.mode = PrecisionMode::MERE_MARE;
+    cfg.mereThreshold = p.mereThreshold;
+    cfg.mareMultiplier = p.mareMultiplier;
 
-    EXPECT_TRUE(verifySrotmResult(tc, outputX, goldenX));
-    EXPECT_TRUE(verifySrotmResult(tc, outputY, goldenY));
+    EXPECT_TRUE(Verifier::verifyVector(resultX.data(), goldenX.data(),
+        static_cast<size_t>(x.size()), 1, cfg, p.caseName));
+    EXPECT_TRUE(Verifier::verifyVector(resultY.data(), goldenY.data(),
+        static_cast<size_t>(y.size()), 1, cfg, p.caseName));
 }
