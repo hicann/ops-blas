@@ -45,6 +45,10 @@ void cgemv_batched_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR mask, GM_ADDR y,
                              GM_ADDR workSpace, GM_ADDR tilingGm,
                              uint32_t numBlocks, void *stream);
 
+void gemv_batched_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR y,
+                            GM_ADDR workSpace, GM_ADDR tilingGm,
+                            uint32_t numBlocks, void *stream);
+
 void cgerc_kernel_do(GM_ADDR d_x, GM_ADDR d_y, GM_ADDR d_offset, GM_ADDR d_A, GM_ADDR work_space,
                      GM_ADDR tiling_gm, uint32_t num_blocks, void *stream);
 
