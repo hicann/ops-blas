@@ -18,8 +18,8 @@
 #define GM_ADDR uint8_t*
 
 void strsv_kernel_do(
-    GM_ADDR A, GM_ADDR x, GM_ADDR tilingGm, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
-    int64_t n, int64_t lda, uint32_t numBlocks, void* stream);
+    GM_ADDR A, GM_ADDR x, GM_ADDR tilingGm, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag,
+    int n, int lda, uint32_t numBlocks, void* stream);
 
 constexpr uint32_t MAX_CORE_NUM = 40;
 
@@ -35,7 +35,7 @@ constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
 constexpr uint64_t ELEMENTS_PER_BLOCK_TILING = UB_BYTENUM_PER_BLOCK_TILING / BYTENUM_PER_FLOAT32_TILING;
 
-static StrsvTilingData CalStrsvTilingData(int64_t n, int64_t lda, uint32_t coreNum)
+static StrsvTilingData CalStrsvTilingData(int n, int lda, uint32_t coreNum)
 {
     StrsvTilingData tiling;
     tiling.n = static_cast<uint32_t>(n);
@@ -70,8 +70,8 @@ static StrsvTilingData CalStrsvTilingData(int64_t n, int64_t lda, uint32_t coreN
 }
 
 aclblasStatus_t aclblasStrsv(
-    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n,
-    const float* A, int64_t lda, float* x, int64_t incx)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
+    const float* A, int lda, float* x, int incx)
 {
     if (n <= 0) {
         return ACLBLAS_STATUS_SUCCESS;
@@ -112,7 +112,7 @@ aclblasStatus_t aclblasStrsv(
     }
 
     std::vector<float> xHost(n, 0.0f);
-    for (int64_t i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++) {
         xHost[i] = x[i * incx];
     }
 
@@ -169,7 +169,7 @@ aclblasStatus_t aclblasStrsv(
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    for (int64_t i = 0; i < n; i++) {
+    for (int i = 0; i < n; i++) {
         x[i * incx] = xHost[i];
     }
 

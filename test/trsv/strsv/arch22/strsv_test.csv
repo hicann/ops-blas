@@ -1,0 +1,6 @@
+case_name,description,uplo,trans,diag,n,A,lda,x,incx,expect_result,mere_threshold,mare_multiplier
+TC_L0_11,n1_element,LOWER,N,NON_UNIT,1,RANDOM,1,RANDOM,1,SUCCESS,0.0001220703125,10
+TC_L0_12,n1_element_upper_trans,UPPER,T,NON_UNIT,1,RANDOM,1,RANDOM,1,SUCCESS,0.0001220703125,10
+TC_L0_15,n0_empty,LOWER,N,NON_UNIT,0,RANDOM,1,RANDOM,1,SUCCESS,0.0001220703125,10
+TC_L1_06,a_nullptr,LOWER,N,NON_UNIT,5,nullptr,5,RANDOM,1,INVALID_VALUE,0,0
+TC_L1_07,x_nullptr,LOWER,N,NON_UNIT,5,RANDOM,5,nullptr,1,INVALID_VALUE,0,0

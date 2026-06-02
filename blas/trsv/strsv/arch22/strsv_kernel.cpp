@@ -261,8 +261,8 @@ __global__ __aicore__ void strsv_kernel_upper_trans_unit(GM_ADDR A, GM_ADDR x, G
 }
 
 void strsv_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR tilingGm,
-                     aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
-                     int64_t n, int64_t lda,
+                     aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag,
+                     int n, int lda,
                      uint32_t numBlocks, void* stream)
 {
     if (uplo == ACLBLAS_LOWER) {
