@@ -106,7 +106,7 @@ static StbmvFastTilingData CalStbmvFastTilingData(
     return tilingData;
 }
 
-aclblasStatus_t aclblasStbmv_v2(
+aclblasStatus_t aclblasStbmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k,
     const float* A, int lda, float* x, int incx)
 {

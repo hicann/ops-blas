@@ -89,7 +89,7 @@ tbmvTilingData CalTbmvTilingData(
     return tilingData;
 }
 
-aclblasStatus_t aclblasStbmv(
+aclblasStatus_t aclblasStbmv_legacy(
     aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, float* y, const int64_t n,
     const int64_t k, const int64_t incx)
 {

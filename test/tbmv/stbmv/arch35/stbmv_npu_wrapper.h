@@ -22,7 +22,7 @@ inline aclblasStatus_t aclblasStbmv_npu(
     int n, int k, const float* a, int lda, float* x, int incx)
 {
     if (handle == nullptr || n <= 0) {
-        return aclblasStbmv_v2(handle, uplo, trans, diag, n, k, a, lda, x, incx);
+        return aclblasStbmv(handle, uplo, trans, diag, n, k, a, lda, x, incx);
     }
 
     const size_t aBytes = static_cast<size_t>(lda) * n * sizeof(float);
@@ -55,7 +55,7 @@ inline aclblasStatus_t aclblasStbmv_npu(
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    aclblasStatus_t ret = aclblasStbmv_v2(
+    aclblasStatus_t ret = aclblasStbmv(
         handle, uplo, trans, diag, n, k,
         static_cast<const float*>(dA), lda, static_cast<float*>(dX), incx);
 

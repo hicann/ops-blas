@@ -162,11 +162,12 @@ aclblasStatus_t aclblasStpmv(
     aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
     int64_t n, const float* aPacked, const float* x, float* y, int64_t incx);
 
-aclblasStatus_t aclblasStbmv(
+// Early implementation with a non-standard parameter layout. Prefer aclblasStbmv for new code; this interface may evolve or be removed in future releases.
+aclblasStatus_t aclblasStbmv_legacy(
     aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, float* y, const int64_t n,
     const int64_t k, const int64_t incx);
 
-aclblasStatus_t aclblasStbmv_v2(
+aclblasStatus_t aclblasStbmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k,
     const float* A, int lda, float* x, int incx);
 

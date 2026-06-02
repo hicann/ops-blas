@@ -137,8 +137,8 @@ static int RunCase(uint32_t n, uint32_t k, uint32_t lda)
     aclblasCreate(&handle);
     aclblasSetStream(handle, stream);
 
-    ret = aclblasStbmv(handle, a.data(), lda, x.data(), y.data(), n, k, incx);
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStbmv failed. ERROR: %d\n", ret); return ret);
+    ret = aclblasStbmv_legacy(handle, a.data(), lda, x.data(), y.data(), n, k, incx);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStbmv_legacy failed. ERROR: %d\n", ret); return ret);
 
     int status = VerifyResult(y, golden);
 
