@@ -204,6 +204,7 @@ scene: test-design-review
 subagent: developer
 输入:
   - 1.3.A-开发方案设计.md
+  - 加载 blas-log 技能获取日志集成规范
 输出:
   - blas/{family}/{operator_name}/archXX/{operator_name}_host.cpp
   - blas/{family}/{operator_name}/archXX/{operator_name}_kernel.cpp
@@ -211,6 +212,9 @@ subagent: developer
 验收标准:
   - 编译通过
   - 编码规范符合 blas-ascendc-coding-rules
+  - host.cpp 中已集成 dlog 日志：#include "log/log.h"，关键路径使用 OP_LOGE/I/D
+  - 参数校验失败、ACL Runtime 调用失败使用 OP_LOGE 输出错误信息
+  - Tiling 数据和 Kernel 启动参数使用 OP_LOGD/OP_LOGI 输出
 ```
 
 ### 2.1.1.B / 2.2.1.B 测试开发
@@ -282,6 +286,7 @@ subagent: reviewer
   - 代码规范检查完成
   - 风险点已记录
   - 状态字段明确
+  - 日志规范检查：host.cpp 中日志级别使用正确、消息格式符合 blas-log 规范
 ```
 
 ### 3.2 性能验收
@@ -334,6 +339,7 @@ subagent: reviewer
   - 状态字段明确
   - 冗余代码检查：未使用的 #include、未调用的函数/宏、死代码
   - 交付件清单核对：最终合入的文件集合是最小集
+  - 日志规范检查：无残留 printf/LOG_PRINT，全部使用 OP_LOGE/I/D/W
 ```
 
 ### 4.3 开发总结

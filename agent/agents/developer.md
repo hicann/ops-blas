@@ -14,6 +14,7 @@ skills:
   - blas-lib-rules
   - ascendc-regbase-best-practice
   - blas-ascendc-coding-rules
+  - blas-log
 permission:
   external_directory: allow
 ---

@@ -10,6 +10,7 @@ skills:
     - blas-new-op-workflow
     - blas-lib-rules
     - blas-ascendc-coding-rules
+    - blas-log
 ---
 
 # Ascend C 算子代码检视 Agent
