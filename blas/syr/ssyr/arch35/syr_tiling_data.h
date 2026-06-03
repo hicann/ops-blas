@@ -13,16 +13,14 @@
 
 #include <cstdint>
 
-constexpr uint32_t SYR_MAX_CORE_NUM = 50;
-
 struct SyrTilingData {
+    uint32_t numThreads;
+    uint32_t rowsPerBlock;
     uint32_t n;
     uint32_t lda;
     uint32_t uplo;
-    uint32_t useCoreNum;
-    uint32_t rowStride;
-    uint32_t startRow[SYR_MAX_CORE_NUM];
-    uint32_t rowCount[SYR_MAX_CORE_NUM];
+    float alpha;
+    int64_t incx;
 };
 
-#endif  // SYR_TILING_DATA_H
+#endif // SYR_TILING_DATA_H

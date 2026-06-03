@@ -8,217 +8,102 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/*!
- * \file syr_host.cpp
- * \brief syr Host-side dispatch: aclblasSsyr API with cyclic row distribution tiling.
- */
-
-#include <cstdint>
-#include <iostream>
 #include <algorithm>
-#include <cstring>
-#include <vector>
+#include <cstdint>
 #include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
-#include "common/helper/aclblas_handle_internal.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
+#include "cann_ops_blas_common.h"
 #include "syr_tiling_data.h"
+#include "common/kernel_launch/aclblas_kernel_do.h"
+#include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/kernel_constant.h"
+#include "common/helper/host_utils.h"
 
-static SyrTilingData CalSyrTilingData(int64_t n, int64_t lda, uint32_t uplo, uint32_t coreNum)
+static aclblasStatus_t ValidateSyrParams(
+    aclblasFillMode uplo, int n, int lda, int incx, const float* alpha, const float* x, const float* A)
 {
-    SyrTilingData tiling;
-    tiling.n = static_cast<uint32_t>(n);
-    tiling.lda = static_cast<uint32_t>(lda);
-    tiling.uplo = uplo;
-    tiling.useCoreNum = 0;
-    tiling.rowStride = 0;
-
-    for (uint32_t i = 0; i < SYR_MAX_CORE_NUM; i++) {
-        tiling.startRow[i] = 0;
-        tiling.rowCount[i] = 0;
-    }
-
-    if (coreNum == 0) {
-        coreNum = 1;
-    }
-
-    tiling.rowStride = coreNum;
-    for (uint32_t i = 0; i < coreNum && i < SYR_MAX_CORE_NUM; i++) {
-        tiling.startRow[i] = i;
-        if (static_cast<uint32_t>(n) > i) {
-            tiling.rowCount[i] = (static_cast<uint32_t>(n) - i + coreNum - 1) / coreNum;
-        } else {
-            tiling.rowCount[i] = 0;
-        }
-        if (tiling.rowCount[i] > 0) {
-            tiling.useCoreNum = i + 1;
-        }
-    }
-
-    return tiling;
-}
-
-namespace {
-
-inline _aclblas_handle* ToInternal(aclblasHandle_t handle) { return reinterpret_cast<_aclblas_handle*>(handle); }
-
-} // namespace
-
-static aclblasStatus_t PrepareContiguousX(
-    const float* x, int64_t n, int64_t incx, float** xContiguousDevice, bool* needFreeX)
-{
-    if (incx == 1) {
-        *xContiguousDevice = const_cast<float*>(x);
-        *needFreeX = false;
-        return ACLBLAS_STATUS_SUCCESS;
-    }
-
-    size_t xContiguousBytes = static_cast<size_t>(n) * sizeof(float);
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(xContiguousDevice), xContiguousBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        return ACLBLAS_STATUS_ALLOC_FAILED;
-    }
-    *needFreeX = true;
-
-    int64_t absIncx = std::abs(incx);
-    size_t xTotalBytes = static_cast<size_t>(1 + (n - 1) * absIncx) * sizeof(float);
-    std::vector<float> xHost(1 + (n - 1) * absIncx, 0.0f);
-    aclRet = aclrtMemcpy(xHost.data(), xTotalBytes, const_cast<float*>(x), xTotalBytes, ACL_MEMCPY_DEVICE_TO_HOST);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSsyr", "aclrtMemcpy D2H failed, ret=%d", aclRet);
-        aclrtFree(*xContiguousDevice);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-
-    std::vector<float> xContiguousHost(n, 0.0f);
-    if (incx > 0) {
-        for (int64_t i = 0; i < n; i++) {
-            xContiguousHost[i] = xHost[i * incx];
-        }
-    } else {
-        // BLAS convention: negative incx means reversed storage.
-        // x[0] is at memory offset (n-1)*absIncx, x[n-1] is at offset 0.
-        for (int64_t i = 0; i < n; i++) {
-            xContiguousHost[i] = xHost[(n - 1 - i) * absIncx];
-        }
-    }
-
-    aclRet = aclrtMemcpy(
-        *xContiguousDevice, xContiguousBytes, xContiguousHost.data(), xContiguousBytes, ACL_MEMCPY_HOST_TO_DEVICE);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSsyr", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(*xContiguousDevice);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-
+    CHECK_RET(
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasSsyr", "uplo must be UPPER(121) or LOWER(122), got %d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        lda >= std::max(1, n), OP_LOGE("aclblasSsyr", "lda must be >= max(1, n), got lda=%d, n=%d", lda, n);
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasSsyr", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        alpha != nullptr, OP_LOGE("aclblasSsyr", "alpha must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, OP_LOGE("aclblasSsyr", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(A != nullptr, OP_LOGE("aclblasSsyr", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-static aclblasStatus_t AllocAndCopyToDevice(uint8_t** devicePtr, const void* hostPtr, size_t size)
+static uint32_t GetVectorCoreCount()
 {
-    aclError aclRet = aclrtMalloc(reinterpret_cast<void**>(devicePtr), size, ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        return ACLBLAS_STATUS_ALLOC_FAILED;
+    int32_t deviceId = 0;
+    int64_t vecCoreNum = 0;
+    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
+        return 0;
     }
-    aclRet = aclrtMemcpy(*devicePtr, size, hostPtr, size, ACL_MEMCPY_HOST_TO_DEVICE);
-    if (aclRet != ACL_SUCCESS) {
-        aclrtFree(*devicePtr);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    return ACLBLAS_STATUS_SUCCESS;
+    aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
+    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
 }
 
-static aclblasStatus_t LaunchSyrKernel(
-    float alphaVal, const SyrTilingData& tiling, float* xContiguousDevice, bool needFreeX, float* A, aclrtStream stream)
+static SyrTilingData CalSyrTilingData(
+    uint32_t useNumBlocks, int n, int lda, aclblasFillMode uplo, float alpha, int incx)
 {
-    float* alphaDevice = nullptr;
-    aclblasStatus_t status = AllocAndCopyToDevice(reinterpret_cast<uint8_t**>(&alphaDevice), &alphaVal, sizeof(float));
-    if (status != ACLBLAS_STATUS_SUCCESS) {
-        if (needFreeX)
-            aclrtFree(xContiguousDevice);
-        return status;
-    }
+    SyrTilingData tilingData{};
+    tilingData.numThreads =
+        std::min(CeilAlign<uint32_t>(CeilDiv<uint32_t>(n, useNumBlocks), SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
+    tilingData.rowsPerBlock =
+        static_cast<uint32_t>((n + static_cast<int>(useNumBlocks) - 1) / static_cast<int>(useNumBlocks));
+    tilingData.n = static_cast<uint32_t>(n);
+    tilingData.lda = static_cast<uint32_t>(lda);
+    tilingData.uplo = static_cast<uint32_t>(uplo);
+    tilingData.alpha = alpha;
+    tilingData.incx = static_cast<int64_t>(incx);
 
-    uint8_t* tilingDevice = nullptr;
-    status = AllocAndCopyToDevice(&tilingDevice, &tiling, sizeof(SyrTilingData));
-    if (status != ACLBLAS_STATUS_SUCCESS) {
-        aclrtFree(alphaDevice);
-        if (needFreeX)
-            aclrtFree(xContiguousDevice);
-        return status;
-    }
-
-    syr_kernel_do(
-        reinterpret_cast<GM_ADDR>(xContiguousDevice), reinterpret_cast<GM_ADDR>(A),
-        reinterpret_cast<GM_ADDR>(alphaDevice), reinterpret_cast<GM_ADDR>(tilingDevice), tiling.useCoreNum, stream);
-
-    aclError aclRet = aclrtSynchronizeStream(stream);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSsyr", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        aclrtFree(alphaDevice);
-        aclrtFree(tilingDevice);
-        if (needFreeX)
-            aclrtFree(xContiguousDevice);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-
-    aclrtFree(alphaDevice);
-    aclrtFree(tilingDevice);
-    if (needFreeX) {
-        aclrtFree(xContiguousDevice);
-    }
-
-    return ACLBLAS_STATUS_SUCCESS;
+    return tilingData;
 }
 
 aclblasStatus_t aclblasSsyr(
     aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,
     float* A, const int lda)
 {
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    CHECK_RET(h != nullptr, OP_LOGE("aclblasSsyr", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+
+    CHECK_RET(n >= 0, OP_LOGE("aclblasSsyr", "n must be >= 0, got %d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-
-    if (n < 0 || lda < std::max(1, n) || incx == 0 || alpha == nullptr || x == nullptr || A == nullptr) {
-        OP_LOGE("aclblasSsyr", "invalid params: n=%d lda=%d incx=%d", n, lda, incx);
-        return ACLBLAS_STATUS_INVALID_VALUE;
+    aclblasStatus_t st = ValidateSyrParams(uplo, n, lda, incx, alpha, x, A);
+    if (st != ACLBLAS_STATUS_SUCCESS) {
+        return st;
     }
 
-    float alphaVal = *alpha;
+    aclrtStream stream = h->stream;
 
-    aclrtContext currentCtx = nullptr;
-    aclError aclRet = aclrtGetCurrentContext(&currentCtx);
-    if (aclRet != ACL_SUCCESS || currentCtx == nullptr) {
-        OP_LOGE("aclblasSsyr", "aclrtGetCurrentContext failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_NOT_INITIALIZED;
+    uint32_t aivCoreNum = GetVectorCoreCount();
+    if (aivCoreNum == 0) {
+        OP_LOGE("aclblasSsyr", "vector core count is 0");
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
+    uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
 
-    aclrtStream stream = nullptr;
-    if (handle != nullptr) {
-        auto* h = ToInternal(handle);
-        stream = h->stream;
-    }
-
-    uint32_t coreNum = (static_cast<uint32_t>(n) < SYR_MAX_CORE_NUM) ? static_cast<uint32_t>(n) : SYR_MAX_CORE_NUM;
-    if (coreNum == 0) {
-        coreNum = 1;
-    }
-
-    float* xContiguousDevice = nullptr;
-    bool needFreeX = false;
-    aclblasStatus_t status = PrepareContiguousX(x, n, incx, &xContiguousDevice, &needFreeX);
-    if (status != ACLBLAS_STATUS_SUCCESS) {
-        return status;
-    }
-
-    SyrTilingData tiling = CalSyrTilingData(n, lda, (uplo == ACLBLAS_UPPER) ? 1u : 0u, coreNum);
+    SyrTilingData tiling = CalSyrTilingData(useNumBlocks, n, lda, uplo, *alpha, incx);
 
     OP_LOGD(
-        "aclblasSsyr", "tiling: n=%u lda=%u uplo=%u useCoreNum=%u", tiling.n, tiling.lda, tiling.uplo,
-        tiling.useCoreNum);
-    OP_LOGI("aclblasSsyr", "launching kernel");
+        "aclblasSsyr", "tiling: n=%u lda=%u uplo=%u incx=%ld numThreads=%u rowsPerBlock=%u numBlocks=%u", tiling.n,
+        tiling.lda, tiling.uplo, tiling.incx, tiling.numThreads, tiling.rowsPerBlock, useNumBlocks);
+    OP_LOGI("aclblasSsyr", "launching kernel: blocks=%u, cores=%u", useNumBlocks, aivCoreNum);
 
-    return LaunchSyrKernel(alphaVal, tiling, xContiguousDevice, needFreeX, A, stream);
+    syr_kernel_do((GM_ADDR) const_cast<float*>(x), (GM_ADDR)A, tiling, useNumBlocks, stream);
+
+    aclError aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsyr", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    return ACLBLAS_STATUS_SUCCESS;
 }

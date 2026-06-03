@@ -8,11 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/* !
- * \file syr2_host.cpp
- * \brief single-precision syr2 host-side implementation
- */
-
 #include <algorithm>
 #include <cstdint>
 #include "acl/acl.h"
@@ -24,13 +19,6 @@
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
 
 static aclblasStatus_t ValidateSyr2Params(
     aclblasFillMode uplo, int n, int lda, int incx, int incy, const float* alpha, const float* x, const float* y,
@@ -108,33 +96,18 @@ aclblasStatus_t aclblasSsyr2(
     Syr2TilingData tiling = CalSyr2TilingData(useNumBlocks, n, lda, uplo, *alpha, incx, incy);
 
     OP_LOGD(
-        "aclblasSsyr2", "tiling: n=%u lda=%u uplo=%u numThreads=%u numBlocks=%u", tiling.n, tiling.lda, tiling.uplo,
-        tiling.numThreads, useNumBlocks);
-    OP_LOGI("aclblasSsyr2", "launching kernel");
-
-    uint8_t* tilingDevice = nullptr;
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(Syr2TilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsyr2", "aclrtMalloc failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(Syr2TilingData), &tiling, sizeof(Syr2TilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsyr2", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+        "aclblasSsyr2", "tiling: n=%u lda=%u uplo=%u incx=%ld incy=%ld numThreads=%u rowsPerBlock=%u numBlocks=%u",
+        tiling.n, tiling.lda, tiling.uplo, tiling.incx, tiling.incy, tiling.numThreads, tiling.rowsPerBlock,
+        useNumBlocks);
+    OP_LOGI("aclblasSsyr2", "launching kernel: blocks=%u, cores=%u", useNumBlocks, aivCoreNum);
 
     syr2_kernel_do(
-        (GM_ADDR) const_cast<float*>(x), (GM_ADDR) const_cast<float*>(y), (GM_ADDR)A, nullptr, tilingDevice,
-        useNumBlocks, h->stream);
+        (GM_ADDR) const_cast<float*>(x), (GM_ADDR) const_cast<float*>(y), (GM_ADDR)A, tiling, useNumBlocks, h->stream);
 
-    aclRet = aclrtSynchronizeStream(h->stream);
+    aclError aclRet = aclrtSynchronizeStream(h->stream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsyr2", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    aclrtFree(tilingDevice);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

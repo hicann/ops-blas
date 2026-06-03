@@ -87,13 +87,17 @@ void sasum_kernel_do(GM_ADDR inGM, GM_ADDR outGM, GM_ADDR workSpace, GM_ADDR til
 void ssyr_kernel_do(GM_ADDR gm_x, GM_ADDR gm_A, GM_ADDR workSpace, GM_ADDR tilingGm,
                     uint32_t numBlocks, void *stream);
 
-void syr_kernel_do(GM_ADDR x, GM_ADDR A, GM_ADDR alpha, GM_ADDR tilingGm,
+struct SyrTilingData;
+
+void syr_kernel_do(GM_ADDR x, GM_ADDR A, const SyrTilingData &tiling,
                    uint32_t numBlocks, void *stream);
 
 void ssyr2_kernel_do(GM_ADDR gm_x, GM_ADDR gm_y, GM_ADDR gm_A, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream);
 
-void syr2_kernel_do(GM_ADDR x, GM_ADDR y, GM_ADDR A, GM_ADDR workSpace, GM_ADDR tilingGm,
+struct Syr2TilingData;
+
+void syr2_kernel_do(GM_ADDR x, GM_ADDR y, GM_ADDR A, const Syr2TilingData &tiling,
                      uint32_t numBlocks, void *stream);
 
 void strmm_kernel_do(GM_ADDR d_A, GM_ADDR d_B, GM_ADDR d_C, GM_ADDR workspace,
