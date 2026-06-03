@@ -90,10 +90,16 @@ __aicore__ inline uint64_t CeilAlign(uint64_t a, uint64_t b)
 }
 
 template <typename T>
-__aicore__ inline constexpr static int32_t GetC0Size()
+__aicore__ inline constexpr static int32_t BlasLtGetC0Size()
 {
     if (sizeof(T) == sizeof(float)) {
         return B32_C0_SIZE;
     }
     return B16_C0_SIZE;
+}
+
+template <typename T>
+__aicore__ inline constexpr static int32_t GetC0Size()
+{
+    return BlasLtGetC0Size<T>();
 }

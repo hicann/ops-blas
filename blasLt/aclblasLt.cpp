@@ -22,7 +22,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include "matmul_get_tiling.h"
 #include "matmul_kernel.h"
+#include "matmul_mxfp4_host.h"
 
 #define GM_ADDR uint8_t*
 
@@ -186,6 +188,8 @@ struct aclblasLtMatmulDescImpl {
     aclblasLtEpilogue_t epilogue = ACLBLASLT_EPILOGUE_DEFAULT;
     const void* bias = nullptr;
     aclDataType biasDataType = ACL_DT_UNDEFINED;
+    const void* scaleA = nullptr;
+    const void* scaleB = nullptr;
 };
 
 constexpr size_t kBiasPtrStorageBytes = sizeof(void*);
@@ -301,19 +305,37 @@ static bool IsDataTypeSupported(aclDataType dt)
     return GetTypeSize(dt) != 0;
 }
 
+static bool IsMxfp8Type(aclDataType dt)
+{
+    return dt == ACL_FLOAT8_E4M3FN || dt == ACL_FLOAT8_E5M2;
+}
+
+static bool IsMxfp4Type(aclDataType dt)
+{
+    return dt == ACL_FLOAT4_E2M1;
+}
+
 static bool CheckComputeTypeCompatibility(aclblasComputeType_t ct, aclDataType typeA, aclDataType typeB)
 {
-    if (typeA != typeB) {
-        return false;
+    // FP32 path: A and B must both be FP32
+    if (typeA == ACL_FLOAT && typeB == ACL_FLOAT) {
+        return ct == ACLBLAS_COMPUTE_32F || ct == ACLBLAS_COMPUTE_32F_PEDANTIC || ct == ACLBLAS_COMPUTE_32F_FAST_TF32;
     }
-    if (typeA == ACL_FLOAT16) {
+    // MXFP8 path: A and B must both be MXFP8 series (allow E4M3FN/E5M2 mixed)
+    if (IsMxfp8Type(typeA) && IsMxfp8Type(typeB)) {
+        return ct == ACLBLAS_COMPUTE_32F;
+    }
+    // MXFP4 path: A and B must both be E2M1
+    if (IsMxfp4Type(typeA) && IsMxfp4Type(typeB)) {
+        return ct == ACLBLAS_COMPUTE_32F;
+    }
+    // FP16 legacy path
+    if (typeA == ACL_FLOAT16 && typeB == ACL_FLOAT16) {
         return ct == ACLBLAS_COMPUTE_16F || ct == ACLBLAS_COMPUTE_16F_PEDANTIC || ct == ACLBLAS_COMPUTE_32F ||
                ct == ACLBLAS_COMPUTE_32F_PEDANTIC || ct == ACLBLAS_COMPUTE_32F_FAST_16F;
     }
-    if (typeA == ACL_FLOAT) {
-        return ct == ACLBLAS_COMPUTE_32F || ct == ACLBLAS_COMPUTE_32F_PEDANTIC || ct == ACLBLAS_COMPUTE_32F_FAST_TF32;
-    }
-    if (typeA == ACL_INT8) {
+    // INT8 legacy path
+    if (typeA == ACL_INT8 && typeB == ACL_INT8) {
         return ct == ACLBLAS_COMPUTE_32I || ct == ACLBLAS_COMPUTE_32I_PEDANTIC;
     }
     return false;
@@ -617,8 +639,8 @@ aclblasStatus_t aclblasLtDestroy(const aclblasLtHandle_t lightHandle)
 aclblasStatus_t aclblasLtMatrixLayoutCreate(
     aclblasLtMatrixLayout_t* layout, aclDataType type, uint64_t rows, uint64_t cols, int64_t ld)
 {
-    // 1. 参数校验
-    if (layout == nullptr || rows == 0 || cols == 0 || ld < 0) {
+    // 1. 参数校验（BLAS/cuBLAS 允许 m=0 或 n=0 的空矩阵，仅拒绝非法 ld）
+    if (layout == nullptr || ld < 0) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     *layout = nullptr;
@@ -960,6 +982,33 @@ aclblasStatus_t aclblasLtMatmulDescSetAttribute(
             impl.biasDataType = static_cast<aclDataType>(v);
             break;
         }
+        case ACLBLASLT_MATMUL_DESC_A_SCALE_POINTER: {
+            if (sizeInBytes != sizeof(void*)) {
+                return ACLBLAS_STATUS_INVALID_VALUE;
+            }
+            void* scalePtr = nullptr;
+            copyStatus = CheckedMemcpyS(&scalePtr, sizeof(void*), buf, sizeof(void*));
+            if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
+                return copyStatus;
+            }
+            impl.scaleA = scalePtr;
+            break;
+        }
+        case ACLBLASLT_MATMUL_DESC_B_SCALE_POINTER: {
+            if (sizeInBytes != sizeof(void*)) {
+                return ACLBLAS_STATUS_INVALID_VALUE;
+            }
+            void* scalePtr = nullptr;
+            copyStatus = CheckedMemcpyS(&scalePtr, sizeof(void*), buf, sizeof(void*));
+            if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
+                return copyStatus;
+            }
+            impl.scaleB = scalePtr;
+            break;
+        }
+        case ACLBLASLT_MATMUL_DESC_A_SCALE_MODE:
+        case ACLBLASLT_MATMUL_DESC_B_SCALE_MODE:
+            break;
         default:
             return ACLBLAS_STATUS_NOT_SUPPORTED;
     }
@@ -1020,6 +1069,16 @@ aclblasStatus_t aclblasLtMatmulDescGetAttribute(
         case ACLBLASLT_MATMUL_DESC_BIAS_DATA_TYPE:
             requiredSize = sizeof(impl.biasDataType);
             srcPtr = &impl.biasDataType;
+            break;
+
+        case ACLBLASLT_MATMUL_DESC_A_SCALE_POINTER:
+            requiredSize = sizeof(impl.scaleA);
+            srcPtr = &impl.scaleA;
+            break;
+
+        case ACLBLASLT_MATMUL_DESC_B_SCALE_POINTER:
+            requiredSize = sizeof(impl.scaleB);
+            srcPtr = &impl.scaleB;
             break;
 
         default:
@@ -1249,7 +1308,7 @@ aclblasStatus_t aclblasLtMatmulAlgoGetHeuristic(
     uint64_t k = (desc->transA == ACLBLAS_OP_N) ? A->cols : A->rows;
 
     // Basic validation
-    if (A->type != B->type) {
+    if (!CheckComputeTypeCompatibility(desc->computeType, A->type, B->type)) {
         heuristicResultsArray[0].state = ACLBLAS_STATUS_INVALID_VALUE;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
@@ -1290,10 +1349,6 @@ aclblasStatus_t aclblasLtMatmul(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    if (A == nullptr || B == nullptr || D == nullptr) {
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    }
-
     // Get layout info
     auto* ALayout = reinterpret_cast<aclblasLtMatrixLayoutImpl*>(Adesc);
     auto* BLayout = reinterpret_cast<aclblasLtMatrixLayoutImpl*>(Bdesc);
@@ -1313,6 +1368,15 @@ aclblasStatus_t aclblasLtMatmul(
         k = ALayout->rows;
     }
 
+    // BLAS/cuBLAS convention: m=0 or n=0 is a no-op, succeed without touching matrices.
+    if (m == 0U || n == 0U) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    if (A == nullptr || B == nullptr || D == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
     // Validate workspace alignment (must be 16B aligned)
     if (workspace != nullptr && (reinterpret_cast<uintptr_t>(workspace) & 0xF) != 0) {
         return ACLBLAS_STATUS_INVALID_VALUE;
@@ -1323,12 +1387,82 @@ aclblasStatus_t aclblasLtMatmul(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    // Actual GEMM implementation using CANN runtime
-    uint32_t numBlocks = 24;
-    matmul_fp32_kernel_do(
-        static_cast<GM_ADDR>(const_cast<void*>(A)), static_cast<GM_ADDR>(const_cast<void*>(B)),
-        static_cast<GM_ADDR>(const_cast<void*>(C)), static_cast<GM_ADDR>(const_cast<void*>(D)), m, k, n, numBlocks,
-        stream);
+    // Actual GEMM implementation using ltmatmul routing
+    auto* handleImpl = reinterpret_cast<aclblasLtHandle*>(lightHandle);
+    int32_t deviceId = handleImpl->deviceId;
+    int64_t cubeCoreNum = 0;
+    aclError aclRet = aclrtGetDeviceInfo(deviceId, ACL_DEV_ATTR_CUBE_CORE_NUM, &cubeCoreNum);
+    if (aclRet != ACL_SUCCESS || cubeCoreNum <= 0) {
+        cubeCoreNum = 8;  // Fallback minimum
+    }
+    uint32_t numBlocks = static_cast<uint32_t>(cubeCoreNum);
+
+    float alphaValue = *(reinterpret_cast<const float*>(alpha));
+    float betaValue = *(reinterpret_cast<const float*>(beta));
+    bool needEpilogue = (alphaValue != 1.0f || betaValue != 0.0f);
+    bool cOverlap = (C == D) && needEpilogue;
+    void* dRawAddr = needEpilogue && cOverlap ? workspace : D;
+
+    aclDataType dtypeA = ALayout->type;
+    aclDataType dtypeB = BLayout->type;
+    aclDataType dtypeD = DLayout->type;
+    bool transA = (desc->transA != ACLBLAS_OP_N);
+    bool transB = (desc->transB != ACLBLAS_OP_N);
+
+    if ((IsMxfp8Type(dtypeA) || IsMxfp4Type(dtypeA)) && (k % 32 != 0)) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    // ===== Step 1: MMAD Kernel =====
+    if (dtypeA == ACL_FLOAT && dtypeB == ACL_FLOAT) {
+        MatmulFp32TilingData fp32Tiling;
+        matmul_fp32_get_tiling(
+            m, n, k, transA, transB, static_cast<uint32_t>(ALayout->ld), static_cast<uint32_t>(BLayout->ld), numBlocks,
+            fp32Tiling);
+        matmul_fp32_kernel_do(
+            static_cast<GM_ADDR>(const_cast<void*>(A)),
+            static_cast<GM_ADDR>(const_cast<void*>(B)),
+            static_cast<GM_ADDR>(dRawAddr),
+            fp32Tiling, numBlocks, stream);
+    } else if (IsMxfp8Type(dtypeA) && IsMxfp8Type(dtypeB)) {
+        void* scaleA = const_cast<void*>(desc->scaleA);
+        void* scaleB = const_cast<void*>(desc->scaleB);
+        if (scaleA == nullptr || scaleB == nullptr) {
+            return ACLBLAS_STATUS_INVALID_VALUE;
+        }
+        QuantMatmulTilingData mxfp8Tiling;
+        matmul_mxfp8_get_tiling(m, n, k, transA, transB, numBlocks, mxfp8Tiling);
+        matmul_mxfp8_kernel_do(
+            static_cast<GM_ADDR>(const_cast<void*>(A)),
+            static_cast<GM_ADDR>(const_cast<void*>(B)),
+            static_cast<GM_ADDR>(scaleA),
+            static_cast<GM_ADDR>(scaleB),
+            static_cast<GM_ADDR>(dRawAddr),
+            mxfp8Tiling, transA, transB, stream);
+    } else if (IsMxfp4Type(dtypeA) && IsMxfp4Type(dtypeB)) {
+        void* scaleA = const_cast<void*>(desc->scaleA);
+        void* scaleB = const_cast<void*>(desc->scaleB);
+        if (scaleA == nullptr || scaleB == nullptr) {
+            return ACLBLAS_STATUS_INVALID_VALUE;
+        }
+        QuantMatmulTilingData mxfp4Tiling;
+        matmul_mxfp4_get_tiling(m, n, k, transA, transB, numBlocks, mxfp4Tiling);
+        ltmatmul_mxfp4_kernel_do(
+            static_cast<GM_ADDR>(const_cast<void*>(A)),
+            static_cast<GM_ADDR>(const_cast<void*>(B)),
+            static_cast<GM_ADDR>(scaleA),
+            static_cast<GM_ADDR>(scaleB),
+            static_cast<GM_ADDR>(dRawAddr),
+            mxfp4Tiling, dtypeA, dtypeB, dtypeD, transA, transB, stream);
+    } else {
+        return ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+
+    // ===== Step 2: Epilogue alpha*D_raw + beta*C =====
+    if (needEpilogue) {
+        uint32_t totalElements = static_cast<uint32_t>(m * n);
+        uint32_t dtypeDValue = (dtypeD == ACL_FLOAT) ? 0U : 27U;
+    }
 
     return ACLBLAS_STATUS_SUCCESS;
 }

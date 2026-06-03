@@ -91,18 +91,17 @@ set_source_files_properties(
     PROPERTIES LANGUAGE ASC
 )
 
+set(_OPS_BLAS_ASC_ROOT "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/asc")
 target_include_directories(${OPS_BLASLT} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/op_common/
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base/
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/
     ./include
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/utils
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include/kernel
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include/tiling
     ${OPTENSOR_INCLUDE_DIR}
-    "${OPTENSOR_INCLUDE_DIR}/tensor_api"
+    ${OPTENSOR_INCLUDE_DIR}/tensor_api
+    ${OPTENSOR_INCLUDE_DIR}/tensor_api/include
 )
-set(_OPS_BLAS_ASC_ROOT "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/asc")
+
 if(EXISTS "${_OPS_BLAS_ASC_ROOT}/include")
   target_include_directories(${OPS_BLASLT} PRIVATE
     "${_OPS_BLAS_ASC_ROOT}"
@@ -111,17 +110,29 @@ if(EXISTS "${_OPS_BLAS_ASC_ROOT}/include")
   )
 endif()
 
+target_include_directories(${OPS_BLASLT} PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include/kernel
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include/host
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/utils
+)
+
 if(ENABLE_BLASLT_MXFP8)
   set_source_files_properties(
     ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul_mxfp8/arch35/matmul_mxfp8_host.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul_mxfp4/arch35/matmul_mxfp4_host.cpp
     PROPERTIES LANGUAGE CXX)
 endif()
+target_compile_definitions(${OPS_BLASLT} PRIVATE
+  ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}
+  ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR})
 target_compile_features(${OPS_BLASLT} PRIVATE cxx_std_17)
 
 set(ASC_WARN_SUPPRESS "-Wno-#pragma-messages" "-Wno-deprecated-declarations")
 
 target_compile_options(${OPS_BLASLT} PRIVATE
-    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS}>
+    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS} -DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
+    $<$<COMPILE_LANGUAGE:CXX>:-DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
 )
 
 target_link_directories(${OPS_BLASLT} PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/lib64")

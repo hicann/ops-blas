@@ -12,7 +12,7 @@ if(NOT DEFINED CANN_3RD_LIB_PATH)
   set(CANN_3RD_LIB_PATH "${CMAKE_BINARY_DIR}/third_party")
 endif()
 
-set(OPTENSOR_TAG_ID 565458d2e4072952339f02037667bcd7e3cee421)
+set(OPTENSOR_TAG_ID a76e9c60f8c70b1cc906714e0ef41150a857d3ae)
 
 if(EXISTS "${CANN_3RD_LIB_PATH}/ops-tensor")
   get_filename_component(OPTENSOR_SOURCE_PATH ${CANN_3RD_LIB_PATH}/ops-tensor REALPATH)
@@ -32,7 +32,7 @@ else()
 
   FetchContent_Declare(
     ops-tensor
-    GIT_REPOSITORY https://gitcode.com/cann/ops-tensor.git
+    GIT_REPOSITORY https://gitcode.com/wangzitao_leo/ops-tensor.git
     GIT_TAG ${OPTENSOR_TAG_ID}
     GIT_PROGRESS TRUE
     SOURCE_DIR ${CANN_3RD_LIB_PATH}/ops-tensor)

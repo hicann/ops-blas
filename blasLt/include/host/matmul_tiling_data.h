@@ -9,8 +9,8 @@
  */
 
 /*!
- * \file quant_matmul_tiling_data.h
- * \brief Host-to-device POD tiling payload for MX quantized matmul.
+ * \file matmul_tiling_data.h
+ * \brief Host-to-device POD tiling payloads for blasLt matmul kernels.
  */
 
 #pragma once
@@ -20,6 +20,24 @@
 #endif
 
 #pragma pack(push, 8)
+struct alignas(8) MatmulFp32TilingData {
+    uint32_t m{0};
+    uint32_t n{0};
+    uint32_t k{0};
+
+    uint32_t baseM{0};
+    uint32_t baseN{0};
+    uint32_t baseK{0};
+
+    uint32_t kL1{0};
+
+    uint32_t usedCoreNum{0};
+    uint32_t lda{0};
+    uint32_t ldb{0};
+    uint8_t transA{0};
+    uint8_t transB{0};
+};
+
 struct alignas(8) QuantMatmulTilingData {
     uint32_t m{0};
     uint32_t n{0};

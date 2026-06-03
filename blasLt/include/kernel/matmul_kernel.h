@@ -20,14 +20,21 @@
 
 #include <cstdint>
 
-#include "quant_matmul_tiling_data.h"
+#include "matmul_tiling_data.h"
 
 // FP32 x FP32 -> FP32
 void matmul_fp32_kernel_do(
-    uint8_t* a, uint8_t* b, uint8_t* c, uint8_t* d, uint32_t m, uint32_t k, uint32_t n, uint32_t numBlocks,
-    void* stream);
+    uint8_t* a, uint8_t* b, uint8_t* dRaw, const MatmulFp32TilingData& tiling, uint32_t numBlocks, void* stream);
 
 // MXFP8 (BLAZE)
 void matmul_mxfp8_kernel_do(
+    uint8_t* dA, uint8_t* dB, uint8_t* dScaleA, uint8_t* dScaleB, uint8_t* dC, const QuantMatmulTilingData& tiling,
+    bool transA, bool transB, void* stream);
+
+// MXFP4 (BLAZE)
+void matmul_mxfp4_kernel_do_e2m1_e2m1_fp32(
+    uint8_t* dA, uint8_t* dB, uint8_t* dScaleA, uint8_t* dScaleB, uint8_t* dC, const QuantMatmulTilingData& tiling,
+    bool transA, bool transB, void* stream);
+void matmul_mxfp4_kernel_do_e2m1_e2m1_bf16(
     uint8_t* dA, uint8_t* dB, uint8_t* dScaleA, uint8_t* dScaleB, uint8_t* dC, const QuantMatmulTilingData& tiling,
     bool transA, bool transB, void* stream);

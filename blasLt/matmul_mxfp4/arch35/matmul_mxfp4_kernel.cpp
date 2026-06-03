@@ -9,8 +9,8 @@
  */
 
 /*!
- * \file matmul_mxfp8_kernel.cpp
- * \brief MXFP8 matmul kernel.
+ * \file matmul_mxfp4_kernel.cpp
+ * \brief MXFP4 matmul kernel.
  */
 
 #if ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR > 0
@@ -23,19 +23,16 @@
 #include "blaze/kernel/kernel_qbmm_mx.h"
 #include "matmul_tiling_data.h"
 
-template <bool TransA, bool TransB>
-__global__ __aicore__ __cube__ void QuantMatmulMxfp8Kernel(
+template <typename AType, typename BType, typename CType, bool TransA, bool TransB>
+__aicore__ inline void RunQuantMatmulMxfp4Kernel(
     GM_ADDR dA, GM_ADDR dB, GM_ADDR dScaleA, GM_ADDR dScaleB, GM_ADDR dC,
-    const QuantMatmulTilingData quantMatmulTilingData)
+    const QuantMatmulTilingData& quantMatmulTilingData)
 {
     using namespace AscendC::Std;
     using namespace AscendC::Te;
     using namespace Blaze::Gemm;
 
     using ProblemShape = AscendC::Te::Shape<uint64_t, uint64_t, uint64_t, uint64_t>;
-    using AType = fp8_e4m3fn_t;
-    using BType = fp8_e4m3fn_t;
-    using CType = bfloat16_t;
     using BiasType = float;
     using DispatchPolicy = MatmulWithScaleMx<0UL>;
     using LayoutA = conditional_t<TransA, AscendC::Te::DNExtLayoutPtn, AscendC::Te::NDExtLayoutPtn>;
@@ -82,25 +79,60 @@ __global__ __aicore__ __cube__ void QuantMatmulMxfp8Kernel(
     kernel(params);
 }
 
-void matmul_mxfp8_kernel_do(
+#define MXFP4_DEFINE_KERNEL(kernelName, typeA, typeB, typeC, transA, transB)                 \
+    __global__ __aicore__ __cube__ void kernelName(                                          \
+        GM_ADDR dA, GM_ADDR dB, GM_ADDR dScaleA, GM_ADDR dScaleB, GM_ADDR dC,                 \
+        const QuantMatmulTilingData quantMatmulTilingData)                                   \
+    {                                                                                        \
+        RunQuantMatmulMxfp4Kernel<typeA, typeB, typeC, transA, transB>(                      \
+            dA, dB, dScaleA, dScaleB, dC, quantMatmulTilingData);                            \
+    }
+
+#define MXFP4_DEFINE_TRANS_SET(prefix, typeA, typeB, typeC)                                  \
+    MXFP4_DEFINE_KERNEL(prefix##NN, typeA, typeB, typeC, false, false)                       \
+    MXFP4_DEFINE_KERNEL(prefix##TN, typeA, typeB, typeC, true, false)                        \
+    MXFP4_DEFINE_KERNEL(prefix##NT, typeA, typeB, typeC, false, true)                        \
+    MXFP4_DEFINE_KERNEL(prefix##TT, typeA, typeB, typeC, true, true)
+
+MXFP4_DEFINE_TRANS_SET(QuantMatmulMxfp4E2M1E2M1Fp32, fp4x2_e2m1_t, fp4x2_e2m1_t, float)
+MXFP4_DEFINE_TRANS_SET(QuantMatmulMxfp4E2M1E2M1Bf16, fp4x2_e2m1_t, fp4x2_e2m1_t, bfloat16_t)
+
+#undef MXFP4_DEFINE_TRANS_SET
+#undef MXFP4_DEFINE_KERNEL
+
+#define MXFP4_LAUNCH_SET(prefix, dA, dB, dScaleA, dScaleB, dC, tilingCopy, transA, transB, stream) \
+    do {                                                                                           \
+        if ((transA) && (transB)) {                                                                \
+            prefix##TT<<<tilingCopy.usedCoreNum, nullptr, stream>>>(                               \
+                dA, dB, dScaleA, dScaleB, dC, tilingCopy);                                         \
+        } else if ((transA) && !(transB)) {                                                         \
+            prefix##TN<<<tilingCopy.usedCoreNum, nullptr, stream>>>(                               \
+                dA, dB, dScaleA, dScaleB, dC, tilingCopy);                                         \
+        } else if (!(transA) && (transB)) {                                                        \
+            prefix##NT<<<tilingCopy.usedCoreNum, nullptr, stream>>>(                               \
+                dA, dB, dScaleA, dScaleB, dC, tilingCopy);                                         \
+        } else {                                                                                   \
+            prefix##NN<<<tilingCopy.usedCoreNum, nullptr, stream>>>(                               \
+                dA, dB, dScaleA, dScaleB, dC, tilingCopy);                                         \
+        }                                                                                          \
+    } while (0)
+
+void matmul_mxfp4_kernel_do_e2m1_e2m1_fp32(
     uint8_t* dA, uint8_t* dB, uint8_t* dScaleA, uint8_t* dScaleB, uint8_t* dC, const QuantMatmulTilingData& tiling,
     bool transA, bool transB, void* stream)
 {
     QuantMatmulTilingData tilingCopy = tiling;
-
-    if (transA && transB) {
-        QuantMatmulMxfp8Kernel<true, true>
-            <<<tilingCopy.usedCoreNum, nullptr, stream>>>(dA, dB, dScaleA, dScaleB, dC, tilingCopy);
-    } else if (transA && !transB) {
-        QuantMatmulMxfp8Kernel<true, false>
-            <<<tilingCopy.usedCoreNum, nullptr, stream>>>(dA, dB, dScaleA, dScaleB, dC, tilingCopy);
-    } else if (!transA && transB) {
-        QuantMatmulMxfp8Kernel<false, true>
-            <<<tilingCopy.usedCoreNum, nullptr, stream>>>(dA, dB, dScaleA, dScaleB, dC, tilingCopy);
-    } else {
-        QuantMatmulMxfp8Kernel<false, false>
-            <<<tilingCopy.usedCoreNum, nullptr, stream>>>(dA, dB, dScaleA, dScaleB, dC, tilingCopy);
-    }
+    MXFP4_LAUNCH_SET(QuantMatmulMxfp4E2M1E2M1Fp32, dA, dB, dScaleA, dScaleB, dC, tilingCopy, transA, transB, stream);
 }
+
+void matmul_mxfp4_kernel_do_e2m1_e2m1_bf16(
+    uint8_t* dA, uint8_t* dB, uint8_t* dScaleA, uint8_t* dScaleB, uint8_t* dC, const QuantMatmulTilingData& tiling,
+    bool transA, bool transB, void* stream)
+{
+    QuantMatmulTilingData tilingCopy = tiling;
+    MXFP4_LAUNCH_SET(QuantMatmulMxfp4E2M1E2M1Bf16, dA, dB, dScaleA, dScaleB, dC, tilingCopy, transA, transB, stream);
+}
+
+#undef MXFP4_LAUNCH_SET
 
 #endif // ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR > 0

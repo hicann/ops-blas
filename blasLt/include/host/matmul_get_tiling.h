@@ -9,8 +9,8 @@
  */
 
 /*!
- * \file matmul_mxfp8_host.h
- * \brief Host-side MXFP8 tiling API declarations.
+ * \file matmul_get_tiling.h
+ * \brief Host-side matmul tiling API declarations.
  */
 
 #pragma once
@@ -18,6 +18,16 @@
 #include <cstdint>
 
 struct QuantMatmulTilingData;
+struct MatmulFp32TilingData;
+
+void matmul_fp32_get_tiling(
+    uint64_t m, uint64_t n, uint64_t k, bool transA, bool transB, uint32_t lda, uint32_t ldb, uint32_t numBlocks,
+    MatmulFp32TilingData& tilingData);
 
 void matmul_mxfp8_get_tiling(
-    uint64_t m, uint64_t n, uint64_t k, bool transA, bool transB, QuantMatmulTilingData& tilingData);
+    uint64_t m, uint64_t n, uint64_t k, bool transA, bool transB, uint32_t numBlocks,
+    QuantMatmulTilingData& tilingData);
+
+void matmul_mxfp4_get_tiling(
+    uint64_t m, uint64_t n, uint64_t k, bool transA, bool transB, uint32_t numBlocks,
+    QuantMatmulTilingData& tilingData);

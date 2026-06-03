@@ -8,11 +8,4 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
 
-ops_blas_add_tests(${OPS_BLASLT} blasLtMatmul_test)
-
-target_compile_definitions(blasLtMatmul_test PRIVATE
-    ASCENDC_DUMP=0
-)
-target_compile_options(blasLtMatmul_test PRIVATE
-    -g
-)
+ops_blas_add_gtest_tests(${OPS_BLASLT} blasLtMatmul_test)

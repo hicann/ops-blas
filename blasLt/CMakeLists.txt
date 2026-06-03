@@ -47,9 +47,10 @@ endforeach()
 # MXFP8 需要 asc-devkit >= 9.1（ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR > 0）
 if(NOT ENABLE_BLASLT_MXFP8)
     list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/matmul_mxfp8/")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/matmul_mxfp4/")
     message(
         STATUS
-        "Skipping blasLt MXFP8 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+        "Skipping blasLt MXFP8/MXFP4 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
 
 set(ALL_BLASLT_SRC_FILES
