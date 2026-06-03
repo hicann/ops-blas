@@ -19,6 +19,7 @@
 #include <cstring>
 #include <vector>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
@@ -86,6 +87,7 @@ static aclblasStatus_t PrepareContiguousX(
     std::vector<float> xHost(1 + (n - 1) * absIncx, 0.0f);
     aclRet = aclrtMemcpy(xHost.data(), xTotalBytes, const_cast<float*>(x), xTotalBytes, ACL_MEMCPY_DEVICE_TO_HOST);
     if (aclRet != ACL_SUCCESS) {
+        OP_LOGE("aclblasSsyr", "aclrtMemcpy D2H failed, ret=%d", aclRet);
         aclrtFree(*xContiguousDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
@@ -106,6 +108,7 @@ static aclblasStatus_t PrepareContiguousX(
     aclRet = aclrtMemcpy(
         *xContiguousDevice, xContiguousBytes, xContiguousHost.data(), xContiguousBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     if (aclRet != ACL_SUCCESS) {
+        OP_LOGE("aclblasSsyr", "aclrtMemcpy H2D failed, ret=%d", aclRet);
         aclrtFree(*xContiguousDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
@@ -153,6 +156,7 @@ static aclblasStatus_t LaunchSyrKernel(
 
     aclError aclRet = aclrtSynchronizeStream(stream);
     if (aclRet != ACL_SUCCESS) {
+        OP_LOGE("aclblasSsyr", "aclrtSynchronizeStream failed, ret=%d", aclRet);
         aclrtFree(alphaDevice);
         aclrtFree(tilingDevice);
         if (needFreeX)
@@ -178,6 +182,7 @@ aclblasStatus_t aclblasSsyr(
     }
 
     if (n < 0 || lda < std::max(1, n) || incx == 0 || alpha == nullptr || x == nullptr || A == nullptr) {
+        OP_LOGE("aclblasSsyr", "invalid params: n=%d lda=%d incx=%d", n, lda, incx);
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
@@ -186,6 +191,7 @@ aclblasStatus_t aclblasSsyr(
     aclrtContext currentCtx = nullptr;
     aclError aclRet = aclrtGetCurrentContext(&currentCtx);
     if (aclRet != ACL_SUCCESS || currentCtx == nullptr) {
+        OP_LOGE("aclblasSsyr", "aclrtGetCurrentContext failed, ret=%d", aclRet);
         return ACLBLAS_STATUS_NOT_INITIALIZED;
     }
 
@@ -208,6 +214,11 @@ aclblasStatus_t aclblasSsyr(
     }
 
     SyrTilingData tiling = CalSyrTilingData(n, lda, (uplo == ACLBLAS_UPPER) ? 1u : 0u, coreNum);
+
+    OP_LOGD(
+        "aclblasSsyr", "tiling: n=%u lda=%u uplo=%u useCoreNum=%u", tiling.n, tiling.lda, tiling.uplo,
+        tiling.useCoreNum);
+    OP_LOGI("aclblasSsyr", "launching kernel");
 
     return LaunchSyrKernel(alphaVal, tiling, xContiguousDevice, needFreeX, A, stream);
 }

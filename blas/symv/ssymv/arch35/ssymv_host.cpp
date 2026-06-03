@@ -16,6 +16,7 @@
 #include <cstdint>
 #include <algorithm>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
@@ -28,7 +29,7 @@
         }                            \
     } while (0)
 
-template<typename R, typename T1, typename T2>
+template <typename R, typename T1, typename T2>
 static inline R CeilDiv(T1 a, T2 b)
 {
     R ra = static_cast<R>(a);
@@ -36,25 +37,32 @@ static inline R CeilDiv(T1 a, T2 b)
     return (ra + rb - 1) / rb;
 }
 
-template<typename R, typename T1, typename T2>
+template <typename R, typename T1, typename T2>
 static inline R CeilAlign(T1 val, T2 align)
 {
     return CeilDiv<R>(val, align) * static_cast<R>(align);
 }
 
 static aclblasStatus_t ValidateSsymvParams(
-    aclblasFillMode_t uplo, int n, int lda, int incx, int incy,
-    const float* alpha, const float* beta, const float* A, const float* x, const float* y)
+    aclblasFillMode_t uplo, int n, int lda, int incx, int incy, const float* alpha, const float* beta, const float* A,
+    const float* x, const float* y)
 {
-    CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(lda >= std::max(1, n), return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incy != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(alpha != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(beta != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(A != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(y != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasSsymv", "invalid uplo=%d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        lda >= std::max(1, n), OP_LOGE("aclblasSsymv", "invalid lda=%d, n=%d", lda, n);
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasSsymv", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incy != 0, OP_LOGE("aclblasSsymv", "incy must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        alpha != nullptr, OP_LOGE("aclblasSsymv", "alpha must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        beta != nullptr, OP_LOGE("aclblasSsymv", "beta must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(A != nullptr, OP_LOGE("aclblasSsymv", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, OP_LOGE("aclblasSsymv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(y != nullptr, OP_LOGE("aclblasSsymv", "y must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -86,19 +94,17 @@ static SsymvTilingData CalSsymvTilingData(
 }
 
 aclblasStatus_t aclblasSsymv(
-    aclblasHandle_t handle, aclblasFillMode_t uplo, int n,
-    const float* alpha, const float* A, int lda,
-    const float* x, int incx, const float* beta,
-    float* y, int incy)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* A, int lda, const float* x,
+    int incx, const float* beta, float* y, int incy)
 {
     // 1. n < 0 check
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasSsymv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     // 2. n == 0 quick return (must be before other validations)
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
     // 3. handle non-null check
-    CHECK_RET(handle != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(handle != nullptr, OP_LOGE("aclblasSsymv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     // 4. parameter validation
     aclblasStatus_t st = ValidateSsymvParams(uplo, n, lda, incx, incy, alpha, beta, A, x, y);
     if (st != ACLBLAS_STATUS_SUCCESS) {
@@ -107,6 +113,7 @@ aclblasStatus_t aclblasSsymv(
     // 5. get vector core count
     uint32_t aivCoreNum = GetVectorCoreCount();
     if (aivCoreNum == 0) {
+        OP_LOGE("aclblasSsymv", "vector core count is 0");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
@@ -115,22 +122,34 @@ aclblasStatus_t aclblasSsymv(
     aclrtStream useStream = h->stream;
     // 7. fill tiling data
     SsymvTilingData tiling = CalSsymvTilingData(useNumBlocks, n, lda, uplo, *alpha, *beta, incx, incy);
+
+    OP_LOGD(
+        "aclblasSsymv", "tiling: n=%u lda=%u uplo=%u nthreads=%u numBlocks=%u", tiling.n, tiling.lda, tiling.uplo,
+        tiling.nthreads, useNumBlocks);
+    OP_LOGI("aclblasSsymv", "launching kernel");
+
     // 8. allocate tiling device memory
     uint8_t* tilingDevice = nullptr;
     aclError aclRet =
         aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SsymvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsymv", "aclrtMalloc failed, ret=%d", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
     // 9. copy tiling to device
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(SsymvTilingData), &tiling, sizeof(SsymvTilingData),
-                          ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclRet =
+        aclrtMemcpy(tilingDevice, sizeof(SsymvTilingData), &tiling, sizeof(SsymvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsymv", "aclrtMemcpy H2D failed, ret=%d", aclRet);
+        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
     // 10. launch kernel
     ssymv_kernel_do(
         (GM_ADDR) const_cast<float*>(A), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice,
         useNumBlocks, useStream);
     // 11. synchronize stream
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsymv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
     // 12. cleanup
     aclrtFree(tilingDevice);
     return ACLBLAS_STATUS_SUCCESS;

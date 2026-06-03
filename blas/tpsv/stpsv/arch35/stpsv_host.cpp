@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "stpsv_tiling_data.h"
@@ -24,20 +25,27 @@
 #include "common/helper/host_utils.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 
-
 static constexpr uint32_t SIMT_THRESHOLD = 128;
 
 static aclblasStatus_t ValidateTpsvParams(
     aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int incx, const float* AP,
     const float* x)
 {
-    CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
-              return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(diag == ACLBLAS_NON_UNIT || diag == ACLBLAS_UNIT, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(AP != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasStpsv", "invalid uplo=%d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
+        OP_LOGE("aclblasStpsv", "invalid trans=%d", static_cast<int>(trans));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        diag == ACLBLAS_NON_UNIT || diag == ACLBLAS_UNIT,
+        OP_LOGE("aclblasStpsv", "invalid diag=%d", static_cast<int>(diag));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasStpsv", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(AP != nullptr, OP_LOGE("aclblasStpsv", "AP must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, OP_LOGE("aclblasStpsv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -46,9 +54,9 @@ aclblasStatus_t aclblasStpsv(
     const float* AP, float* x, int incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    CHECK_RET(h != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(h != nullptr, OP_LOGE("aclblasStpsv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasStpsv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
@@ -60,8 +68,7 @@ aclblasStatus_t aclblasStpsv(
     // Determine execution path: numThreads=0 → scalar, numThreads>0 → SIMT
     uint32_t numThreads = 0;
     if (static_cast<uint32_t>(n) >= SIMT_THRESHOLD) {
-        numThreads = std::min(
-            CeilAlign<uint32_t>(static_cast<uint32_t>(n), SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
+        numThreads = std::min(CeilAlign<uint32_t>(static_cast<uint32_t>(n), SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
     }
 
     StpsvTilingData tiling;
@@ -74,10 +81,17 @@ aclblasStatus_t aclblasStpsv(
     tiling.incx = static_cast<int64_t>(incx);
     tiling.numThreads = numThreads;
 
+    OP_LOGD(
+        "aclblasStpsv", "tiling: n=%u uplo=%u trans=%u diag=%u incx=%ld numThreads=%u", tiling.n, tiling.uplo,
+        tiling.trans, tiling.diag, tiling.incx, tiling.numThreads);
+    OP_LOGI("aclblasStpsv", "launching kernel");
+
     stpsv_kernel_do(tiling, h->stream);
 
     aclError aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasStpsv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
@@ -34,19 +35,29 @@
 static constexpr bool STBMV_ENABLE_COLUMN_SIMD_FASTPATH = true;
 
 static aclblasStatus_t ValidateStbmvParams(
-    aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k, const float* a, int lda,
-    const float* x, int incx)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k,
+    const float* a, int lda, const float* x, int incx)
 {
-    CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(handle != nullptr, OP_LOGE("aclblasStbmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     CHECK_RET(
-        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(diag == ACLBLAS_UNIT || diag == ACLBLAS_NON_UNIT, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(k >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(lda >= k + 1, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(a != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasStbmv", "invalid uplo=%d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
+        OP_LOGE("aclblasStbmv", "invalid trans=%d", static_cast<int>(trans));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        diag == ACLBLAS_UNIT || diag == ACLBLAS_NON_UNIT,
+        OP_LOGE("aclblasStbmv", "invalid diag=%d", static_cast<int>(diag));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasStbmv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(k >= 0, OP_LOGE("aclblasStbmv", "invalid k=%d", k); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        lda >= k + 1, OP_LOGE("aclblasStbmv", "invalid lda=%d, k=%d", lda, k); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasStbmv", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(a != nullptr, OP_LOGE("aclblasStbmv", "a must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, OP_LOGE("aclblasStbmv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -61,8 +72,9 @@ static uint32_t GetVectorCoreCount()
     return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
 }
 
-static StbmvTilingData CalStbmvTilingData(uint32_t useNumBlocks, int n, int k, int lda, aclblasFillMode_t uplo,
-    aclblasOperation_t trans, aclblasDiagType_t diag, int incx)
+static StbmvTilingData CalStbmvTilingData(
+    uint32_t useNumBlocks, int n, int k, int lda, aclblasFillMode_t uplo, aclblasOperation_t trans,
+    aclblasDiagType_t diag, int incx)
 {
     StbmvTilingData tilingData{};
     uint32_t nValue = static_cast<uint32_t>(n);
@@ -71,8 +83,7 @@ static StbmvTilingData CalStbmvTilingData(uint32_t useNumBlocks, int n, int k, i
         CeilAlign<uint32_t>(CeilDiv<uint32_t>(nValue, useNumBlocks), SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
     tilingData.numBlocks = useNumBlocks;
     tilingData.rowsPerBlock = CeilDiv<uint32_t>(nValue, useNumBlocks);
-    tilingData.useUb =
-        (incx == 1 && n >= 32 && tilingData.rowsPerBlock + kValue <= STBMV_UB_X_FLOATS) ? 1U : 0U;
+    tilingData.useUb = (incx == 1 && n >= 32 && tilingData.rowsPerBlock + kValue <= STBMV_UB_X_FLOATS) ? 1U : 0U;
     tilingData.n = nValue;
     tilingData.k = kValue;
     tilingData.lda = static_cast<uint32_t>(lda);
@@ -106,31 +117,53 @@ static StbmvFastTilingData CalStbmvFastTilingData(
     return tilingData;
 }
 
+static aclblasStatus_t LaunchStbmvKernel(
+    _aclblas_handle* h, const float* A, float* x, uint8_t* workspaceDevice, size_t workspaceSize,
+    const StbmvTilingData& tilingData, bool useFastPath, const StbmvFastTilingData& fastTilingData, uint32_t fastBlocks,
+    uint32_t useNumBlocks)
+{
+    OP_LOGD(
+        "aclblasStbmv",
+        "tiling: n=%u k=%u lda=%u uplo=%u trans=%u diag=%u incx=%ld numBlocks=%u numThreads=%u useFastPath=%d",
+        tilingData.n, tilingData.k, tilingData.lda, tilingData.uplo, tilingData.trans, tilingData.diag, tilingData.incx,
+        tilingData.numBlocks, tilingData.numThreads, static_cast<int>(useFastPath));
+    OP_LOGI("aclblasStbmv", "launching kernel");
+    if (useFastPath) {
+        int kernelRet = stbmv_arch35_simd_fastpath_kernel_do(
+            A, x, workspaceDevice, workspaceSize, tilingData, fastTilingData, fastBlocks, h->stream);
+        CHECK_RET(
+            kernelRet == ACL_SUCCESS, OP_LOGE("aclblasStbmv", "fastpath kernel failed, ret=%d", kernelRet);
+            aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    } else {
+        stbmv_arch35_kernel_do(A, x, workspaceDevice, tilingData, useNumBlocks, h->stream);
+    }
+    aclError aclRet = aclrtSynchronizeStream(h->stream);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasStbmv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    aclrtFree(workspaceDevice);
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
 aclblasStatus_t aclblasStbmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k,
     const float* A, int lda, float* x, int incx)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    CHECK_RET(h != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
-
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(handle != nullptr, OP_LOGE("aclblasStbmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-
-    aclblasStatus_t st = ValidateStbmvParams(uplo, trans, diag, n, k, A, lda, x, incx);
-    if (st != ACLBLAS_STATUS_SUCCESS) {
-        return st;
-    }
-
+    aclblasStatus_t st = ValidateStbmvParams(handle, uplo, trans, diag, n, k, A, lda, x, incx);
+    CHECK_RET(st == ACLBLAS_STATUS_SUCCESS, return st);
     if (k == 0 && diag == ACLBLAS_UNIT) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     uint32_t aivCoreNum = GetVectorCoreCount();
-    CHECK_RET(aivCoreNum > 0, return ACLBLAS_STATUS_EXECUTION_FAILED);
-    uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(static_cast<uint32_t>(n), SIMT_MIN_THREAD_NUM), aivCoreNum);
-    useNumBlocks = std::max<uint32_t>(useNumBlocks, 1);
+    CHECK_RET(
+        aivCoreNum > 0, OP_LOGE("aclblasStbmv", "vector core count is 0"); return ACLBLAS_STATUS_EXECUTION_FAILED);
+    uint32_t useNumBlocks =
+        std::max<uint32_t>(std::min(CeilDiv<uint32_t>(static_cast<uint32_t>(n), SIMT_MIN_THREAD_NUM), aivCoreNum), 1);
 
     StbmvTilingData tilingData = CalStbmvTilingData(useNumBlocks, n, k, lda, uplo, trans, diag, incx);
     bool useFastPath = UseColumnSimdFastPath(uplo, trans, diag, n, k, incx);
@@ -141,25 +174,14 @@ aclblasStatus_t aclblasStbmv(
     }
 
     uint8_t* workspaceDevice = nullptr;
-    size_t workspaceSize = 0;
+    size_t workspaceSize = (k > 0) ? static_cast<size_t>(n) * sizeof(float) : 0;
     if (k > 0) {
-        workspaceSize = static_cast<size_t>(n) * sizeof(float);
         aclError aclRet =
             aclrtMalloc(reinterpret_cast<void**>(&workspaceDevice), workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-        CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+        CHECK_RET(
+            aclRet == ACL_SUCCESS, OP_LOGE("aclblasStbmv", "aclrtMalloc failed, ret=%d", aclRet);
+            return ACLBLAS_STATUS_ALLOC_FAILED);
     }
-
-    if (useFastPath) {
-        int kernelRet = stbmv_arch35_simd_fastpath_kernel_do(
-            A, x, workspaceDevice, workspaceSize, tilingData, fastTilingData, fastBlocks, h->stream);
-        CHECK_RET(kernelRet == ACL_SUCCESS, aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-    } else {
-        stbmv_arch35_kernel_do(A, x, workspaceDevice, tilingData, useNumBlocks, h->stream);
-    }
-
-    aclError aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    aclrtFree(workspaceDevice);
-    return ACLBLAS_STATUS_SUCCESS;
+    return LaunchStbmvKernel(
+        h, A, x, workspaceDevice, workspaceSize, tilingData, useFastPath, fastTilingData, fastBlocks, useNumBlocks);
 }

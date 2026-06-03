@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <algorithm>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
@@ -25,30 +26,30 @@ static aclblasStatus_t ValidateParams(
     aclblasHandle_t handle, int n, aclblasFillMode_t uplo, int lda, const float* AP, const float* A)
 {
     if (handle == nullptr) {
-        printf("[ERROR][tpttr] handle is nullptr\n");
+        OP_LOGE("aclblasStpttr", "handle is nullptr");
         return ACLBLAS_STATUS_NOT_INITIALIZED;
     }
     if (n < 0) {
-        printf("[ERROR][tpttr] n=%d, expected >= 0\n", n);
+        OP_LOGE("aclblasStpttr", "n=%d, expected >= 0", n);
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (uplo != ACLBLAS_LOWER && uplo != ACLBLAS_UPPER) {
-        printf("[ERROR][tpttr] uplo=%d, expected 121(UPPER) or 122(LOWER)\n", static_cast<int>(uplo));
+        OP_LOGE("aclblasStpttr", "uplo=%d, expected 121(UPPER) or 122(LOWER)", static_cast<int>(uplo));
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
     if (lda < n) {
-        printf("[ERROR][tpttr] lda=%d, expected >= n=%d\n", lda, n);
+        OP_LOGE("aclblasStpttr", "lda=%d, expected >= n=%d", lda, n);
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (AP == nullptr) {
-        printf("[ERROR][tpttr] AP must not be nullptr\n");
+        OP_LOGE("aclblasStpttr", "AP must not be nullptr");
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (A == nullptr) {
-        printf("[ERROR][tpttr] A must not be nullptr\n");
+        OP_LOGE("aclblasStpttr", "A must not be nullptr");
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     return ACLBLAS_STATUS_SUCCESS;
@@ -62,7 +63,7 @@ static uint32_t GetVecCoreNum(int32_t deviceId, aclblasStatus_t* status)
     int64_t availableCoreNum = 0;
     aclError ret = aclrtGetDeviceInfo(deviceId, ACL_DEV_ATTR_VECTOR_CORE_NUM, &availableCoreNum);
     if (ret != ACL_SUCCESS) {
-        printf("[ERROR][tpttr] aclrtGetDeviceInfo failed, error=%d\n", ret);
+        OP_LOGE("aclblasStpttr", "aclrtGetDeviceInfo failed, error=%d", ret);
         *status = ACLBLAS_STATUS_EXECUTION_FAILED;
         return 0;
     }
@@ -78,7 +79,7 @@ static aclblasStatus_t CalTilingData(TpttrTilingData* tiling, int n, int lda, in
     int32_t deviceId = 0;
     aclError ret = aclrtGetDevice(&deviceId);
     if (ret != ACL_SUCCESS) {
-        printf("[ERROR][tpttr] aclrtGetDevice failed, error=%d\n", ret);
+        OP_LOGE("aclblasStpttr", "aclrtGetDevice failed, error=%d", ret);
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
@@ -111,14 +112,14 @@ static aclblasStatus_t ExecuteKernel(const float* AP, float* A, const TpttrTilin
     uint8_t* tilingDevice = nullptr;
     aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(TpttrTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
     if (aclRet != ACL_SUCCESS) {
-        printf("[ERROR][tpttr] aclrtMalloc failed, error=%d\n", aclRet);
+        OP_LOGE("aclblasStpttr", "aclrtMalloc failed, error=%d", aclRet);
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
 
     aclRet =
         aclrtMemcpy(tilingDevice, sizeof(TpttrTilingData), tiling, sizeof(TpttrTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
     if (aclRet != ACL_SUCCESS) {
-        printf("[ERROR][tpttr] aclrtMemcpy failed, error=%d\n", aclRet);
+        OP_LOGE("aclblasStpttr", "aclrtMemcpy failed, error=%d", aclRet);
         aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
@@ -129,14 +130,14 @@ static aclblasStatus_t ExecuteKernel(const float* AP, float* A, const TpttrTilin
 
     aclRet = aclrtSynchronizeStream(stream);
     if (aclRet != ACL_SUCCESS) {
-        printf("[ERROR][tpttr] aclrtSynchronizeStream failed, error=%d\n", aclRet);
+        OP_LOGE("aclblasStpttr", "aclrtSynchronizeStream failed, error=%d", aclRet);
         aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
     aclRet = aclrtFree(tilingDevice);
     if (aclRet != ACL_SUCCESS) {
-        printf("[ERROR][tpttr] aclrtFree failed, error=%d\n", aclRet);
+        OP_LOGE("aclblasStpttr", "aclrtFree failed, error=%d", aclRet);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
     return ACLBLAS_STATUS_SUCCESS;

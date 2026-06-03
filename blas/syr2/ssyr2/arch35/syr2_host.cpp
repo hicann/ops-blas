@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "syr2_tiling_data.h"
@@ -35,14 +36,20 @@ static aclblasStatus_t ValidateSyr2Params(
     aclblasFillMode uplo, int n, int lda, int incx, int incy, const float* alpha, const float* x, const float* y,
     const float* A)
 {
-    CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(lda >= std::max(1, n), return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incy != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(alpha != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(y != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(A != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasSsyr2", "invalid uplo=%d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        lda >= std::max(1, n), OP_LOGE("aclblasSsyr2", "invalid lda=%d, n=%d", lda, n);
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasSsyr2", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incy != 0, OP_LOGE("aclblasSsyr2", "incy must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        alpha != nullptr, OP_LOGE("aclblasSsyr2", "alpha must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, OP_LOGE("aclblasSsyr2", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(y != nullptr, OP_LOGE("aclblasSsyr2", "y must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(A != nullptr, OP_LOGE("aclblasSsyr2", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -80,9 +87,9 @@ aclblasStatus_t aclblasSsyr2(
     int incy, float* A, int lda)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    CHECK_RET(h != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(h != nullptr, OP_LOGE("aclblasSsyr2", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasSsyr2", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
@@ -93,27 +100,39 @@ aclblasStatus_t aclblasSsyr2(
 
     uint32_t aivCoreNum = GetVectorCoreCount();
     if (aivCoreNum == 0) {
+        OP_LOGE("aclblasSsyr2", "vector core count is 0");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
 
     Syr2TilingData tiling = CalSyr2TilingData(useNumBlocks, n, lda, uplo, *alpha, incx, incy);
 
+    OP_LOGD(
+        "aclblasSsyr2", "tiling: n=%u lda=%u uplo=%u numThreads=%u numBlocks=%u", tiling.n, tiling.lda, tiling.uplo,
+        tiling.numThreads, useNumBlocks);
+    OP_LOGI("aclblasSsyr2", "launching kernel");
+
     uint8_t* tilingDevice = nullptr;
     aclError aclRet =
         aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(Syr2TilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsyr2", "aclrtMalloc failed, ret=%d", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
     aclRet =
         aclrtMemcpy(tilingDevice, sizeof(Syr2TilingData), &tiling, sizeof(Syr2TilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsyr2", "aclrtMemcpy H2D failed, ret=%d", aclRet);
+        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     syr2_kernel_do(
         (GM_ADDR) const_cast<float*>(x), (GM_ADDR) const_cast<float*>(y), (GM_ADDR)A, nullptr, tilingDevice,
         useNumBlocks, h->stream);
 
     aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsyr2", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(tilingDevice);
 

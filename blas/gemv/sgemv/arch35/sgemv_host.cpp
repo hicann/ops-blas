@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdint>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "sgemv_tiling_data.h"
@@ -31,28 +32,36 @@ static aclblasStatus_t ValidateSgemvParams(
     const float* a, const float* x, const float* y)
 {
     CHECK_RET(
-        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(m >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(lda >= std::max(1, m), return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != INT32_MIN, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incy != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incy != INT32_MIN, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(alpha != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(beta != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
+        OP_LOGE("aclblasSgemv", "invalid trans=%d", static_cast<int>(trans));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(m >= 0, OP_LOGE("aclblasSgemv", "invalid m=%d", m); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasSgemv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        lda >= std::max(1, m), OP_LOGE("aclblasSgemv", "invalid lda=%d, m=%d", lda, m);
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasSgemv", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        incx != INT32_MIN, OP_LOGE("aclblasSgemv", "incx must not be INT32_MIN"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incy != 0, OP_LOGE("aclblasSgemv", "incy must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        incy != INT32_MIN, OP_LOGE("aclblasSgemv", "incy must not be INT32_MIN"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        alpha != nullptr, OP_LOGE("aclblasSgemv", "alpha must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        beta != nullptr, OP_LOGE("aclblasSgemv", "beta must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     if (m > 0 && n > 0) {
-        CHECK_RET(a != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+        CHECK_RET(a != nullptr, OP_LOGE("aclblasSgemv", "a must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     }
     // x dimension: trans=N ? n : m
     uint32_t xDim = (trans == ACLBLAS_OP_N) ? static_cast<uint32_t>(n) : static_cast<uint32_t>(m);
     if (xDim > 0) {
-        CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+        CHECK_RET(x != nullptr, OP_LOGE("aclblasSgemv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     }
     // y dimension: trans=N ? m : n
     uint32_t yDim = (trans == ACLBLAS_OP_N) ? static_cast<uint32_t>(m) : static_cast<uint32_t>(n);
     if (yDim > 0) {
-        CHECK_RET(y != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+        CHECK_RET(y != nullptr, OP_LOGE("aclblasSgemv", "y must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     }
     return ACLBLAS_STATUS_SUCCESS;
 }
@@ -97,7 +106,7 @@ aclblasStatus_t aclblasSgemv(
     const float* x, int incx, const float* beta, float* y, int incy)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    CHECK_RET(h != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(h != nullptr, OP_LOGE("aclblasSgemv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
     // Validate parameters
     aclblasStatus_t st = ValidateSgemvParams(trans, m, n, lda, incx, incy, alpha, beta, a, x, y);
@@ -112,6 +121,7 @@ aclblasStatus_t aclblasSgemv(
 
     uint32_t aivCoreNum = GetVectorCoreCount();
     if (aivCoreNum == 0) {
+        OP_LOGE("aclblasSgemv", "vector core count is 0");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
@@ -124,17 +134,25 @@ aclblasStatus_t aclblasSgemv(
 
     SgemvTilingData tiling = CalcSgemvTiling(useNumBlocks, m, n, lda, trans, *alpha, *beta, incx, incy);
 
+    OP_LOGD(
+        "aclblasSgemv", "tiling: m=%u n=%u lda=%u trans=%u numBlocks=%u numThreads=%u rowsPerBlock=%u", tiling.m,
+        tiling.n, tiling.lda, tiling.trans, useNumBlocks, tiling.numThreads, tiling.rowsPerBlock);
+    OP_LOGI("aclblasSgemv", "launching kernel");
+
     // Allocate device memory for tiling data
     uint8_t* tilingDevice = nullptr;
     aclError aclRet =
         aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SgemvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgemv", "aclrtMalloc failed, ret=%d", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
     // Copy tiling data to device
     aclRet =
         aclrtMemcpy(tilingDevice, sizeof(SgemvTilingData), &tiling, sizeof(SgemvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(
-        aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgemv", "aclrtMemcpy H2D failed, ret=%d", aclRet);
+        aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     // Launch kernel
     sgemv_kernel_do(
@@ -144,7 +162,8 @@ aclblasStatus_t aclblasSgemv(
     // Synchronize and cleanup
     aclRet = aclrtSynchronizeStream(h->stream);
     CHECK_RET(
-        aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgemv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclError freeRet = aclrtFree(tilingDevice);
     (void)freeRet;

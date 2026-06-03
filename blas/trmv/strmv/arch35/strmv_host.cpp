@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
@@ -34,15 +35,25 @@ static aclblasStatus_t ValidateStrmvParams(
     aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, const float* a, int lda,
     const float* x, int incx)
 {
-    CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
-        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(diag == ACLBLAS_UNIT || diag == ACLBLAS_NON_UNIT, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(lda >= std::max(1, n), return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(a != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasStrmv", "invalid uplo=%d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
+        OP_LOGE("aclblasStrmv", "invalid trans=%d", static_cast<int>(trans));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        diag == ACLBLAS_UNIT || diag == ACLBLAS_NON_UNIT,
+        OP_LOGE("aclblasStrmv", "invalid diag=%d", static_cast<int>(diag));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasStrmv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        lda >= std::max(1, n), OP_LOGE("aclblasStrmv", "invalid lda=%d, n=%d", lda, n);
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasStrmv", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(a != nullptr, OP_LOGE("aclblasStrmv", "a must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, OP_LOGE("aclblasStrmv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -79,9 +90,9 @@ aclblasStatus_t aclblasStrmv(
     const float* A, int lda, float* x, int incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    CHECK_RET(h != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(h != nullptr, OP_LOGE("aclblasStrmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasStrmv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
@@ -91,20 +102,32 @@ aclblasStatus_t aclblasStrmv(
     }
 
     uint32_t aivCoreNum = GetVectorCoreCount();
-    CHECK_RET(aivCoreNum > 0, return ACLBLAS_STATUS_EXECUTION_FAILED);
+    CHECK_RET(
+        aivCoreNum > 0, OP_LOGE("aclblasStrmv", "vector core count is 0"); return ACLBLAS_STATUS_EXECUTION_FAILED);
     uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(static_cast<uint32_t>(n), SIMT_MIN_THREAD_NUM), aivCoreNum);
     useNumBlocks = std::max<uint32_t>(useNumBlocks, 1);
 
     StrmvTilingData tilingData = CalStrmvTilingData(useNumBlocks, n, lda, uplo, trans, diag, incx);
+
+    OP_LOGD(
+        "aclblasStrmv", "tiling: n=%u lda=%u uplo=%u trans=%u diag=%u incx=%d numThreads=%u numBlocks=%u", tilingData.n,
+        tilingData.lda, tilingData.uplo, tilingData.trans, tilingData.diag, tilingData.incx, tilingData.numThreads,
+        useNumBlocks);
+    OP_LOGI("aclblasStrmv", "launching kernel");
+
     const size_t workspaceSize = static_cast<size_t>(n) * sizeof(float);
     uint8_t* workspaceDevice = nullptr;
     aclError aclRet = aclrtMalloc(reinterpret_cast<void**>(&workspaceDevice), workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasStrmv", "aclrtMalloc failed, ret=%d", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
 
     strmv_arch35_kernel_do(A, x, workspaceDevice, tilingData, useNumBlocks, h->stream);
 
     aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasStrmv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     aclrtFree(workspaceDevice);
     return ACLBLAS_STATUS_SUCCESS;

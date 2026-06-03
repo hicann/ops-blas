@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "strsv_tiling_data.h"
@@ -29,14 +30,24 @@ static aclblasStatus_t ValidateTrsvParams(
     aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int incx, int lda, const float* A,
     const float* x)
 {
-    CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
-        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(diag == ACLBLAS_NON_UNIT || diag == ACLBLAS_UNIT, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(lda >= std::max<int>(1, n), return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(A != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasStrsv", "invalid uplo=%d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
+        OP_LOGE("aclblasStrsv", "invalid trans=%d", static_cast<int>(trans));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        diag == ACLBLAS_NON_UNIT || diag == ACLBLAS_UNIT,
+        OP_LOGE("aclblasStrsv", "invalid diag=%d", static_cast<int>(diag));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasStrsv", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        lda >= std::max<int>(1, n), OP_LOGE("aclblasStrsv", "invalid lda=%d, n=%d", lda, n);
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(A != nullptr, OP_LOGE("aclblasStrsv", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, OP_LOGE("aclblasStrsv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -45,9 +56,9 @@ aclblasStatus_t aclblasStrsv(
     const float* A, int lda, float* x, int incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    CHECK_RET(h != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(h != nullptr, OP_LOGE("aclblasStrsv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasStrsv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
@@ -68,10 +79,17 @@ aclblasStatus_t aclblasStrsv(
     tiling.lda = static_cast<int32_t>(lda);
     tiling.numThreads = numThreads;
 
+    OP_LOGD(
+        "aclblasStrsv", "tiling: n=%u uplo=%u trans=%u diag=%u incx=%d lda=%d numThreads=%u", tiling.n, tiling.uplo,
+        tiling.trans, tiling.diag, tiling.incx, tiling.lda, tiling.numThreads);
+    OP_LOGI("aclblasStrsv", "launching kernel");
+
     strsv_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(A)), reinterpret_cast<GM_ADDR>(x), tiling, h->stream);
 
     aclError aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasStrsv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

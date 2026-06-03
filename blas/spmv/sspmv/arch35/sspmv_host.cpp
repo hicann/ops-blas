@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include "acl/acl.h"
+#include "log/log.h"
 #include "cann_ops_blas.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
@@ -33,14 +34,19 @@ static aclblasStatus_t ValidateSspmvParams(
     aclblasFillMode_t uplo, int incx, int incy, const float* alpha, const float* beta, const float* ap, const float* x,
     const float* y)
 {
-    CHECK_RET(uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incx != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(incy != 0, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(alpha != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(beta != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(ap != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(x != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(y != nullptr, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasSspmv", "invalid uplo=%d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incx != 0, OP_LOGE("aclblasSspmv", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(incy != 0, OP_LOGE("aclblasSspmv", "incy must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        alpha != nullptr, OP_LOGE("aclblasSspmv", "alpha must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        beta != nullptr, OP_LOGE("aclblasSspmv", "beta must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(ap != nullptr, OP_LOGE("aclblasSspmv", "ap must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(x != nullptr, OP_LOGE("aclblasSspmv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(y != nullptr, OP_LOGE("aclblasSspmv", "y must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -71,17 +77,17 @@ static SspmvTilingData CalSspmvTilingData(
 }
 
 aclblasStatus_t aclblasSspmv(
-    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* ap, const float* x, int incx,
-    const float* beta, float* y, int incy)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* ap, const float* x,
+    int incx, const float* beta, float* y, int incy)
 {
     // 1. n < 0 check
-    CHECK_RET(n >= 0, return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasSspmv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     // 2. n == 0 quick return (must be before other validations)
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
     // 3. handle non-null check
-    CHECK_RET(handle != nullptr, return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(handle != nullptr, OP_LOGE("aclblasSspmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     // 4. parameter validation
     aclblasStatus_t st = ValidateSspmvParams(uplo, incx, incy, alpha, beta, ap, x, y);
     if (st != ACLBLAS_STATUS_SUCCESS) {
@@ -90,6 +96,7 @@ aclblasStatus_t aclblasSspmv(
     // 5. get vector core count
     uint32_t aivCoreNum = GetVectorCoreCount();
     if (aivCoreNum == 0) {
+        OP_LOGE("aclblasSspmv", "vector core count is 0");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
@@ -98,22 +105,34 @@ aclblasStatus_t aclblasSspmv(
     aclrtStream useStream = h->stream;
     // 7. fill tiling data
     SspmvTilingData tiling = CalSspmvTilingData(useNumBlocks, n, uplo, *alpha, *beta, incx, incy);
+
+    OP_LOGD(
+        "aclblasSspmv", "tiling: n=%u uplo=%u nthreads=%u numBlocks=%u", tiling.n, tiling.uplo, tiling.nthreads,
+        useNumBlocks);
+    OP_LOGI("aclblasSspmv", "launching kernel");
+
     // 8. allocate tiling device memory
     uint8_t* tilingDevice = nullptr;
     aclError aclRet =
         aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SspmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSspmv", "aclrtMalloc failed, ret=%d", aclRet);
+        return ACLBLAS_STATUS_ALLOC_FAILED);
     // 9. copy tiling to device
     aclRet =
         aclrtMemcpy(tilingDevice, sizeof(SspmvTilingData), &tiling, sizeof(SspmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSspmv", "aclrtMemcpy H2D failed, ret=%d", aclRet);
+        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
     // 10. launch kernel
     sspmv_kernel_do(
         (GM_ADDR) const_cast<float*>(ap), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice,
         useNumBlocks, useStream);
     // 11. synchronize stream
     aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS, aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSspmv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
+        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
     // 12. cleanup
     aclrtFree(tilingDevice);
     return ACLBLAS_STATUS_SUCCESS;
