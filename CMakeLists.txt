@@ -163,7 +163,13 @@ target_include_directories(${OPS_BLAS} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/include/op_common/
     ./include
     ${CMAKE_CURRENT_LIST_DIR}/blas
+    "${_OPS_BLAS_ASC_ROOT}/include"
 )
+
+target_link_directories(${OPS_BLAS} PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/lib64")
+target_link_libraries(
+  ${OPS_BLAS}
+  PRIVATE tiling_api platform)
 
 target_compile_options(${OPS_BLAS} PRIVATE
     $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS}>
