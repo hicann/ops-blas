@@ -17,7 +17,6 @@
 using namespace AscendC;
 
 constexpr uint32_t BYTENUM_BLOCK       = 32;
-constexpr uint32_t ELENUM_LINE_ALIGNED  = 32;
 constexpr uint32_t ELENUM_BLOCK_FP16    = 16;
 constexpr uint32_t ELENUM_REPEAT_FP16   = 128;
 // V pipe round-down granularity (= B32 / sizeof(float) = 8)
@@ -42,15 +41,12 @@ public:
     __aicore__ inline void CastFloatToHalf();
     __aicore__ inline void CopyOutRsltFloat(uint32_t curBatchId, uint32_t mOffset, uint32_t mCurr);
     __aicore__ inline void CopyOutRsltHalf(uint32_t curBatchId, uint32_t mOffset, uint32_t mCurr);
-    __aicore__ inline void ComputeDotProduct(uint32_t mCurr, uint32_t nCurr, uint32_t nTile, bool isFirstNTile);
+    __aicore__ inline void ComputeDotProduct(uint32_t outCnt, uint32_t dotCnt, uint32_t dotTile, bool isFirstDot);
     __aicore__ inline void OutputMChunkAndSync(uint32_t b, uint32_t mOffset, uint32_t mCurr, uint32_t mCurrAlign);
 
 private:
     static constexpr bool IS_FLOAT     = IsSameType<T, float>::value;
-    static constexpr bool IS_FLOAT_OUT  = IS_FLOAT || HSS_MODE;    // y output is float
-    static constexpr bool IS_TRANS = TRANS_T;
-    static constexpr uint32_t BN = IS_TRANS ? 2 : 1;
-    static constexpr uint32_t TN = IS_TRANS ? 2 : (IS_FLOAT ? 1 : 2);
+    static constexpr bool IS_FLOAT_OUT = IS_FLOAT || HSS_MODE;    // y output is float
 
     TPipe pipe;
 
@@ -86,16 +82,19 @@ private:
 
     uint32_t m = 0;
     uint32_t n = 0;
-    uint32_t nTile = 0;
-    uint32_t mTile = 0;
+    uint32_t outDim = 0;       // 输出向量维度
+    uint32_t dotDim = 0;       // 点积向量维度
+    uint32_t outTile = 0;        // outTile — 输出维度切分
+    uint32_t dotTile = 0;        // dotTile — 点积维度切分
     uint32_t mCurr = 0;
     uint32_t calMatNum  = 0;
     uint32_t startMatId = 0;
-    uint32_t batchGroupSize = 0;
+    uint32_t batchGroupSize = 0;  // 一次搬多个batch进UB时使用
     uint32_t maxMatEleNum = 0;
     uint32_t maxVecEleNum = 0;
     // Host-precomputed buffer sizes (256B-aligned), read in ParseTilingData
     uint32_t szInA=0, szInx=0, szInY=0, szOut=0, szMatTmp=0, szVecTmp=0;
+    int32_t lda = 0;
     int32_t vecIdx;
 };
 
@@ -126,30 +125,32 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ParseTilingData(GM_
     this->beta           = td->beta;
     this->m              = td->m;
     this->n              = td->n;
-    this->batchGroupSize = td->batchGroupSize;
-    this->nTile          = td->nTile;
-    this->mTile          = td->mTile;
+    this->outDim         = td->outSize;
+    this->dotDim         = td->dotSize;
+    this->batchGroupSize = td->batchGroupSize;  // 后续batchGroup搬入时使用
+    this->dotTile          = td->dotTile;
+    this->outTile          = td->outTile;
     this->szInA          = td->bufInA;
     this->szInx          = td->bufInx;
     this->szInY          = td->bufInY;
     this->szOut          = td->bufOut;
     this->szMatTmp       = td->bufMatTmp;
     this->szVecTmp       = td->bufVecTmp;
+    this->lda            = td->lda;
 
     this->startMatId = this->vecIdx * td->batchPerCore;
     this->calMatNum  = (this->vecIdx == td->usedCoreNum - 1) ? td->batchTail : td->batchPerCore;
 
-    if constexpr (!IS_TRANS) {
-        if (this->nTile == 0) this->nTile = ELENUM_LINE_ALIGNED;
-    }
 }
 
 template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::InitUbuf()
 {
-    this->maxMatEleNum = this->mTile * this->nTile;
-    this->maxVecEleNum = (this->nTile < 64u) ? 64u : this->nTile;
-    if (this->mTile > this->maxVecEleNum) this->maxVecEleNum = this->mTile;
+    this->maxMatEleNum = this->outTile * this->dotTile;
+    this->maxVecEleNum = (this->dotTile < 64u) ? 64u : this->dotTile;
+    if constexpr (!TRANS_T) {
+        if (this->outTile > this->maxVecEleNum) this->maxVecEleNum = this->outTile;
+    }
 
     // Host-precomputed buffer sizes (256B-aligned)
     this->pipe.InitBuffer(this->inABuf,    this->szInA);
@@ -172,13 +173,13 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::InitUbuf()
         this->matFloatLocal  = this->matTmpLocal[0];
         this->mulResultLocal = this->matTmpLocal[0];  // same buffer for FP32
         this->sumResultLocal = this->vecTmpLocal[0];
-        this->yInFloatLocal  = this->vecTmpLocal[this->mTile];
+        this->yInFloatLocal  = this->vecTmpLocal[this->outTile];
     } else {
         this->matFloatLocal  = this->matTmpLocal[0];
         this->mulResultLocal = this->matTmpLocal[this->maxMatEleNum];
         this->vecFloatLocal  = this->vecTmpLocal[0];
-        this->sumResultLocal = this->vecTmpLocal[this->nTile];
-        this->yInFloatLocal  = this->vecTmpLocal[this->nTile + this->mTile];
+        this->sumResultLocal = this->vecTmpLocal[this->dotTile];
+        this->yInFloatLocal  = this->vecTmpLocal[this->dotTile + this->outTile];
     }
 }
 
@@ -187,26 +188,26 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyInMatAndVec(
     uint32_t curBatchId, uint32_t nOffset, uint32_t nCurr,
     uint32_t mOffset, uint32_t mCurr)
 {
+    // nOffset/nCurr = output dim; mOffset/mCurr = inner dim
+    // inA: loads nCurr "rows" each of mCurr elements
+    //   Normal (outDim=m, inDim=n): m rows of n cols each
+    //   Transpose (outDim=n, inDim=m): n cols of m rows each (column-major)
     LocalTensor<T> inALocal = inABuf.Get<T>();
     LocalTensor<T> inxLocal = inxBuf.Get<T>();
 
-    uint64_t inAOffset = (this->startMatId + curBatchId) * this->m * this->n
-                       + mOffset * this->n + nOffset;
+    uint64_t inAOffset = (this->startMatId + curBatchId) * this->lda * this->n
+                       + nOffset * (uint32_t)this->lda + mOffset;
 
-    uint16_t matBlockCnt  = static_cast<uint16_t>(mCurr);
-    uint32_t matBlockLen  = nCurr * sizeof(T);
-    uint32_t matSrcStride = uint32_t((this->n - nCurr) * sizeof(T));
-    uint32_t matDstStride = uint32_t((this->nTile - nCurr) * sizeof(T) / BYTENUM_BLOCK);
+    uint16_t matBlockCnt  = static_cast<uint16_t>(nCurr);
+    uint32_t matBlockLen  = mCurr * sizeof(T);
+    uint32_t matSrcStride = uint32_t(((uint32_t)this->lda - mCurr) * sizeof(T));
+    uint32_t matDstStride = uint32_t((this->dotTile - mCurr) * sizeof(T) / BYTENUM_BLOCK);
     DataCopyExtParams copyMatParams{matBlockCnt, matBlockLen, matSrcStride, matDstStride, 0};
     DataCopyPadExtParams<T> padParams{false, 0, 0, 0};
     DataCopyPad(inALocal, this->inAGM[inAOffset], copyMatParams, padParams);
 
-    uint64_t inxOffset = (this->startMatId + curBatchId) * this->n + nOffset;
-    uint16_t vecBlockCnt = 1;
-    uint32_t vecBlockLen = nCurr * sizeof(T);
-    uint32_t vecSrcStride = uint32_t((this->n - nCurr) * sizeof(T));
-    uint32_t vecDstStride = uint32_t((this->nTile - nCurr) * sizeof(T) / BYTENUM_BLOCK);
-    DataCopyExtParams copyVecParams{vecBlockCnt, vecBlockLen, vecSrcStride, vecDstStride, 0};
+    uint64_t inxOffset = (this->startMatId + curBatchId) * this->dotDim + mOffset;
+    DataCopyExtParams copyVecParams{uint16_t(1), uint32_t(mCurr * sizeof(T)), 0, 0, 0};
     DataCopyPad(inxLocal, this->inxGM[inxOffset], copyVecParams, padParams);
 }
 
@@ -214,7 +215,7 @@ template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyInY(uint32_t curBatchId,
     uint32_t mOffset, uint32_t mCurr)
 {
-    uint64_t offset = (this->startMatId + curBatchId) * this->m + mOffset;
+    uint64_t offset = (this->startMatId + curBatchId) * this->outDim + mOffset;
     if constexpr (HSS_MODE) {
         auto inyLocal = inyBuf.Get<float>();
         DataCopyExtParams copyParams{uint16_t(1), uint32_t(mCurr * sizeof(float)), 0, 0, 0};
@@ -258,14 +259,14 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CastleHalfToFloat()
     LocalTensor<half> inxLocal = inxBuf.Get<half>();
 
     uint32_t matRows = this->mCurr;
-    uint16_t matCastRepeatNum = (matRows * this->nTile - 1) / ELENUM_REPEAT_FP16 + 1;
-    DataCopy(this->matPreLocal, inALocal, matRows * this->nTile);
+    uint16_t matCastRepeatNum = (matRows * this->dotTile - 1) / ELENUM_REPEAT_FP16 + 1;
+    DataCopy(this->matPreLocal, inALocal, matRows * this->dotTile);
 
-    DataCopy(this->vecPreLocal, inxLocal, this->nTile);
+    DataCopy(this->vecPreLocal, inxLocal, this->dotTile);
     PipeBarrier<PIPE_V>();
-    Cast(this->vecFloatLocal, this->vecPreLocal, RoundMode::CAST_NONE, this->nTile);
+    Cast(this->vecFloatLocal, this->vecPreLocal, RoundMode::CAST_NONE, this->dotTile);
     PipeBarrier<PIPE_V>();
-    Cast(this->matFloatLocal, this->matPreLocal, RoundMode::CAST_NONE, matRows * this->nTile);
+    Cast(this->matFloatLocal, this->matPreLocal, RoundMode::CAST_NONE, matRows * this->dotTile);
     PipeBarrier<PIPE_V>();
 }
 template <typename T, const bool TRANS_T, bool HSS_MODE>
@@ -281,7 +282,7 @@ template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyOutRsltFloat(uint32_t curBatchId,
     uint32_t mOffset, uint32_t mCurr)
 {
-    uint64_t outOffset = (this->startMatId + curBatchId) * this->m + mOffset;
+    uint64_t outOffset = (this->startMatId + curBatchId) * this->outDim + mOffset;
     DataCopyExtParams copyParams{uint16_t(1), uint32_t(mCurr * sizeof(float)), 0, 0, 0};
     if constexpr (HSS_MODE)
         DataCopyPad(this->outFloatGM[outOffset], this->sumResultLocal, copyParams);
@@ -294,7 +295,7 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyOutRsltHalf(uin
     uint32_t mOffset, uint32_t mCurr)
 {
     LocalTensor<half> outLocal = outBuf.Get<half>();
-    uint64_t outOffset = (this->startMatId + curBatchId) * this->m + mOffset;
+    uint64_t outOffset = (this->startMatId + curBatchId) * this->outDim + mOffset;
     DataCopyExtParams copyParams{uint16_t(1), uint32_t(mCurr * sizeof(half)), 0, 0, 0};
     DataCopyPad(this->outGM[outOffset], outLocal, copyParams);
 }
@@ -305,60 +306,59 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Process()
     if (0 == this->calMatNum)
         return;
 
-    for (uint32_t b = 0; b < this->calMatNum; b++) {
-        for (uint32_t mOffset = 0; mOffset < this->m; mOffset += this->mTile) {
-            uint32_t mCurr = (mOffset + this->mTile > this->m) ? (this->m - mOffset) : this->mTile;
-            uint32_t mCurrAlign = ((mCurr + VEC_FLOAT_PER_REPEAT - 1) & ~(VEC_FLOAT_PER_REPEAT - 1));
-            if (mCurrAlign > this->mTile) mCurrAlign = this->mTile;
-            this->mCurr = mCurr;
+    uint32_t outTile = this->outTile;  // 输出维度切分
+    uint32_t dotTile = this->dotTile;  // 点积维度切分
+    uint32_t outDim = this->outDim;
+    uint32_t dotDim = this->dotDim;
 
-            CopyInY(b, mOffset, mCurr);
+    for (uint32_t b = 0; b < this->calMatNum; b++) {
+        for (uint32_t outOff = 0; outOff < outDim; outOff += outTile) {
+            uint32_t outCnt = (outOff + outTile > outDim) ? (outDim - outOff) : outTile;
+            uint32_t outCntAlign = ((outCnt + VEC_FLOAT_PER_REPEAT - 1) & ~(VEC_FLOAT_PER_REPEAT - 1));
+            if (outCntAlign > outTile) outCntAlign = outTile;
+            this->mCurr = outCnt;
+
+            CopyInY(b, outOff, outCnt);
             SetFlag<HardEvent::MTE2_V>(EVENT_ID0);
             WaitFlag<HardEvent::MTE2_V>(EVENT_ID0);
 
-            bool isFirstNTile = true;
-            for (uint32_t nOffset = 0; nOffset < this->n; nOffset += this->nTile) {
-                uint32_t nCurr = (nOffset + this->nTile > this->n) ? (this->n - nOffset) : this->nTile;
-                CopyInMatAndVec(b, nOffset, nCurr, mOffset, mCurr);
+            bool isFirstDot = true;
+            for (uint32_t dotOff = 0; dotOff < dotDim; dotOff += dotTile) {
+                uint32_t dotCnt = (dotOff + dotTile > dotDim) ? (dotDim - dotOff) : dotTile;
+                // CopyInMatAndVec: nOffset/nCurr=output; mOffset/mCurr=dot
+                CopyInMatAndVec(b, outOff, outCnt, dotOff, dotCnt);
                 SetFlag<HardEvent::MTE2_V>(EVENT_ID0);
                 WaitFlag<HardEvent::MTE2_V>(EVENT_ID0);
 
                 if constexpr (!IS_FLOAT)
                     CastleHalfToFloat();
 
-                ComputeDotProduct(mCurr, nCurr, this->nTile, isFirstNTile);
+                ComputeDotProduct(outCnt, dotCnt, dotTile, isFirstDot);
 
-                if (!isFirstNTile)
-                    Add(this->sumResultLocal, this->sumResultLocal, this->yInFloatLocal, mCurrAlign);
-                isFirstNTile = false;
+                if (!isFirstDot)
+                    Add(this->sumResultLocal, this->sumResultLocal, this->yInFloatLocal, outCntAlign);
+                isFirstDot = false;
             }
-            OutputMChunkAndSync(b, mOffset, mCurr, mCurrAlign);
+            OutputMChunkAndSync(b, outOff, outCnt, outCntAlign);
         }
     }
 }
 
 template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ComputeDotProduct(
-    uint32_t mCurr, uint32_t nCurr, uint32_t nTile, bool isFirstNTile)
+    uint32_t outCnt, uint32_t dotCnt, uint32_t dotTile, bool isFirstDot)
 {
     constexpr uint32_t VL = 256 / sizeof(float);
-    uint32_t lM = mCurr;
-    uint32_t lNTile = nTile;
-    auto& dstLT = isFirstNTile ? this->sumResultLocal : this->yInFloatLocal;
-
-    __ubuf__ float* aAddr;
-    __ubuf__ float* xAddr;
-    if constexpr (IS_FLOAT) {
-        aAddr = (__ubuf__ float*)inABuf.Get<float>().GetPhyAddr();
-        xAddr = (__ubuf__ float*)inxBuf.Get<float>().GetPhyAddr();
-    } else {
-        aAddr = (__ubuf__ float*)this->matFloatLocal.GetPhyAddr();
-        xAddr = (__ubuf__ float*)this->vecFloatLocal.GetPhyAddr();
-    }
+    uint32_t lM = outCnt;
+    uint32_t lNTile = dotTile;
+    auto& dstLT = isFirstDot ? this->sumResultLocal : this->yInFloatLocal;
+    __ubuf__ float* aAddr = IS_FLOAT ? (__ubuf__ float*)inABuf.Get<float>().GetPhyAddr()
+                                     : (__ubuf__ float*)this->matFloatLocal.GetPhyAddr();
+    __ubuf__ float* xAddr = IS_FLOAT ? (__ubuf__ float*)inxBuf.Get<float>().GetPhyAddr()
+                                     : (__ubuf__ float*)this->vecFloatLocal.GetPhyAddr();
     __ubuf__ float* dAddr = (__ubuf__ float*)dstLT.GetPhyAddr();
-
-    uint16_t vLoopNum = (nCurr + VL - 1) / VL;
-    uint32_t tailLen  = nCurr % VL;
+    uint16_t vLoopNum = (dotCnt + VL - 1) / VL;
+    uint32_t tailLen  = dotCnt % VL;
 
     __VEC_SCOPE__
     {
@@ -367,7 +367,6 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ComputeDotProduct(
         AscendC::MicroAPI::RegTensor<float, AscendC::MicroAPI::RegTraitNumOne> vregMul;
         AscendC::MicroAPI::RegTensor<float, AscendC::MicroAPI::RegTraitNumOne> vregSum;
         auto maskAll = AscendC::MicroAPI::CreateMask<float, AscendC::MicroAPI::MaskPattern::ALL>();
-
         for (uint16_t row = 0; row < static_cast<uint16_t>(lM); row++) {
             AscendC::MicroAPI::Duplicate<float>(vregSum, 0.0f, maskAll);
             uint16_t matOff = row * static_cast<uint16_t>(lNTile);
@@ -375,24 +374,18 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ComputeDotProduct(
                 uint32_t col = i * static_cast<uint32_t>(VL);
                 uint32_t chunk = (i == vLoopNum - 1 && tailLen) ? tailLen : VL;
                 auto mask = (chunk < VL)
-                    ? AscendC::MicroAPI::UpdateMask<float, AscendC::MicroAPI::RegTraitNumOne>(chunk)
-                    : maskAll;
+                    ? AscendC::MicroAPI::UpdateMask<float, AscendC::MicroAPI::RegTraitNumOne>(chunk) : maskAll;
                 AscendC::MicroAPI::DataCopy<float, AscendC::MicroAPI::LoadDist::DIST_NORM>(
                     vregA, (__ubuf__ float*)(aAddr + matOff + col));
                 AscendC::MicroAPI::DataCopy<float, AscendC::MicroAPI::LoadDist::DIST_NORM>(
                     vregX, (__ubuf__ float*)(xAddr + col));
-                AscendC::MicroAPI::Mul<float, AscendC::MicroAPI::MaskMergeMode::ZEROING>(
-                    vregMul, vregA, vregX, mask);
-                AscendC::MicroAPI::Add<float, AscendC::MicroAPI::MaskMergeMode::ZEROING>(
-                    vregSum, vregSum, vregMul, maskAll);
+                AscendC::MicroAPI::Mul<float, AscendC::MicroAPI::MaskMergeMode::ZEROING>(vregMul, vregA, vregX, mask);
+                AscendC::MicroAPI::Add<float, AscendC::MicroAPI::MaskMergeMode::ZEROING>(vregSum, vregSum, vregMul, maskAll);
             }
             AscendC::MicroAPI::ReduceSum(vregSum, vregSum, maskAll);
-            {
-                __ubuf__ float* ptr = dAddr + row;
-                AscendC::MicroAPI::DataCopy<
-                    float, AscendC::MicroAPI::PostLiteral::POST_MODE_UPDATE,
-                    AscendC::MicroAPI::StoreDist::DIST_FIRST_ELEMENT_B32>(ptr, vregSum, 1, maskAll);
-            }
+            __ubuf__ float* ptr = dAddr + row;
+            AscendC::MicroAPI::DataCopy<float, AscendC::MicroAPI::PostLiteral::POST_MODE_UPDATE,
+                AscendC::MicroAPI::StoreDist::DIST_FIRST_ELEMENT_B32>(ptr, vregSum, 1, maskAll);
         }
     }
 }
@@ -423,90 +416,113 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::OutputMChunkAndSync
 }
 
 // ============================================================
-// SIMT trans — one thread per output element
+// SIMT — one thread per output element
+// Column-major: A(row, col) = A[col * m + row]
 // ============================================================
 constexpr uint32_t GEMV_SIMT_MAX_THREADS = 2048;
 
-template <bool IS_TRANS>
+template <typename T_IN, typename T_OUT, bool IS_TRANS>
 __simt_vf__ __aicore__ LAUNCH_BOUND(GEMV_SIMT_MAX_THREADS)
-inline void GemvSimtTransFp32(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
-                               float alpha, float beta,
-                               __gm__ const float *aGm, __gm__ const float *xGm, __gm__ float *yGm)
+inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
+                      float alpha, float beta,
+                      int32_t lda, int32_t incx, int32_t incy,
+                      __gm__ const T_IN *aGm, __gm__ const T_IN *xGm, __gm__ T_OUT *yGm)
 {
-    uint32_t total = numB * n;
+    constexpr bool IN_FP16  = IsSameType<T_IN, half>::value;
+    constexpr bool OUT_FP16 = IsSameType<T_OUT, half>::value;
+    uint32_t outDim = IS_TRANS ? n : m, dotDim = IS_TRANS ? m : n;
+    uint32_t total = numB * outDim;
+    uint32_t aBatch = (uint32_t)lda * n;
+    uint32_t xBatch = 1u + (dotDim - 1u) * (uint32_t)abs(incx);
+    uint32_t yBatch = 1u + (outDim - 1u) * (uint32_t)abs(incy);
     for (uint32_t tid = threadIdx.x; tid < total; tid += blockDim.x) {
-        uint32_t b = tid / n, k = tid % n;
-        float acc  = 0.0f;
-        uint32_t aOff = (startB + b) * m * n;
-        uint32_t xOff = (startB + b) * m;
-        for (uint32_t j = 0; j < m; j++) acc += aGm[aOff + j * n + k] * xGm[xOff + j];
-        uint32_t yPos = (startB + b) * n + k;
-        yGm[yPos] = alpha * acc + beta * yGm[yPos];
-    }
-}
-
-template <bool IS_TRANS>
-__simt_vf__ __aicore__ LAUNCH_BOUND(GEMV_SIMT_MAX_THREADS)
-inline void GemvSimtTransFp16(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
-                               float alpha, float beta,
-                               __gm__ const uint16_t *aGm, __gm__ const uint16_t *xGm, __gm__ uint16_t *yGm)
-{
-    uint32_t total = numB * n;
-    for (uint32_t tid = threadIdx.x; tid < total; tid += blockDim.x) {
-        uint32_t b = tid / n, k = tid % n;
-        float acc  = 0.0f;
-        uint32_t aOff = (startB + b) * m * n;
-        uint32_t xOff = (startB + b) * m;
-        for (uint32_t j = 0; j < m; j++)
-            acc += __half2float(aGm[aOff + j * n + k]) * __half2float(xGm[xOff + j]);
-        uint32_t yPos = (startB + b) * n + k;
-        float yOld = __half2float(yGm[yPos]);
-        yGm[yPos] = __float2half_rn_sat(alpha * acc + beta * yOld);
+        uint32_t b = tid / outDim, outIdx = tid % outDim;
+        float acc = 0.0f;
+        int32_t aOff = (int32_t)((startB + b) * aBatch);
+        int32_t xOff = (int32_t)((startB + b) * xBatch);
+        int32_t yOff = (int32_t)((startB + b) * yBatch);
+        if (incx < 0) xOff += (int32_t)((dotDim - 1u) * (uint32_t)(-incx));
+        if (incy < 0) yOff += (int32_t)((outDim - 1u) * (uint32_t)(-incy));
+        for (uint32_t dotIdx = 0; dotIdx < dotDim; dotIdx++) {
+            float av, xv;
+            int32_t aIdx = IS_TRANS ? ((int32_t)outIdx * lda + (int32_t)dotIdx)
+                                    : ((int32_t)dotIdx * lda + (int32_t)outIdx);
+            int32_t xIdx = (int32_t)dotIdx * incx;
+            if constexpr (IN_FP16) {
+                av = __half2float(aGm[aOff + aIdx]);
+                xv = __half2float(xGm[xOff + xIdx]);
+            } else {
+                av = (float)aGm[aOff + aIdx];
+                xv = (float)xGm[xOff + xIdx];
+            }
+            acc += av * xv;
+        }
+        int32_t yIdx = (int32_t)outIdx * incy;
+        float oldY;
+        if constexpr (OUT_FP16)
+            oldY = __half2float(yGm[yOff + yIdx]);
+        else
+            oldY = (float)yGm[yOff + yIdx];
+        if constexpr (OUT_FP16)
+            yGm[yOff + yIdx] = __float2half_rn_sat(alpha * acc + beta * oldY);
+        else
+            yGm[yOff + yIdx] = (T_OUT)(alpha * acc + beta * oldY);
     }
 }
 
 // ============================================================
-// Vec kernel entry — AIV for N, SIMT for T
+// Kernel entry — SIMT for both Normal and Transpose (column-major)
 // ============================================================
 extern "C" __global__ __aicore__ void gemv_batched(
     GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     const auto *tdata = reinterpret_cast<__gm__ GemvBatchedTilingData *>(tilingGm);
-    uint32_t coreIdx = GetBlockIdx();
-    uint32_t startB = coreIdx * tdata->batchPerCore;
-    uint32_t numB   = (coreIdx == tdata->usedCoreNum - 1) ? tdata->batchTail : tdata->batchPerCore;
-
+    uint32_t startB = GetBlockIdx() * tdata->batchPerCore;
+    uint32_t numB   = (GetBlockIdx() == tdata->usedCoreNum - 1) ? tdata->batchTail : tdata->batchPerCore;
     if (numB == 0) return;
+    int32_t lda = tdata->lda, incx = tdata->incx, incy = tdata->incy;
 
-    if (tdata->trans != 0) {
-        if (tdata->dtype != 0) {
-            asc_vf_call<GemvSimtTransFp32<true>>(
-                dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-                tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta,
-                reinterpret_cast<__gm__ const float *>(A),
-                reinterpret_cast<__gm__ const float *>(x),
+    if (tdata->trans == 0) {  // Normal → SIMT
+        if (tdata->dtype == 1) {       // FP32
+            asc_vf_call<GemvSimt<float, float, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
+                tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
+                reinterpret_cast<__gm__ const float *>(A), reinterpret_cast<__gm__ const float *>(x),
                 reinterpret_cast<__gm__ float *>(y));
-        } else {
-            asc_vf_call<GemvSimtTransFp16<true>>(
-                dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-                tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta,
-                reinterpret_cast<__gm__ const uint16_t *>(A),
-                reinterpret_cast<__gm__ const uint16_t *>(x),
-                reinterpret_cast<__gm__ uint16_t *>(y));
+        } else if (tdata->dtype == 0) { // FP16
+            asc_vf_call<GemvSimt<half, half, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
+                tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
+                reinterpret_cast<__gm__ const half *>(A), reinterpret_cast<__gm__ const half *>(x),
+                reinterpret_cast<__gm__ half *>(y));
+        } else {                       // HSS
+            asc_vf_call<GemvSimt<half, float, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
+                tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
+                reinterpret_cast<__gm__ const half *>(A), reinterpret_cast<__gm__ const half *>(x),
+                reinterpret_cast<__gm__ float *>(y));
         }
-    } else if (tdata->dtype == 1) {
-        GemvBatchedAIV<float> op;
-        op.Init(A, x, y, workSpace, tilingGm);
-        op.Process();
-    } else if (tdata->dtype == 0) {
-        GemvBatchedAIV<half> op;
-        op.Init(A, x, y, workSpace, tilingGm);
-        op.Process();
-    } else {
-        GemvBatchedAIV<half, false, true> op;
-        op.Init(A, x, y, workSpace, tilingGm);
-        op.Process();
+    } else {  // Transpose: AIV (contiguous) or SIMT (strided)
+        if (tdata->dtype == 2) {                       // HSS → AIV
+            GemvBatchedAIV<half, true, true> op;
+            op.Init(A, x, y, workSpace, tilingGm); op.Process();
+        } else if (tdata->dtype == 1) {                // FP32
+            if (tdata->incx == 1 && tdata->incy == 1) {
+                GemvBatchedAIV<float> op; op.Init(A, x, y, workSpace, tilingGm); op.Process();
+            } else {
+                asc_vf_call<GemvSimt<float, float, true>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
+                    tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
+                    reinterpret_cast<__gm__ const float *>(A), reinterpret_cast<__gm__ const float *>(x),
+                    reinterpret_cast<__gm__ float *>(y));
+            }
+        } else {                                       // FP16
+            if (tdata->incx == 1 && tdata->incy == 1) {
+                GemvBatchedAIV<half> op; op.Init(A, x, y, workSpace, tilingGm); op.Process();
+            } else {
+                asc_vf_call<GemvSimt<half, half, true>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
+                    tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
+                    reinterpret_cast<__gm__ const half *>(A), reinterpret_cast<__gm__ const half *>(x),
+                    reinterpret_cast<__gm__ half *>(y));
+            }
+        }
     }
 }
 

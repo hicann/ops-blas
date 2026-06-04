@@ -13,19 +13,8 @@
 
 #include <cstdint>
 
-constexpr uint8_t GEMV_BATCHED_BUFFER_NUM = 2;
-constexpr uint32_t GEMV_BATCHED_TMPBUF_NUM = 2;
-constexpr uint32_t GEMV_BATCHED_ELENUM_LINE_ALIGNED = 32;
 constexpr uint32_t GEMV_BATCHED_UBUF_SIZE = 190 * 1024;
-constexpr uint32_t GEMV_BATCHED_BYTENUM_BLOCK = 32;
-constexpr uint32_t GEMV_BATCHED_BYTENUM_REPEAT = 256;
-
-constexpr uint32_t GEMV_BATCHED_ELENUM_BLOCK_FP32 = 8;
-constexpr uint32_t GEMV_BATCHED_ELENUM_BLOCK_FP16 = 16;
-
-// Non-DB mode buffer counts
 constexpr uint32_t GEMV_BATCHED_BN_NORMAL = 1;
-constexpr uint32_t GEMV_BATCHED_TN_NORMAL = 1;
 
 // 分核逻辑: 除最后一个 core 外，每个 core 处理 batchPerCore 个 batch；
 //          最后一个 core 处理 batchTail 个（余数）。
@@ -39,14 +28,16 @@ struct GemvBatchedTilingData {
     float    beta;
     uint32_t m;
     uint32_t n;
+    uint32_t outSize;          // 输出向量维度（Normal=m, Transpose=n）
+    uint32_t dotSize;          // 点积向量维度（Normal=n, Transpose=m）
     uint32_t batchGroupSize;
     uint32_t coreNum;
     uint32_t usedCoreNum;
     uint32_t batchCount;
     uint32_t batchPerCore;
     uint32_t batchTail;
-    uint32_t nTile;
-    uint32_t mTile;
+    uint32_t dotTile;
+    uint32_t outTile;
     uint32_t bufInA;
     uint32_t bufInx;
     uint32_t bufInY;

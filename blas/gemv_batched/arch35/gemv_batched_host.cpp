@@ -50,7 +50,6 @@ static GemvBufLayout ComputeBufferLayout(GemvType type, uint32_t mRow, uint32_t 
     GemvBufCfg c = (type == GemvType::HSH) ? kGmvCfg_HSH
                  : (type == GemvType::HSS) ? kGmvCfg_HSS : kGmvCfg_F32;
     uint32_t vecE = (nCol < 64u) ? 64u : nCol;
-    if (mRow > vecE) vecE = mRow;
     GemvBufLayout lay = {};
     lay.inA    = round256(GEMV_BATCHED_BN_NORMAL * mRow * nCol * c.szIn);
     lay.inx    = round256(GEMV_BATCHED_BN_NORMAL * vecE * c.szIn);
@@ -90,65 +89,59 @@ static uint32_t BinaryMaxRowsCols(uint32_t UB, uint32_t hi, F&& f)
     return lo;
 }
 
-static void CalTilingParams(bool isTrans, bool isFp32, uint32_t m, uint32_t n,
-                             uint32_t &batchGroupSize, uint32_t &nTile, uint32_t &mTile)
+// Transpose AIV tiling: 优先切点积轴（m）→dotTile，再切输出轴（n）→outTile
+static void CalTilingTranspose(GemvType type, uint32_t dotDim, uint32_t outDim,
+                                uint32_t &batchGroupSize, uint32_t &dotTile, uint32_t &outTile)
 {
-    if (m <= 0) m = 1;
     const uint32_t UB = GEMV_BATCHED_UBUF_SIZE;
-    const uint32_t align = isFp32 ? 8u : 16u;
-    const uint32_t mMin = align;
-
-    GemvType type = isFp32 ? GemvType::S : GemvType::HSH;
+    uint32_t elemSize = (type == GemvType::S) ? sizeof(float) : sizeof(uint16_t);
+    uint32_t align = 32u / elemSize, outMin = align;
     auto ubFunc = [type](uint32_t r, uint32_t c) { return ComputeUBPerBatch(type, r, c); };
-
-    if (isTrans) {
-        nTile = 0; mTile = m; batchGroupSize = 1;
-        return;
-    }
-
-    uint32_t nAligned = AlignDown(n + align - 1, align);
-    uint32_t mFitForFullN = BinaryMaxRowsCols(UB, m > 0 ? m : 65536u,
-        [&](uint32_t r) { return ubFunc(r, nAligned); });
-
-    if (mFitForFullN >= mMin) {
-        nTile = nAligned;
+    uint32_t dotAligned = AlignDown(dotDim + align - 1, align);
+    uint32_t outFitForFullDot = BinaryMaxRowsCols(UB, outDim > 0 ? outDim : 65536u,
+        [&](uint32_t r) { return ubFunc(r, dotAligned); });
+    if (outFitForFullDot >= outMin) {
+        dotTile = dotAligned;
     } else {
-        uint32_t nTileMax = BinaryMaxRowsCols(UB, 65536u,
-            [&](uint32_t c) { return ubFunc(mMin, c); });
-        nTile = AlignDown((nTileMax < align) ? align : nTileMax, align);
-        if (nTile < align) nTile = align;
-        mFitForFullN = BinaryMaxRowsCols(UB, m > 0 ? m : 65536u,
-            [&](uint32_t r) { return ubFunc(r, nTile); });
+        uint32_t dotTileMax = BinaryMaxRowsCols(UB, 65536u,
+            [&](uint32_t c) { return ubFunc(outMin, c); });
+        dotTile = AlignDown((dotTileMax < align) ? align : dotTileMax, align);
+        if (dotTile < align) dotTile = align;
+        outFitForFullDot = BinaryMaxRowsCols(UB, outDim > 0 ? outDim : 65536u,
+            [&](uint32_t r) { return ubFunc(r, dotTile); });
     }
-    uint32_t mFit = AlignDown(mFitForFullN, mMin);
-    if (mFit < mMin) mFit = mMin;
-    mTile = (m < mFit) ? m : mFit;
-
-    uint32_t perData = ubFunc(mTile, nTile);
+    uint32_t outFit = AlignDown(outFitForFullDot, outMin);
+    if (outFit < outMin) outFit = outMin;
+    outTile = (outDim < outFit) ? outDim : outFit;
+    uint32_t perData = ubFunc(outTile, dotTile);
     batchGroupSize = (perData > 0) ? (UB / perData) : 1;
-    while (batchGroupSize < 1 && nTile >= align + align) {
-        nTile -= align;
-        perData = ubFunc(mTile, nTile);
+    while (batchGroupSize < 1 && dotTile >= align + align) {
+        dotTile -= align;
+        perData = ubFunc(outTile, dotTile);
         if (perData > 0) batchGroupSize = UB / perData; else break;
     }
     if (batchGroupSize < 1) batchGroupSize = 1;
 }
 
-// HSS tiling (half A/x, float y)
-static void CalTilingParamsHss(uint32_t m, uint32_t n,
-                                uint32_t &batchGroupSize, uint32_t &nTile, uint32_t &mTile)
+static void CalTilingParams(bool isTrans, bool isFp32, uint32_t m, uint32_t n,
+                             uint32_t &batchGroupSize, uint32_t &dotTile, uint32_t &outTile)
 {
-    if (m <= 0) m = 1;
-    const uint32_t UB = GEMV_BATCHED_UBUF_SIZE;
-    const uint32_t align = 16u, mMin = 16u;
-    nTile = AlignDown(n + align - 1, align);
-    uint32_t mFit = BinaryMaxRowsCols(UB, m > 0 ? m : 65536u,
-        [&](uint32_t r) { return ComputeUBPerBatch(GemvType::HSS, r, nTile); });
-    mFit = AlignDown(mFit, mMin);
-    if (mFit < mMin) mFit = mMin;
-    mTile = (m < mFit) ? m : mFit;
-    uint32_t perData = ComputeUBPerBatch(GemvType::HSS, mTile, nTile);
-    batchGroupSize = (perData > 0) ? (UB / perData) : 1;
+    if (!isTrans) {
+        // Normal: SIMT, no AIV tiling
+        dotTile = 0; outTile = m; batchGroupSize = 1;
+        return;
+    }
+
+    // Transpose (column-major): AIV tiling，优先切点积轴（m）→dotTile，再切输出轴（n）→outTile
+    CalTilingTranspose(isFp32 ? GemvType::S : GemvType::HSH, m, n, batchGroupSize, dotTile, outTile);
+}
+
+// HSS tiling (half A/x, float y)
+static void CalTilingParamsHss(bool isTrans, uint32_t m, uint32_t n,
+                                uint32_t &batchGroupSize, uint32_t &dotTile, uint32_t &outTile)
+{
+    if (!isTrans) { dotTile = 0; outTile = m; batchGroupSize = 1; return; }
+    CalTilingTranspose(GemvType::HSS, m, n, batchGroupSize, dotTile, outTile);
 }
 
 static uint32_t GetVectorCoreCount()
@@ -168,7 +161,9 @@ static void LogTilingParams(const GemvBatchedTilingData &td)
     LOG_PRINT("========== [gemv_batched] TilingData ==========\n");
     LOG_PRINT("  dtype=%u trans=%u alpha=%.3f beta=%.3f\n",
               td.dtype, td.trans, td.alpha, td.beta);
-    LOG_PRINT("  m=%u n=%u nTile=%u mTile=%u\n", td.m, td.n, td.nTile, td.mTile);
+    LOG_PRINT("  m=%u n=%u lda=%d incx=%d incy=%d\n", td.m, td.n, td.lda, td.incx, td.incy);
+    LOG_PRINT("  outSize=%u dotSize=%u outTile=%u dotTile=%u\n",
+              td.outSize, td.dotSize, td.outTile, td.dotTile);
     LOG_PRINT("  batchCount=%u batchGroupSize=%u\n",
               td.batchCount, td.batchGroupSize);
     LOG_PRINT("  coreNum=%u usedCoreNum=%u\n",
@@ -196,19 +191,23 @@ static GemvBatchedTilingData CalTilingData(uint32_t batchCount, uint32_t m, uint
     td.alpha = alpha;  td.beta  = beta;
     td.m = m;          td.n = n;
 
-    uint32_t batchGroupSize = 0, nTile = 0, mTile = 0;
+    uint32_t batchGroupSize = 0, dotTile = 0, outTile = 0;
     if (dtype == 2)
-        CalTilingParamsHss(m, n, batchGroupSize, nTile, mTile);
+        CalTilingParamsHss(trans != 0, m, n, batchGroupSize, dotTile, outTile);
     else
-        CalTilingParams(trans != 0, dtype != 0, m, n, batchGroupSize, nTile, mTile);
+        CalTilingParams(trans != 0, dtype != 0, m, n, batchGroupSize, dotTile, outTile);
 
-    td.batchGroupSize = batchGroupSize;  td.nTile = nTile;  td.mTile = mTile;
+    td.batchGroupSize = batchGroupSize;  td.dotTile = dotTile;  td.outTile = outTile;
 
     auto bufType = (dtype == 2) ? GemvType::HSS : ((dtype != 0) ? GemvType::S : GemvType::HSH);
-    auto lay = ComputeBufferLayout(bufType, mTile, nTile);
+    auto lay = ComputeBufferLayout(bufType, outTile, dotTile);
     td.bufInA = lay.inA;  td.bufInx = lay.inx;  td.bufInY = lay.inY;
     td.bufOut = lay.out;  td.bufMatTmp = lay.matTmp;  td.bufVecTmp = lay.vecTmp;
     td.lda = (int32_t)lda;  td.incx = (int32_t)incx;  td.incy = (int32_t)incy;
+
+    // 操作维度：Normal-输出=m点积=n，Transpose-输出=n点积=m
+    td.outSize = (trans != 0) ? n : m;
+    td.dotSize = (trans != 0) ? m : n;
 
     td.coreNum = coreNum;  td.usedCoreNum = usedCoreNum;
     td.batchCount = batchCount;  td.batchPerCore = maxPerCore;
@@ -228,48 +227,36 @@ static aclblasStatus_t GemvBatchedImpl(aclblasHandle_t handle, aclblasOperation_
                                        int batchCount, uint32_t dtype)
 {
     if (handle == nullptr)  return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
-    if (m == 0 || n == 0)  return ACLBLAS_STATUS_INVALID_VALUE;
-    if (lda < 0)           return ACLBLAS_STATUS_INVALID_VALUE;
-    if (incx == 0 || incy == 0)     return ACLBLAS_STATUS_INVALID_VALUE;
-    if (batchCount <= 0)   return ACLBLAS_STATUS_INVALID_VALUE;
+    if (m <= 0 || n <= 0)  return ACLBLAS_STATUS_INVALID_VALUE;
+    if (lda < (m > 0 ? m : 1)) return ACLBLAS_STATUS_INVALID_VALUE;
+    if (incx == 0 || incy == 0 || batchCount <= 0) return ACLBLAS_STATUS_INVALID_VALUE;
     if (A == nullptr || x == nullptr || y == nullptr)   return ACLBLAS_STATUS_INVALID_VALUE;
     if (alpha == nullptr || beta == nullptr)            return ACLBLAS_STATUS_INVALID_VALUE;
     if (trans != ACLBLAS_OP_N && trans != ACLBLAS_OP_T) return ACLBLAS_STATUS_INVALID_ENUM;
-
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
-
     uint32_t coreNum = GetVectorCoreCount();
     if (coreNum == 0) {
         LOG_PRINT("[gemv_batched] ERROR: GetVectorCoreCount returned 0\n");
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
-
-    uint32_t maxPerCore = (coreNum > 0) ? ((batchCount + coreNum - 1) / coreNum) : 0;
+    uint32_t maxPerCore  = (batchCount + coreNum - 1) / coreNum;
     uint32_t usedCoreNum = (maxPerCore > 0) ? ((batchCount + maxPerCore - 1) / maxPerCore) : 0;
-    uint32_t transUint = (trans == ACLBLAS_OP_N) ? 0 : 1;
-
+    uint32_t transUint   = (trans == ACLBLAS_OP_N) ? 0 : 1;
     GemvBatchedTilingData tiling = CalTilingData((uint32_t)batchCount, (uint32_t)m, (uint32_t)n,
-                                                  dtype, transUint,
-                                                  *alpha, *beta, coreNum, usedCoreNum, maxPerCore,
-                                                  (int32_t)lda, (int32_t)incx, (int32_t)incy);
-
+        dtype, transUint, *alpha, *beta, coreNum, usedCoreNum, maxPerCore,
+        (int32_t)lda, (int32_t)incx, (int32_t)incy);
     size_t workSpaceSize = WORKSPACE_SIZE;
     uint8_t *workSpaceDevice = nullptr;
     uint8_t *tilingDevice = nullptr;
-
     aclError aclRet = aclrtMalloc((void **)&workSpaceDevice, workSpaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
-
     aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(GemvBatchedTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
-
     aclRet = aclrtMemcpy(tilingDevice, sizeof(GemvBatchedTilingData), &tiling, sizeof(GemvBatchedTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
     gemv_batched_kernel_do((uint8_t*)A, (uint8_t*)x, (uint8_t*)y,
-                           workSpaceDevice, tilingDevice, usedCoreNum, useStream);
-
+        workSpaceDevice, tilingDevice, usedCoreNum, useStream);
     aclrtFree(workSpaceDevice);
     aclrtFree(tilingDevice);
     return ACLBLAS_STATUS_SUCCESS;

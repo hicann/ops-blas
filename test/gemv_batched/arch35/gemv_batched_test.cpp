@@ -12,6 +12,7 @@
 #include <cstring>
 #include <cmath>
 #include <iostream>
+#include <type_traits>
 #include <vector>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
@@ -72,10 +73,12 @@ static float HalfToFloat(uint16_t h)
 // ============================================================
 // Golden reference (CPU, per single batch)
 // yOut = alpha * op(A) * x + beta * yIn
+// Column-major layout: A(row, col) = A[col * lda + row], lda >= m
 // ============================================================
 static void ComputeGolden(
-    const vector<float>& A, const vector<float>& x, vector<float>& y, int m, int n, aclblasOperation_t trans, float alpha,
-    float beta)
+    const vector<float>& A, const vector<float>& x, vector<float>& y,
+    int m, int n, aclblasOperation_t trans, float alpha, float beta,
+    int lda, int incx, int incy)
 {
     int outLen = (trans == ACLBLAS_OP_N) ? m : n;
     int innerLen = (trans == ACLBLAS_OP_N) ? n : m;
@@ -84,40 +87,56 @@ static void ComputeGolden(
         double sum = 0.0;
         for (int j = 0; j < innerLen; j++) {
             if (trans == ACLBLAS_OP_N) {
-                sum += (double)A[i * n + j] * (double)x[j];
+                // A(row=i, col=j) = A[j * lda + i]
+                sum += (double)A[j * lda + i] * (double)x[j * incx];
             } else {
-                sum += (double)A[j * n + i] * (double)x[j];
+                // A^T: element(j,i) = A(row=j, col=i) = A[i * lda + j]
+                sum += (double)A[i * lda + j] * (double)x[j * incx];
             }
         }
         yTemp[i] = (float)sum;
     }
     for (int i = 0; i < outLen; i++) {
-        y[i] = alpha * yTemp[i] + beta * y[i];
+        y[i * incy] = alpha * yTemp[i] + beta * y[i * incy];
     }
 }
 
 // Per-batch golden, accumulated into flat output vector
 static void ComputeGoldenBatched(
-    const vector<float>& A, const vector<float>& x, vector<float>& y, int batchCount, int m, int n,
-    aclblasOperation_t trans, float alpha, float beta)
+    const vector<float>& A, const vector<float>& x, vector<float>& y,
+    int batchCount, int m, int n, aclblasOperation_t trans,
+    float alpha, float beta,
+    int lda, int incx, int incy)
 {
-    vector<float> yIn = y;
     int outLen = (trans == ACLBLAS_OP_N) ? m : n;
-    int xLen = (trans == ACLBLAS_OP_N) ? n : m;
-    for (int b = 0; b < batchCount; b++) {
-        vector<float> AComp(m * n);
-        vector<float> xComp(xLen);
-        vector<float> yComp(outLen);
-        for (int i = 0; i < m * n; i++)
-            AComp[i] = A[b * m * n + i];
-        for (int i = 0; i < xLen; i++) {
-            xComp[i] = x[b * xLen + i];
-        }
+    int innerLen = (trans == ACLBLAS_OP_N) ? n : m;
+    int xStride = 1 + (innerLen - 1) * abs(incx);
+    int yStride = 1 + (outLen - 1) * abs(incy);
+    size_t aBatch = (size_t)lda * n;
+
+    // yIn: 负步长时基地址跳到末尾（对标 kernel SIMT 的 yOff 调整）
+    int xBaseAdj = (incx < 0) ? (innerLen - 1) * (-incx) : 0;
+    int yBaseAdj = (incy < 0) ? (outLen - 1) * (-incy) : 0;
+    vector<float> yIn(batchCount * outLen);
+    for (int b = 0; b < batchCount; b++)
         for (int i = 0; i < outLen; i++)
-            yComp[i] = 0.0f;
-        ComputeGolden(AComp, xComp, yComp, m, n, trans, 1.0f, 0.0f);
+            yIn[b * outLen + i] = y[(size_t)b * yStride + yBaseAdj + i * incy];
+
+    for (int b = 0; b < batchCount; b++) {
+        // Extract compact per-batch: A (lda→m), x (incx→1)
+        vector<float> AComp(m * n);
+        vector<float> xComp(innerLen);
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < m; i++)
+                AComp[j * m + i] = A[b * aBatch + j * lda + i];
+        for (int i = 0; i < innerLen; i++)
+            xComp[i] = x[(size_t)b * xStride + xBaseAdj + i * incx];
+        // Compute: y_temp = op(A) * x (alpha=1, beta=0, compact strides)
+        vector<float> yComp(outLen, 0.0f);
+        ComputeGolden(AComp, xComp, yComp, m, n, trans, 1.0f, 0.0f, m, 1, 1);
+        // Apply alpha/beta with original incy stride
         for (int i = 0; i < outLen; i++) {
-            y[b * outLen + i] = alpha * yComp[i] + beta * yIn[b * outLen + i];
+            y[(size_t)b * yStride + yBaseAdj + i * incy] = alpha * yComp[i] + beta * yIn[b * outLen + i];
         }
     }
 }
@@ -172,7 +191,7 @@ static void LogVerifyFail(const char* tag, size_t n, float threshold,
 /* FP32 精度验证 */
 static uint32_t VerifyFloat(
     const vector<float>& output, const vector<float>& golden, float threshold,
-    uint32_t innerLen, const char* tag)
+    const char* tag)
 {
     using namespace GemvPrecision;
     float smallThr = (kF32BaseSmallThr < 1.0f / 1024.0f) ? (1.0f / 1024.0f) : kF32BaseSmallThr;
@@ -201,7 +220,7 @@ static uint32_t VerifyFloat(
 /* FP16 精度验证 */
 static uint32_t VerifyHalf(
     const vector<uint16_t>& output, const vector<float>& golden, float threshold,
-    uint32_t innerLen, const char* tag)
+    const char* tag)
 {
     using namespace GemvPrecision;
     float smallThr = (kF16BaseSmallThr < 1.0f / 128.0f) ? (1.0f / 128.0f) : kF16BaseSmallThr;
@@ -233,58 +252,39 @@ static uint32_t VerifyHalf(
 // ============================================================
 template <typename T>
 static aclblasStatus_t RunOperator(
-    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount, float alpha, float beta, const vector<T>& A,
-    const vector<T>& x, vector<T>& y)
+    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount, float alpha, float beta,
+    int lda, int incx, int incy,
+    const vector<T>& A, const vector<T>& x, vector<T>& y)
 {
-    int lda = m;
-    int incx = 1;
-    int incy = 1;
     int xLen = (trans == ACLBLAS_OP_N) ? n : m;
     int yLen = (trans == ACLBLAS_OP_N) ? m : n;
-
-    size_t aBytes = static_cast<size_t>(batchCount * m * n) * sizeof(T);
-    size_t xBytes = static_cast<size_t>(batchCount * xLen) * sizeof(T);
-    size_t yBytes = static_cast<size_t>(batchCount * yLen) * sizeof(T);
-
+    size_t aBytes = static_cast<size_t>(batchCount * lda * n) * sizeof(T);
+    size_t xBytes = static_cast<size_t>(batchCount * (1 + (xLen - 1) * abs(incx))) * sizeof(T);
+    size_t yBytes = static_cast<size_t>(batchCount * (1 + (yLen - 1) * abs(incy))) * sizeof(T);
     uint8_t *dA = nullptr, *dX = nullptr, *dY = nullptr;
-    aclError ret;
-
-    ret = aclrtMalloc((void**)&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclError ret = aclrtMalloc((void**)&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(ret == ACL_SUCCESS, return ACLBLAS_STATUS_ALLOC_FAILED);
     ret = aclrtMalloc((void**)&dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(ret == ACL_SUCCESS, aclrtFree(dA); return ACLBLAS_STATUS_ALLOC_FAILED);
     ret = aclrtMalloc((void**)&dY, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(ret == ACL_SUCCESS, aclrtFree(dA); aclrtFree(dX); return ACLBLAS_STATUS_ALLOC_FAILED);
-
     ret = aclrtMemcpy(dA, aBytes, A.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(ret == ACL_SUCCESS, aclrtFree(dA); aclrtFree(dX); aclrtFree(dY); return ACLBLAS_STATUS_INTERNAL_ERROR);
     ret = aclrtMemcpy(dX, xBytes, x.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(ret == ACL_SUCCESS, aclrtFree(dA); aclrtFree(dX); aclrtFree(dY); return ACLBLAS_STATUS_INTERNAL_ERROR);
     ret = aclrtMemcpy(dY, yBytes, y.data(), yBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(ret == ACL_SUCCESS, aclrtFree(dA); aclrtFree(dX); aclrtFree(dY); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
     aclblasStatus_t blasRet;
-    if constexpr (std::is_same_v<T, float>) {
+    if constexpr (std::is_same_v<T, float>)
         blasRet = aclblasSgemvBatched(
             ctx.handle, trans, m, n, &alpha, (float*)dA, lda, (float*)dX, incx, &beta, (float*)dY, incy, batchCount);
-    } else {
+    else
         blasRet = aclblasHSHgemvBatched(
-            ctx.handle, trans, m, n, &alpha, (uint16_t*)dA, lda, (uint16_t*)dX, incx, &beta, (uint16_t*)dY, incy,
-            batchCount);
-    }
-    if (blasRet != ACLBLAS_STATUS_SUCCESS) {
-        aclrtFree(dA);
-        aclrtFree(dX);
-        aclrtFree(dY);
-        return blasRet;
-    }
-
+            ctx.handle, trans, m, n, &alpha, (uint16_t*)dA, lda, (uint16_t*)dX, incx, &beta, (uint16_t*)dY, incy, batchCount);
+    if (blasRet != ACLBLAS_STATUS_SUCCESS) { aclrtFree(dA); aclrtFree(dX); aclrtFree(dY); return blasRet; }
     aclrtSynchronizeStream(ctx.stream);
     aclrtMemcpy(y.data(), yBytes, dY, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(dA);
-    aclrtFree(dX);
-    aclrtFree(dY);
+    aclrtFree(dA); aclrtFree(dX); aclrtFree(dY);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -303,80 +303,94 @@ static float RandFloat()
 // ============================================================
 // Test runner helpers — DRY wrapper around RunOperator + golden + verify
 // ============================================================
-static uint32_t DoTest(
-    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount, float alpha, float beta, const char* tag)
+// Generate column-major test data with optional FP16 quantization
+template <typename T>
+static void GenTestData(int m, int n, int batchCount, int lda, int incx, int incy,
+    int xLen, int yLen, int xStride, int yStride,
+    vector<T>& A, vector<T>& x, vector<T>& y,
+    vector<float>& Af, vector<float>& xf, vector<float>& yGolden)
 {
-    int xLen = (trans == ACLBLAS_OP_N) ? n : m;
-    int yLen = (trans == ACLBLAS_OP_N) ? m : n;
-
-    vector<float> A(batchCount * m * n);
-    vector<float> x(batchCount * xLen);
-    vector<float> y(batchCount * yLen);
-    vector<float> yGolden(batchCount * yLen);
-
-    for (auto& v : A)
-        v = RandFloat();
-    for (auto& v : x)
-        v = RandFloat();
-    for (auto& v : y)
-        v = RandFloat();
-    yGolden = y;
-    ComputeGoldenBatched(A, x, yGolden, batchCount, m, n, trans, alpha, beta);
-
-    auto ret = RunOperator<float>(ctx, trans, m, n, batchCount, alpha, beta, A, x, y);
-    CHECK_RET(
-        ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("  [%s] aclblasSgemvBatched failed. ERROR: %d\n", tag, ret); return 1);
-    return VerifyFloat(y, yGolden, GemvPrecision::kF32Threshold, (uint32_t)xLen, tag);
+    constexpr bool IS_FP16 = std::is_same<T, uint16_t>::value;
+    for (int b = 0; b < batchCount; b++)
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < m; i++) {
+                int idx = b * lda * n + j * lda + i;
+                float rv = RandFloat(); Af[idx] = rv;
+                if constexpr (IS_FP16) A[idx] = FloatToHalf(rv); else A[idx] = rv;
+            }
+    if constexpr (IS_FP16) {
+        for (size_t i = 0; i < xf.size(); i++) { xf[i] = RandFloat(); x[i] = FloatToHalf(xf[i]); }
+        for (size_t i = 0; i < y.size(); i++)  { yGolden[i] = RandFloat(); y[i] = FloatToHalf(yGolden[i]); }
+        for (size_t i = 0; i < A.size(); i++) Af[i] = HalfToFloat(A[i]);
+        for (size_t i = 0; i < x.size(); i++) xf[i] = HalfToFloat(x[i]);
+        for (size_t i = 0; i < yGolden.size(); i++) yGolden[i] = HalfToFloat(FloatToHalf(yGolden[i]));
+    } else {
+        for (auto& v : xf) v = RandFloat();
+        for (auto& v : yGolden) v = RandFloat();
+        for (size_t i = 0; i < xf.size(); i++) x[i] = xf[i];
+        for (size_t i = 0; i < y.size(); i++)  y[i] = yGolden[i];
+    }
 }
 
 template <typename T>
-static uint32_t DoTestHalf(
-    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount, float alpha, float beta, const char* tag)
+static void CompactOutput(int batchCount, int yLen, int yStride, int incy,
+    const vector<T>& y, const vector<float>& yGolden,
+    vector<T>& yCompact, vector<float>& goldCompact)
 {
+    int yBaseAdj = (incy < 0) ? (yLen - 1) * (-incy) : 0;
+    for (int b = 0; b < batchCount; b++)
+        for (int i = 0; i < yLen; i++) {
+            yCompact[b * yLen + i] = y[(size_t)b * yStride + yBaseAdj + i * incy];
+            goldCompact[b * yLen + i] = yGolden[(size_t)b * yStride + yBaseAdj + i * incy];
+        }
+}
+
+// Unified test runner for FP32 and FP16
+template <typename T>
+static uint32_t DoTestImpl(
+    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount,
+    float alpha, float beta, const char* tag,
+    int lda = 0, int incx = 1, int incy = 1)
+{
+    if (lda <= 0) lda = m;
     int xLen = (trans == ACLBLAS_OP_N) ? n : m;
     int yLen = (trans == ACLBLAS_OP_N) ? m : n;
-
-    vector<uint16_t> A(batchCount * m * n);
-    vector<uint16_t> x(batchCount * xLen);
-    vector<uint16_t> y(batchCount * yLen);
-    vector<float> Af(batchCount * m * n);
-    vector<float> xf(batchCount * xLen);
-    vector<float> yGolden(batchCount * yLen);
-
-    for (auto& v : Af) {
-        v = RandFloat();
-        A[&v - Af.data()] = FloatToHalf(v);
-    }
-    for (auto& v : xf) {
-        v = RandFloat();
-        x[&v - xf.data()] = FloatToHalf(v);
-    }
-    for (auto& v : yGolden) {
-        v = RandFloat();
-    }
-    for (size_t i = 0; i < y.size(); i++)
-        y[i] = FloatToHalf(yGolden[i]);
-    // golden must use same FP16-quantized inputs that the kernel sees
-    for (size_t i = 0; i < A.size(); i++)
-        Af[i] = HalfToFloat(A[i]);
-    for (size_t i = 0; i < x.size(); i++)
-        xf[i] = HalfToFloat(x[i]);
-    for (size_t i = 0; i < yGolden.size(); i++)
-        yGolden[i] = HalfToFloat(FloatToHalf(yGolden[i]));
-    ComputeGoldenBatched(Af, xf, yGolden, batchCount, m, n, trans, alpha, beta);
-
-    auto ret = RunOperator<uint16_t>(ctx, trans, m, n, batchCount, alpha, beta, A, x, y);
-    CHECK_RET(
-        ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("  [%s] aclblasSgemvBatched failed. ERROR: %d\n", tag, ret); return 1);
-    return VerifyHalf(y, yGolden, GemvPrecision::kF16Threshold, (uint32_t)xLen, tag);
+    int xStride = 1 + (xLen - 1) * abs(incx);
+    int yStride = 1 + (yLen - 1) * abs(incy);
+    constexpr bool IS_FP16 = std::is_same<T, uint16_t>::value;
+    vector<T> A(batchCount * lda * n), x(batchCount * xStride), y(batchCount * yStride);
+    vector<float> Af(batchCount * lda * n), xf(batchCount * xStride), yGolden(batchCount * yStride);
+    GenTestData<T>(m, n, batchCount, lda, incx, incy, xLen, yLen, xStride, yStride,
+        A, x, y, Af, xf, yGolden);
+    ComputeGoldenBatched(Af, xf, yGolden, batchCount, m, n, trans, alpha, beta, lda, incx, incy);
+    auto ret = RunOperator<T>(ctx, trans, m, n, batchCount, alpha, beta, lda, incx, incy, A, x, y);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("  [%s] aclblasSgemvBatched failed. ERROR: %d\n", tag, ret); return 1);
+    vector<T> yCompact(batchCount * yLen);
+    vector<float> goldCompact(batchCount * yLen);
+    CompactOutput<T>(batchCount, yLen, yStride, incy, y, yGolden, yCompact, goldCompact);
+    if constexpr (IS_FP16)
+        return VerifyHalf(yCompact, goldCompact, GemvPrecision::kF16Threshold, tag);
+    else
+        return VerifyFloat(yCompact, goldCompact, GemvPrecision::kF32Threshold, tag);
 }
+static uint32_t DoTest(
+    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount,
+    float alpha, float beta, const char* tag,
+    int lda = 0, int incx = 1, int incy = 1)
+{ return DoTestImpl<float>(ctx, trans, m, n, batchCount, alpha, beta, tag, lda, incx, incy); }
+template <typename T = uint16_t>
+static uint32_t DoTestHalf(
+    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount,
+    float alpha, float beta, const char* tag,
+    int lda = 0, int incx = 1, int incy = 1)
+{ return DoTestImpl<uint16_t>(ctx, trans, m, n, batchCount, alpha, beta, tag, lda, incx, incy); }
 
 // ============================================================
 // FP32 Normal, small (m=n=32)    batch=3  alpha=1.5 beta=0.5
 // ============================================================
 static uint32_t TestFP32_Normal(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_N, 32, 32, 3, 1.5f, 0.5f, "N-32x32");
+    return DoTest(ctx, ACLBLAS_OP_N, 32, 32, 5, 1.5f, 0.5f, "N-32x32");
 }
 // FP16 Normal, small
 static uint32_t TestFP16_Normal(TestContext& ctx)
@@ -386,7 +400,7 @@ static uint32_t TestFP16_Normal(TestContext& ctx)
 // FP32 Transpose, small (m=16, n=8)  batch=2  alpha=2.0 beta=0.5
 static uint32_t TestFP32_Transpose(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_T, 16, 8, 2, 2.0f, 0.5f, "T-16x8");
+    return DoTest(ctx, ACLBLAS_OP_T, 16, 8, 4, 2.0f, 0.5f, "T-16x8");
 }
 
 // ============================================================
@@ -394,11 +408,11 @@ static uint32_t TestFP32_Transpose(TestContext& ctx)
 // ============================================================
 static uint32_t TestFP32_Normal_Large(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_N, 128, 500, 3, 1.0f, 0.0f, "N-128x500");
+    return DoTest(ctx, ACLBLAS_OP_N, 128, 500, 7, 0.25f, -0.5f, "N-128x500");
 }
 static uint32_t TestFP32_Transpose_Large(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_T, 128, 64, 2, 1.0f, 0.5f, "T-128x64");
+    return DoTest(ctx, ACLBLAS_OP_T, 128, 64, 2, 2.5f, -0.25f, "T-128x64");
 }
 
 // ============================================================
@@ -427,7 +441,7 @@ static uint32_t TestFP32_Normal_LargeBatch(TestContext& ctx)
 // B=99: 奇数大批次
 static uint32_t TestFP32_Normal_BatchNonAligned(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_N, 128, 64, 99, 1.0f, 0.5f, "N-128x64-B99");
+    return DoTest(ctx, ACLBLAS_OP_N, 128, 64, 99, 3.0f, 0.0f, "N-128x64-B99");
 }
 
 // m=1025, n=1025, batch=199: 三轴超 1K 且全奇数，batch > 128
@@ -441,7 +455,7 @@ static uint32_t TestFP32_Normal_AllNonAligned(TestContext& ctx)
 // ============================================================
 static uint32_t TestFP32_Normal_MisalignedM(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_N, 2501, 16, 1, 1.0f, 0.0f, "N-2501x16");
+    return DoTest(ctx, ACLBLAS_OP_N, 2501, 16, 4, 1.0f, 0.0f, "N-2501x16");
 }
 
 // ============================================================
@@ -449,7 +463,7 @@ static uint32_t TestFP32_Normal_MisalignedM(TestContext& ctx)
 // ============================================================
 static uint32_t TestFP32_Normal_LargeN(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_N, 64, 3000, 1, 1.0f, 0.0f, "N-64x3000");
+    return DoTest(ctx, ACLBLAS_OP_N, 64, 3000, 2, 1.0f, 0.0f, "N-64x3000");
 }
 
 // m=17, n=13: 小非对齐 shape, nTile=16→nCurr=13, mTile=17
@@ -463,7 +477,7 @@ static uint32_t TestFP32_Normal_SmallNonAligned(TestContext& ctx)
 // ============================================================
 static uint32_t TestFP32_Transpose_Odd(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_T, 13, 7, 3, 1.5f, 0.5f, "T-13x7");
+    return DoTest(ctx, ACLBLAS_OP_T, 13, 7, 6, 1.5f, 0.5f, "T-13x7");
 }
 
 // ============================================================
@@ -472,7 +486,7 @@ static uint32_t TestFP32_Transpose_Odd(TestContext& ctx)
 // Large M — inner loop heavy
 static uint32_t TestFP32_Transpose_LargeM(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_T, 512, 32, 2, 1.0f, 0.5f, "T-512x32");
+    return DoTest(ctx, ACLBLAS_OP_T, 512, 32, 2, 0.5f, 1.5f, "T-512x32");
 }
 // Large N — many output elements, threads loop
 static uint32_t TestFP32_Transpose_LargeN(TestContext& ctx)
@@ -488,13 +502,13 @@ static uint32_t TestFP32_Transpose_LargeMN(TestContext& ctx)
 // Transpose beta=0 (pure A^T x)
 static uint32_t TestFP32_Transpose_NoBeta(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_T, 128, 64, 3, 1.0f, 0.0f, "T-128x64-beta0");
+    return DoTest(ctx, ACLBLAS_OP_T, 128, 64, 11, 1.0f, 0.0f, "T-128x64-beta0");
 }
 
 // Transpose m not 8-aligned
 static uint32_t TestFP32_Transpose_MisalignedM(TestContext& ctx)
 {
-    return DoTest(ctx, ACLBLAS_OP_T, 33, 16, 2, 1.5f, 0.5f, "T-33x16");
+    return DoTest(ctx, ACLBLAS_OP_T, 33, 16, 8, 1.5f, 0.5f, "T-33x16");
 }
 
 // Transpose n not 8-aligned (tests GM scalar output with unaligned count)
@@ -571,35 +585,32 @@ static uint32_t TestFP16_Transpose_Odd(TestContext& ctx)
 
 // HSS: uint16_t in, float out
 static uint32_t DoTestHSS(
-    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount, float alpha, float beta, const char* tag)
+    TestContext& ctx, aclblasOperation_t trans, int m, int n, int batchCount,
+    float alpha, float beta, const char* tag,
+    int lda = 0, int incx = 1, int incy = 1)
 {
+    if (lda <= 0) lda = m;
     int xLen = (trans == ACLBLAS_OP_N) ? n : m;
     int yLen = (trans == ACLBLAS_OP_N) ? m : n;
-    vector<uint16_t> A(batchCount * m * n);
-    vector<uint16_t> x(batchCount * xLen);
-    vector<float> Af(batchCount * m * n);
-    vector<float> xf(batchCount * xLen);
-    vector<float> y(batchCount * yLen);
-    vector<float> yGolden(batchCount * yLen);
-
-    for (auto& v : Af) {
-        v = RandFloat();
-        A[&v - Af.data()] = FloatToHalf(v);
-    }
-    for (auto& v : xf) {
-        v = RandFloat();
-        x[&v - xf.data()] = FloatToHalf(v);
-    }
-    for (auto& v : y)
-        v = RandFloat();
+    int xStride = 1 + (xLen - 1) * abs(incx);
+    int yStride = 1 + (yLen - 1) * abs(incy);
+    vector<uint16_t> A(batchCount * lda * n);
+    vector<uint16_t> x(batchCount * xStride);
+    vector<float> Af(batchCount * lda * n), xf(batchCount * xStride);
+    vector<float> y(batchCount * yStride), yGolden(batchCount * yStride);
+    for (int b = 0; b < batchCount; b++)
+        for (int j = 0; j < n; j++)
+            for (int i = 0; i < m; i++) {
+                int idx = b * lda * n + j * lda + i;
+                Af[idx] = RandFloat(); A[idx] = FloatToHalf(Af[idx]);
+            }
+    for (auto& v : xf) { v = RandFloat(); x[&v - xf.data()] = FloatToHalf(v); }
+    for (auto& v : y) v = RandFloat();
     yGolden = y;
-    for (size_t i = 0; i < A.size(); i++)
-        Af[i] = HalfToFloat(A[i]);
-    for (size_t i = 0; i < x.size(); i++)
-        xf[i] = HalfToFloat(x[i]);
-    ComputeGoldenBatched(Af, xf, yGolden, batchCount, m, n, trans, alpha, beta);
-
-    size_t aN = batchCount * m * n, xN = batchCount * xLen, yN = batchCount * yLen;
+    for (size_t i = 0; i < A.size(); i++) Af[i] = HalfToFloat(A[i]);
+    for (size_t i = 0; i < x.size(); i++) xf[i] = HalfToFloat(x[i]);
+    ComputeGoldenBatched(Af, xf, yGolden, batchCount, m, n, trans, alpha, beta, lda, incx, incy);
+    size_t aN = (size_t)batchCount * lda * n, xN = (size_t)batchCount * xStride, yN = (size_t)batchCount * yStride;
     uint8_t *dA = nullptr, *dX = nullptr, *dY = nullptr;
     aclrtMalloc((void**)&dA, aN * sizeof(uint16_t), ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc((void**)&dX, xN * sizeof(uint16_t), ACL_MEM_MALLOC_HUGE_FIRST);
@@ -608,33 +619,90 @@ static uint32_t DoTestHSS(
     aclrtMemcpy(dX, xN * sizeof(uint16_t), x.data(), xN * sizeof(uint16_t), ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(dY, yN * sizeof(float), y.data(), yN * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
     auto ret = aclblasHSSgemvBatched(
-        ctx.handle, trans, m, n, &alpha, (uint16_t*)dA, m, (uint16_t*)dX, 1, &beta, (float*)dY, 1, batchCount);
-    CHECK_RET(
-        ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("  [%s] aclblasHSSgemvBatched failed. ERROR: %d\n", tag, ret);
+        ctx.handle, trans, m, n, &alpha, (uint16_t*)dA, lda, (uint16_t*)dX, incx, &beta, (float*)dY, incy, batchCount);
+    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("  [%s] aclblasHSSgemvBatched failed. ERROR: %d\n", tag, ret);
         aclrtFree(dA); aclrtFree(dX); aclrtFree(dY); return 1);
     aclrtSynchronizeStream(ctx.stream);
     aclrtMemcpy(y.data(), yN * sizeof(float), dY, yN * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
-    aclrtFree(dA);
-    aclrtFree(dX);
-    aclrtFree(dY);
-    return VerifyFloat(y, yGolden, GemvPrecision::kF32Threshold, (uint32_t)xLen, tag);
+    aclrtFree(dA); aclrtFree(dX); aclrtFree(dY);
+    int yBaseAdj = (incy < 0) ? (yLen - 1) * (-incy) : 0;
+    vector<float> yCompact(batchCount * yLen), goldCompact(batchCount * yLen);
+    for (int b = 0; b < batchCount; b++)
+        for (int i = 0; i < yLen; i++) {
+            yCompact[b * yLen + i] = y[(size_t)b * yStride + yBaseAdj + i * incy];
+            goldCompact[b * yLen + i] = yGolden[(size_t)b * yStride + yBaseAdj + i * incy];
+        }
+    return VerifyFloat(yCompact, goldCompact, GemvPrecision::kF32Threshold, tag);
 }
 
 static uint32_t TestFP16_HSS_Normal(TestContext& ctx)
 {
-    return DoTestHSS(ctx, ACLBLAS_OP_N, 32, 32, 1, 1.0f, 0.0f, "N-HSS-32x32");
+    return DoTestHSS(ctx, ACLBLAS_OP_N, 32, 32, 5, 1.0f, 0.0f, "N-HSS-32x32");
 }
 static uint32_t TestFP16_HSS_Large(TestContext& ctx)
 {
-    return DoTestHSS(ctx, ACLBLAS_OP_N, 128, 500, 3, 1.0f, 0.0f, "N-HSS-128x500");
+    return DoTestHSS(ctx, ACLBLAS_OP_N, 128, 500, 14, 0.75f, -0.25f, "N-HSS-128x500");
+}
+static uint32_t TestFP16_HSS_Transpose(TestContext& ctx)
+{
+    return DoTestHSS(ctx, ACLBLAS_OP_T, 64, 32, 8, 1.25f, 0.75f, "T-HSS-64x32");
 }
 
-// ---- Strided (SIMT) tests (TODO: implement StridedTest) ----
-// static uint32_t TestFP32_Strided_Incx2(...)
-// static uint32_t TestFP32_Strided_Incy2(...)
-// static uint32_t TestFP32_Strided_Lda(...)
-
-// (old verbose test bodies removed — now using DoTest/DoTestHalf helpers above)
+// ---- Strided tests — lda/incx/incy ----
+static uint32_t TestFP32_Strided_Lda(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 17, 13, 2, 1.5f, 0.5f, "N-lda32-17x13", 32);
+}
+static uint32_t TestFP32_Strided_Incx2(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 64, 11, 2, 2.0f, -0.3f, "N-incx2-64x11", 0, 2);
+}
+static uint32_t TestFP32_Strided_Incy2(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 11, 64, 2, 1.0f, 0.0f, "N-incy2-11x64", 0, 1, 2);
+}
+static uint32_t TestFP32_Strided_TransLda(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_T, 64, 37, 3, 1.0f, 0.0f, "T-lda128-64x37", 128);
+}
+static uint32_t TestFP32_Strided_LdaIncx(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 47, 19, 2, 1.0f, 0.0f, "N-lda64-incx3-47x19", 64, 3);
+}
+static uint32_t TestFP32_Strided_LdaIncy(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 31, 33, 2, 1.5f, 0.5f, "N-lda48-incy3-31x33", 48, 1, 3);
+}
+static uint32_t TestFP32_Strided_IncxIncy(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 23, 17, 2, 1.0f, 0.0f, "N-incx2-incy3-23x17", 0, 2, 3);
+}
+static uint32_t TestFP32_Strided_All(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 41, 13, 3, 1.0f, 0.0f, "N-lda64-incx2-incy3-41x13", 64, 2, 3);
+}
+// FP16 and HSS strided
+static uint32_t TestFP16_Strided_Lda(TestContext& ctx)
+{
+    return DoTestHalf<uint16_t>(ctx, ACLBLAS_OP_N, 17, 13, 2, 1.5f, 0.5f, "N-FP16-lda32-17x13", 32);
+}
+static uint32_t TestFP16_Strided_IncxNeg(TestContext& ctx)
+{
+    return DoTestHalf<uint16_t>(ctx, ACLBLAS_OP_N, 19, 11, 3, 1.0f, 0.0f, "N-FP16-incx-2-19x11", 0, -2);
+}
+static uint32_t TestHSS_Strided(TestContext& ctx)
+{
+    return DoTestHSS(ctx, ACLBLAS_OP_N, 31, 17, 2, 1.0f, 0.5f, "N-HSS-lda48-incy3", 48, 1, 3);
+}
+// Negative stride
+static uint32_t TestFP32_Strided_IncxNeg(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 19, 11, 2, 1.0f, 0.5f, "N-incx-2-19x11", 0, -2);
+}
+static uint32_t TestFP32_Strided_IncyNeg(TestContext& ctx)
+{
+    return DoTest(ctx, ACLBLAS_OP_N, 25, 25, 2, 1.5f, 0.5f, "N-incy-3-25x25", 0, 1, -3);
+}
 
 // ============================================================
 // Test registry — function pointer + name
@@ -662,6 +730,7 @@ static const TestEntry kTestCases[] = {
     {"TestFP16_Transpose_Odd",              TestFP16_Transpose_Odd},
     {"TestFP16_HSS_Normal",                 TestFP16_HSS_Normal},
     {"TestFP16_HSS_Large",                  TestFP16_HSS_Large},
+    {"TestFP16_HSS_Transpose",              TestFP16_HSS_Transpose},
     {"TestFP32_Transpose_VeryLargeM",       TestFP32_Transpose_VeryLargeM},
     {"TestFP32_Transpose_VeryLargeN",       TestFP32_Transpose_VeryLargeN},
     {"TestFP32_Transpose_VeryLargeMN",      TestFP32_Transpose_VeryLargeMN},
@@ -677,6 +746,19 @@ static const TestEntry kTestCases[] = {
     {"TestFP32_Normal_MisalignedM",         TestFP32_Normal_MisalignedM},
     {"TestFP32_Normal_LargeN",              TestFP32_Normal_LargeN},
     {"TestFP32_Normal_SmallNonAligned",     TestFP32_Normal_SmallNonAligned},
+    {"TestFP32_Strided_Lda",                TestFP32_Strided_Lda},
+    {"TestFP32_Strided_Incx2",              TestFP32_Strided_Incx2},
+    {"TestFP32_Strided_Incy2",              TestFP32_Strided_Incy2},
+    {"TestFP32_Strided_TransLda",           TestFP32_Strided_TransLda},
+    {"TestFP32_Strided_LdaIncx",            TestFP32_Strided_LdaIncx},
+    {"TestFP32_Strided_LdaIncy",            TestFP32_Strided_LdaIncy},
+    {"TestFP32_Strided_IncxIncy",           TestFP32_Strided_IncxIncy},
+    {"TestFP32_Strided_All",                TestFP32_Strided_All},
+    {"TestFP32_Strided_IncxNeg",            TestFP32_Strided_IncxNeg},
+    {"TestFP32_Strided_IncyNeg",            TestFP32_Strided_IncyNeg},
+    {"TestFP16_Strided_Lda",                TestFP16_Strided_Lda},
+    {"TestFP16_Strided_IncxNeg",            TestFP16_Strided_IncxNeg},
+    {"TestHSS_Strided",                     TestHSS_Strided},
 };
 
 static int TestSetup(TestContext &ctx)
