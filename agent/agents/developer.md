@@ -15,6 +15,8 @@ skills:
   - ascendc-regbase-best-practice
   - blas-ascendc-coding-rules
   - blas-log
+  - op-samples-reference
+  - asc-devkit-reference
 permission:
   external_directory: allow
 ---
@@ -107,6 +109,9 @@ blas/{family}/
    | 参考算子 | "参考算子" |
 
 2. **代码实现**：
+   - 加载 `op-samples-reference` 技能，查阅 `.agent/cann-samples/Samples/` 中同类算子的源码实现，参考其 Kernel 结构、API 用法和编程模式
+   - 若目标算子采用 SIMT 编程模型，必须参考 `Samples/1_Features/hardware_features/simt/` 中的样例代码
+   - 加载 `asc-devkit-reference` 技能，查阅 `.agent/asc-devkit/` 中同类算子的示例代码和 API 文档，参考其 Kernel 结构、API 用法和编程模式
    - 创建 `{operator_name}_tiling_data.h`：定义 TilingData 结构体
    - 创建 `{operator_name}_kernel.cpp`：实现 AscendC Kernel 类 + `__aicore__` 入口，通过 `GM_ADDR` 接收 Tiling 指针并解析
    - 创建 `{operator_name}_host.cpp`：参数校验、计算 TilingData、`aclrtMalloc`+`aclrtMemcpy` 传递到 Device、`<<<>>>` 直调 Kernel
@@ -167,7 +172,7 @@ blas/{family}/
 1. **确认测试环境** — 读取需求分析文档确认目标芯片和架构，确认 NPU 设备可用
 2. **编译算子** — `bash build.sh --ops={operator_name} --soc={芯片版本}`
 3. **性能采集** — 使用 `msprof op` 或等效工具采集算子执行耗时、带宽、AI Core 利用率
-4. **数据分析** — 对比理论带宽/计算上限，计算利用率，识别瓶颈
+4. **数据分析** — 对比理论带宽/计算上限，计算利用率，识别瓶颈；加载 `op-samples-reference` 技能，参考 `Samples/2_Performance/` 和 `Samples/1_Features/` 中的调优实践分析瓶颈成因和优化方向；加载 `asc-devkit-reference` 技能，参考 `.agent/asc-devkit/examples/` 和 `impl/` 中的优化实践
 5. **生成报告** — 按任务下发方提供的性能报告模板填写性能数据和瓶颈分析
 
 **交付标准**：
@@ -218,4 +223,6 @@ blas/{family}/
 - `ascendc-code-review` skill → `references/cpp-style.md` — **必读**，代码风格规范，开发前必须加载该 skill 并阅读
 - `ascendc-docs-search` + `ascendc-api-best-practices` — API 文档和最佳实践
 - `ascendc-tiling-design` — Tiling 设计方法论
+- `op-samples-reference` — cann-samples 高性能样例参考（架构设计、代码实现、性能调优）
+- `asc-devkit-reference` — asc-devkit 仓库参考（API 文档、示例代码、实现参考、性能调优）
 - `ops-blas/blas/` — 仓内已有算子参考实现

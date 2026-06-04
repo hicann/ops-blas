@@ -14,6 +14,8 @@ skills:
   - ops-precision-standard
   - ascendc-regbase-best-practice
   - blas-ascendc-coding-rules
+  - op-samples-reference
+  - asc-devkit-reference
 permission:
   external_directory: allow
 ---
@@ -216,6 +218,8 @@ aclblasStatus_t aclblasXxx(
 - `ascendc-tiling-design` 技能 — Tiling 设计方法论
 - `ascendc-api-best-practices` 技能 — API 最佳实践和约束说明
 - `ascendc-docs-search` 技能 — API 官方文档搜索
+- `op-samples-reference` 技能 — cann-samples 高性能样例参考（架构模式、优化策略、编程模型）
+- `asc-devkit-reference` 技能 — asc-devkit 仓库参考（API 文档、示例代码、实现参考、Tiling 配置）
 - `ops-blas/blas/` 目录 — 仓内已有算子实现参考
 
 #### 仓内参考算子调研
@@ -224,6 +228,22 @@ aclblasStatus_t aclblasXxx(
 1. 寻找功能相似的算子（如 gemv 参考 cgemv、copy 参考 scopy）
 2. 分析其 Tiling 策略、Host/Kernel 结构、API 使用模式
 3. 在设计文档中记录参考来源
+
+#### cann-samples 高性能样例参考
+
+加载 `op-samples-reference` 技能，查阅 `.agent/cann-samples/Samples/` 中的相关样例：
+1. 在 `Samples/0_Introduction/` 中了解基本编程模型和 Tiling 策略
+2. 在 `Samples/2_Performance/` 中查找同类算子的架构设计和性能优化路径
+3. 在 `Samples/1_Features/` 中了解可用的优化手段，提前规划优化策略
+4. 若目标算子采用 SIMT 编程模型，必须参考 `Samples/1_Features/hardware_features/simt/` 中的样例
+
+#### asc-devkit 官方参考
+
+加载 `asc-devkit-reference` 技能，查阅 `.agent/asc-devkit/` 中的相关资源：
+1. 在 `docs/api/context/` 中查阅候选 API 的官方文档，确认功能、参数约束和平台支持
+2. 在 `examples/` 中查找同类算子的示例代码，参考其架构设计和编程模式
+3. 在 `impl/adv_api/tiling/` 中参考官方 Tiling 参数配置，辅助 Tiling 策略设计
+4. 在 `include/ascendc/` 中查阅头文件，确认类型定义和接口声明
 
 ### API 验证（强制步骤，在技术方案设计之前执行）
 

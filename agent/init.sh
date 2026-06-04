@@ -12,6 +12,8 @@
 set -e
 
 CANNBOT_URL="https://gitcode.com/cann/cannbot-skills.git"
+CANN_SAMPLES_URL="https://gitcode.com/cann/cann-samples.git"
+ASC_DEVKIT_URL="https://gitcode.com/cann/asc-devkit.git"
 
 # --- Color helpers ---
 if [ -t 1 ]; then
@@ -43,15 +45,20 @@ Options:
   --help, -h                Show this help message
   --clean                   Remove existing config directory before init
   --cannbot <path>          Path to cannbot-skills directory (default: clone from official)
+  --samples <path>          Path to cann-samples directory (default: clone from official)
+  --asc <path>              Path to asc-devkit directory (default: clone from official)
 
 Official URL:
   cannbot-skills: ${CANNBOT_URL}
+  cann-samples:   ${CANN_SAMPLES_URL}
+  asc-devkit:     ${ASC_DEVKIT_URL}
 
 Examples:
   bash init.sh claude
   bash init.sh opencode
   bash init.sh claude --clean
   bash init.sh claude --cannbot /path/to/cannbot-skills
+  bash init.sh claude --samples /path/to/cann-samples --asc /path/to/asc-devkit
 
 What it does:
   1. Create config directory in ops-blas repo (.claude/ or .opencode/)
@@ -60,6 +67,7 @@ What it does:
   4. Setup cannbot-skills (use local path or clone from official)
   5. Symlink agent/skills/* -> config/skills/ (local skills)
   6. Read cannbot_references.json and symlink referenced cannbot skills
+  7. Setup cann-samples and asc-devkit (use local path or clone to .agent/)
 EOF
 }
 
@@ -90,6 +98,8 @@ esac
 
 CLEAN_MODE=false
 CANNBOT_PATH=""
+SAMPLES_PATH=""
+ASC_PATH=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -107,6 +117,22 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             CANNBOT_PATH="$2"
+            shift 2
+            ;;
+        --samples)
+            if [ -z "$2" ] || [[ "$2" == --* ]]; then
+                echo -e "${RED}Error: --samples requires a path argument${NC}"
+                exit 1
+            fi
+            SAMPLES_PATH="$2"
+            shift 2
+            ;;
+        --asc)
+            if [ -z "$2" ] || [[ "$2" == --* ]]; then
+                echo -e "${RED}Error: --asc requires a path argument${NC}"
+                exit 1
+            fi
+            ASC_PATH="$2"
             shift 2
             ;;
         *)
@@ -142,6 +168,14 @@ else
     SKILLS_REPO="$CONFIG_DIR/ref-repos/cannbot-skills"
 fi
 
+if [ -n "$SAMPLES_PATH" ]; then
+    SAMPLES_PATH=$(realpath "$SAMPLES_PATH" 2>/dev/null || echo "$SAMPLES_PATH")
+fi
+
+if [ -n "$ASC_PATH" ]; then
+    ASC_PATH=$(realpath "$ASC_PATH" 2>/dev/null || echo "$ASC_PATH")
+fi
+
 # --- Display configuration ---
 echo -e "  ${BOLD}Configuration:${NC}"
 echo -e "  target env:   ${CYAN}$TARGET_ENV${NC} (config dir: $CONFIG_DIR_NAME/)"
@@ -151,11 +185,31 @@ if [ -n "$CANNBOT_PATH" ]; then
 else
     echo -e "  cannbot:      ${CYAN}clone from $CANNBOT_URL${NC}"
 fi
+if [ -n "$SAMPLES_PATH" ]; then
+    echo -e "  cann-samples: ${CYAN}$SAMPLES_PATH${NC} (local)"
+else
+    echo -e "  cann-samples: ${CYAN}clone from $CANN_SAMPLES_URL${NC}"
+fi
+if [ -n "$ASC_PATH" ]; then
+    echo -e "  asc-devkit:   ${CYAN}$ASC_PATH${NC} (local)"
+else
+    echo -e "  asc-devkit:   ${CYAN}clone from $ASC_DEVKIT_URL${NC}"
+fi
 echo ""
 
 # --- Validate provided paths ---
 if [ -n "$CANNBOT_PATH" ] && [ ! -d "$CANNBOT_PATH" ]; then
     err "cannbot-skills directory not found: $CANNBOT_PATH"
+    exit 1
+fi
+
+if [ -n "$SAMPLES_PATH" ] && [ ! -d "$SAMPLES_PATH" ]; then
+    err "cann-samples directory not found: $SAMPLES_PATH"
+    exit 1
+fi
+
+if [ -n "$ASC_PATH" ] && [ ! -d "$ASC_PATH" ]; then
+    err "asc-devkit directory not found: $ASC_PATH"
     exit 1
 fi
 
@@ -172,14 +226,14 @@ if [ "$CLEAN_MODE" = true ] && [ -d "$CONFIG_DIR" ]; then
     rm -rf "$CONFIG_DIR"
     ok "$CONFIG_DIR_NAME/ removed"
 fi
-step "[1/6] Creating $CONFIG_DIR_NAME directory and .agent/dev-docs..."
+step "[1/7] Creating $CONFIG_DIR_NAME directory and .agent/dev-docs..."
 mkdir -p "$CONFIG_DIR"
 ok "$CONFIG_DIR_NAME/ created"
 mkdir -p "$OPS_BLAS_DIR/.agent/dev-docs"
 ok ".agent/dev-docs/ created"
 
 # --- Step 2: Symlink agent/AGENT.md -> config/ (claude: CLAUDE.md, opencode: AGENTS.md) ---
-step "[2/6] Linking agent configuration..."
+step "[2/7] Linking agent configuration..."
 agent_md="$AGENT_DIR/AGENT.md"
 if [ -f "$agent_md" ]; then
     dst="$CONFIG_DIR/$GUIDE_DST_NAME"
@@ -193,7 +247,7 @@ else
 fi
 
 # --- Step 3: Symlink agent/agents/*.md -> config/agents/ ---
-step "[3/6] Linking agents..."
+step "[3/7] Linking agents..."
 mkdir -p "$CONFIG_DIR/agents"
 local_agents="$AGENT_DIR/agents"
 agent_count=0
@@ -216,7 +270,7 @@ else
 fi
 
 # --- Step 4: Setup cannbot-skills ---
-step "[4/6] Setting up cannbot-skills..."
+step "[4/7] Setting up cannbot-skills..."
 
 if [ -n "$CANNBOT_PATH" ]; then
     ok "Using local cannbot-skills: $CANNBOT_PATH"
@@ -238,7 +292,7 @@ else
 fi
 
 # --- Step 5: Symlink local skills -> config/skills/ ---
-step "[5/6] Linking skills..."
+step "[5/7] Linking skills..."
 mkdir -p "$CONFIG_DIR/skills"
 local_skills="$AGENT_DIR/skills"
 local_skill_count=0
@@ -264,7 +318,7 @@ else
 fi
 
 # --- Step 6: Link cannbot skills from cannbot_references.json ---
-step "[6/6] Linking cannbot skills from cannbot_references.json..."
+step "[6/7] Linking cannbot skills from cannbot_references.json..."
 refs_json="$local_skills/cannbot_references.json"
 
 if [ -f "$refs_json" ]; then
@@ -304,6 +358,63 @@ for skill_name, paths in data.items():
     fi
 else
     warn "cannbot_references.json not found, skipping cannbot skills linking"
+fi
+
+# --- Step 7: Setup cann-samples and asc-devkit ---
+step "[7/7] Setting up external reference repos..."
+
+AGENT_DIR_PATH="$OPS_BLAS_DIR/.agent"
+
+# --- cann-samples ---
+SAMPLES_TARGET="$AGENT_DIR_PATH/cann-samples"
+if [ -n "$SAMPLES_PATH" ]; then
+    if [ -L "$SAMPLES_TARGET" ] || [ -e "$SAMPLES_TARGET" ]; then
+        rm -rf "$SAMPLES_TARGET"
+    fi
+    ln -sf "$SAMPLES_PATH" "$SAMPLES_TARGET"
+    ok "cann-samples -> $SAMPLES_PATH (symlink)"
+else
+    if [ -d "$SAMPLES_TARGET/.git" ]; then
+        info "cann-samples already exists, updating..."
+        cd "$SAMPLES_TARGET"
+        git pull --quiet 2>/dev/null || warn "git pull failed, using existing version"
+        cd "$OPS_BLAS_DIR"
+        ok "cann-samples updated"
+    elif [ -L "$SAMPLES_TARGET" ]; then
+        ok "cann-samples symlink exists"
+    else
+        info "Cloning cann-samples from $CANN_SAMPLES_URL ..."
+        git clone --quiet "$CANN_SAMPLES_URL" "$SAMPLES_TARGET" 2>/dev/null || {
+            warn "Failed to clone cann-samples, skipping"
+        }
+        [ -d "$SAMPLES_TARGET" ] && ok "cann-samples cloned"
+    fi
+fi
+
+# --- asc-devkit ---
+ASC_TARGET="$AGENT_DIR_PATH/asc-devkit"
+if [ -n "$ASC_PATH" ]; then
+    if [ -L "$ASC_TARGET" ] || [ -e "$ASC_TARGET" ]; then
+        rm -rf "$ASC_TARGET"
+    fi
+    ln -sf "$ASC_PATH" "$ASC_TARGET"
+    ok "asc-devkit -> $ASC_PATH (symlink)"
+else
+    if [ -d "$ASC_TARGET/.git" ]; then
+        info "asc-devkit already exists, updating..."
+        cd "$ASC_TARGET"
+        git pull --quiet 2>/dev/null || warn "git pull failed, using existing version"
+        cd "$OPS_BLAS_DIR"
+        ok "asc-devkit updated"
+    elif [ -L "$ASC_TARGET" ]; then
+        ok "asc-devkit symlink exists"
+    else
+        info "Cloning asc-devkit from $ASC_DEVKIT_URL ..."
+        git clone --quiet "$ASC_DEVKIT_URL" "$ASC_TARGET" 2>/dev/null || {
+            warn "Failed to clone asc-devkit, skipping"
+        }
+        [ -d "$ASC_TARGET" ] && ok "asc-devkit cloned"
+    fi
 fi
 
 # --- Summary ---

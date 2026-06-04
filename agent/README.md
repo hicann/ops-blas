@@ -63,3 +63,14 @@
 | ⛔ CP4.3 | CP4.3.json | 用户 | 上库审批 | AskUserQuestion，通过后 squash commit -m "Feat: 新增面向archXX的aclblasXxx接口" | |
 
 **图例**：⛔ 必需确认  ⚪ 仅不通过时直接打回，3次仍失败后询问
+
+## 外部参考仓库
+
+Agent 在架构设计、代码开发和性能优化阶段可按需加载以下外部仓库作为参考：
+
+| 仓库 | 本地路径 | 技能 | 用途 |
+|------|---------|------|------|
+| [cann-samples](https://gitcode.com/cann/cann-samples.git) | `.agent/cann-samples/` | `op-samples-reference` | 高性能算子样例、端到端调优实践、SIMT 编程模型参考 |
+| [asc-devkit](https://gitcode.com/cann/asc-devkit.git) | `.agent/asc-devkit/` | `asc-devkit-reference` | Ascend C 官方 API 文档（1022+）、示例代码（587+）、实现参考、Tiling 配置 |
+
+初始化时通过 `init.sh` 自动克隆到 `.agent/` 目录，也可通过 `--samples` 和 `--asc` 参数指定本地路径创建软链接。

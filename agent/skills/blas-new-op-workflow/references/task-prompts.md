@@ -139,6 +139,8 @@ scene: design
 输入:
   - 1.2-需求分析.md
   - 1.3.A-开发方案设计.md 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/1.3.A-开发方案设计.md)
+  - 加载 op-samples-reference 技能，参考 cann-samples 仓库中的同类算子架构设计和优化策略选型
+  - 加载 asc-devkit-reference 技能，参考 asc-devkit 仓库中的 API 文档、示例代码和 Tiling 配置
 输出:
   - .agent/dev-docs/{operator_name}/1.3.A-开发方案设计.md (按模板填写)
 验收标准:
@@ -205,6 +207,8 @@ subagent: developer
 输入:
   - 1.3.A-开发方案设计.md
   - 加载 blas-log 技能获取日志集成规范
+  - 加载 op-samples-reference 技能，参考 cann-samples 仓库中的同类算子实现和编程模式
+  - 加载 asc-devkit-reference 技能，参考 asc-devkit 仓库中的示例代码和 API 文档
 输出:
   - blas/{family}/{operator_name}/archXX/{operator_name}_host.cpp
   - blas/{family}/{operator_name}/archXX/{operator_name}_kernel.cpp
@@ -297,6 +301,8 @@ subagent: developer
   - 1.2-需求分析.md
   - 1.3.A-开发方案设计.md
   - 3.2-性能报告.md 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/3.2-性能报告.md)
+  - 加载 op-samples-reference 技能，参考 cann-samples 仓库中的性能调优实践和瓶颈分析方法
+  - 加载 asc-devkit-reference 技能，参考 asc-devkit 仓库中的性能优化实践和瓶颈分析方法
 输出:
   - .agent/dev-docs/{operator_name}/3.2-性能报告.md (按模板填写)
 验收标准:
