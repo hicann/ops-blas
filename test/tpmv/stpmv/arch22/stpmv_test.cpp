@@ -1,21 +1,21 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /* !
-* \file tpmv_test.cpp
-* \brief
-*/
+ * \file tpmv_test.cpp
+ * \brief
+ */
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <iomanip>
 #include <iostream>
 #include <iterator>
@@ -31,18 +31,13 @@
         }                            \
     } while (0)
 
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
-
 static size_t PackedLowerIndex(uint32_t row, uint32_t col)
 {
     return static_cast<size_t>(col + (row * (row + 1U)) / 2U);
 }
 
-static std::vector<float> BuildGolden(const std::vector<float> &aPacked, const std::vector<float> &x,
-    uint32_t n, int64_t incx)
+static std::vector<float> BuildGolden(
+    const std::vector<float>& aPacked, const std::vector<float>& x, uint32_t n, int64_t incx)
 {
     std::vector<float> golden(n, 0.0f);
     for (uint32_t row = 0; row < n; ++row) {
@@ -56,14 +51,15 @@ static std::vector<float> BuildGolden(const std::vector<float> &aPacked, const s
     return golden;
 }
 
-static uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
+static uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
 {
     std::cout << std::fixed << std::setprecision(6);
 
-    auto printTensor = [](std::vector<float> &tensor, const char *name) {
+    auto printTensor = [](std::vector<float>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 20;
         std::cout << name << ": ";
-        std::copy(tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
+        std::copy(
+            tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
             std::ostream_iterator<float>(std::cout, " "));
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -83,8 +79,8 @@ static uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &gol
 
     for (size_t i = 0; i < output.size(); ++i) {
         if (!closeEnough(output[i], golden[i])) {
-            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i]
-                      << " vs " << golden[i] << ")" << std::endl;
+            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i] << " vs "
+                      << golden[i] << ")" << std::endl;
             return 1;
         }
     }
@@ -120,24 +116,27 @@ static int RunCase(uint32_t n)
     aclrtStream stream = nullptr;
 
     ret = aclInit(nullptr);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+    CHECK_RET(ret == ACL_SUCCESS, fprintf(stderr, "aclInit failed. ERROR: %d\n", ret); return ret);
 
     ret = aclrtSetDevice(deviceId);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); aclFinalize(); return ret);
+    CHECK_RET(
+        ret == ACL_SUCCESS, fprintf(stderr, "aclrtSetDevice failed. ERROR: %d\n", ret); aclFinalize(); return ret);
 
     ret = aclrtCreateStream(&stream);
-    CHECK_RET(ret == ACL_SUCCESS,
-        LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); aclrtResetDevice(deviceId); aclFinalize(); return ret);
+    CHECK_RET(
+        ret == ACL_SUCCESS, fprintf(stderr, "aclrtCreateStream failed. ERROR: %d\n", ret); aclrtResetDevice(deviceId);
+        aclFinalize(); return ret);
 
     aclblasHandle_t handle = nullptr;
     aclblasCreate(&handle);
     aclblasSetStream(handle, stream);
 
-    aclblasStatus_t blasRet = aclblasStpmv(
+    aclblasStatus_t blasRet = aclblasStpmv_legacy(
         handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, n, aPacked.data(), x.data(), y.data(), incx);
-    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
-        LOG_PRINT("aclblasStpmv failed. ERROR: %d\n", blasRet); aclblasDestroy(handle); aclrtDestroyStream(stream);
-        aclrtResetDevice(deviceId); aclFinalize(); return static_cast<int>(blasRet));
+    CHECK_RET(
+        blasRet == ACLBLAS_STATUS_SUCCESS, fprintf(stderr, "aclblasStpmv_legacy failed. ERROR: %d\n", blasRet);
+        aclblasDestroy(handle); aclrtDestroyStream(stream); aclrtResetDevice(deviceId); aclFinalize();
+        return static_cast<int>(blasRet));
 
     int status = VerifyResult(y, golden);
 
@@ -148,7 +147,7 @@ static int RunCase(uint32_t n)
     return status;
 }
 
-int32_t main(int32_t argc, char *argv[])
+int32_t main(int32_t argc, char* argv[])
 {
     (void)argc;
     (void)argv;

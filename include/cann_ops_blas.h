@@ -135,8 +135,8 @@ aclblasStatus_t aclblasSpmv(
     const float beta, const int64_t n, const int64_t incx, const int64_t incy);
 
 aclblasStatus_t aclblasSspmv(
-    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* AP, const float* x, int incx,
-    const float* beta, float* y, int incy);
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* AP, const float* x,
+    int incx, const float* beta, float* y, int incy);
 
 aclblasStatus_t aclblasSger(
     aclblasHandle_t handle, int64_t m, int64_t n, const float* alpha, const float* x, int64_t incx, float* y,
@@ -159,10 +159,17 @@ aclblasStatus_t aclblasStpsv(
     const float* AP, float* x, int incx);
 
 aclblasStatus_t aclblasStpmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
-    int64_t n, const float* aPacked, const float* x, float* y, int64_t incx);
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
+    const float* AP, float* x, int incx);
 
-// Early implementation with a non-standard parameter layout. Prefer aclblasStbmv for new code; this interface may evolve or be removed in future releases.
+// Early arch22 implementation. Prefer aclblasStpmv for new code; this interface may evolve or be removed in future
+// releases.
+aclblasStatus_t aclblasStpmv_legacy(
+    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n,
+    const float* aPacked, const float* x, float* y, int64_t incx);
+
+// Early implementation with a non-standard parameter layout. Prefer aclblasStbmv for new code; this interface may
+// evolve or be removed in future releases.
 aclblasStatus_t aclblasStbmv_legacy(
     aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, float* y, const int64_t n,
     const int64_t k, const int64_t incx);
@@ -224,8 +231,7 @@ aclblasStatus_t aclblasCcopy(
     aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy);
 
 aclblasStatus_t aclblasSdot(
-    aclblasHandle_t handle, int64_t n, const float* x, int64_t incx, const float* y, int64_t incy,
-    float* result);
+    aclblasHandle_t handle, int64_t n, const float* x, int64_t incx, const float* y, int64_t incy, float* result);
 
 aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
 
@@ -263,8 +269,8 @@ aclblasStatus_t aclblasSsyr(
     float* A, const int lda);
 
 aclblasStatus_t aclblasSsyr2(
-    aclblasHandle handle, aclblasFillMode uplo, const int n, const float *alpha, const float *x,
-    const int incx, const float *y, const int incy, float *A, const int lda);
+    aclblasHandle handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,
+    const float* y, const int incy, float* A, const int lda);
 
 aclblasStatus_t aclblasCtrmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n,
@@ -285,8 +291,8 @@ aclblasStatus_t aclblasSrotm(
     const int64_t incy);
 
 aclblasStatus_t aclblasSgemv(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A,
-    int lda, const float* x, int incx, const float* beta, float* y, int incy);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A, int lda,
+    const float* x, int incx, const float* beta, float* y, int incy);
 
 #ifdef __cplusplus
 }

@@ -111,6 +111,6 @@ aclblasStatus_t aclblasStbmv_legacy(
         }
     }
 
-    return aclblasStpmv(
+    return aclblasStpmv_legacy(
         handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, n, packedMatrix.data(), x, y, incx);
 }

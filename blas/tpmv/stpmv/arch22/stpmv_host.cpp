@@ -80,9 +80,9 @@ tpmvTilingData CalTilingData(uint32_t totalRows, uint32_t vecCoreNum, int64_t in
     return tilingData;
 }
 
-aclblasStatus_t aclblasStpmv(
-    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag,
-    int64_t n, const float* aPacked, const float* x, float* y, int64_t incx)
+aclblasStatus_t aclblasStpmv_legacy(
+    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n,
+    const float* aPacked, const float* x, float* y, int64_t incx)
 {
     aclrtStream useStream = nullptr;
     if (handle != nullptr) {
