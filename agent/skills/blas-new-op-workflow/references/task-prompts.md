@@ -207,6 +207,7 @@ subagent: developer
 输入:
   - 1.3.A-开发方案设计.md
   - 加载 blas-log 技能获取日志集成规范
+  - 加载 blas-op-templates 技能获取对应编程模型的代码模板
   - 加载 op-samples-reference 技能，参考 cann-samples 仓库中的同类算子实现和编程模式
   - 加载 asc-devkit-reference 技能，参考 asc-devkit 仓库中的示例代码和 API 文档
 输出:
@@ -219,6 +220,7 @@ subagent: developer
   - host.cpp 中已集成 dlog 日志：#include "log/log.h"，关键路径使用 OP_LOGE/I/D
   - 参数校验失败、ACL Runtime 调用失败使用 OP_LOGE 输出错误信息
   - Tiling 数据和 Kernel 启动参数使用 OP_LOGD/OP_LOGI 输出
+  - 代码以 blas-op-templates 模板为起点，按设计文档填充业务逻辑
 ```
 
 ### 2.1.1.B / 2.2.1.B 测试开发

@@ -15,6 +15,7 @@ skills:
   - ascendc-regbase-best-practice
   - blas-ascendc-coding-rules
   - blas-log
+  - blas-op-templates
   - op-samples-reference
   - asc-devkit-reference
 permission:
@@ -98,7 +99,9 @@ blas/{family}/
 
 0. **阅读代码风格规范**（开发前必须执行） — 加载 `ascendc-code-review` skill，到该 skill 的 `references/cpp-style.md` 阅读代码风格规范，理解并严格遵守全部规则。本步骤不可跳过。
 
-1. **前置检查** - 读取设计文档，确认以下关键设计点：
+1. **加载代码模板**（开发前必须执行） — 加载 `blas-op-templates` skill，根据设计方案中确认的编程模型（SIMD membase / SIMD regbase / SIMT）和目标架构，选择对应的模板目录，将模板文件复制到算子目录并按命名规范重命名，作为代码开发的起点。本步骤不可跳过。
+
+2. **前置检查** - 读取设计文档，确认以下关键设计点：
    | 检查项 | 设计文档章节 |
    |-------|-------------|
    | 目标芯片 + 架构 | "基本信息" |
