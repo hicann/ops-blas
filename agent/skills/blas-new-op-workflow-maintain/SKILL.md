@@ -1,6 +1,8 @@
 ---
 name: blas-new-op-workflow-maintain
-description: blas-new-op-workflow 工作流维护技能。触发：需要给 blas-new-op-workflow 新增 skill、修改 workflow 流程、修改 agent 定义、修改模板文件时。
+description: |
+  工作流维护技能。触发场景：给仓里新增/修改/删除/重命名 skill、给 skill 加脚本/加功能、修改或修复工作流流程、修改 agent 定义或行为规则、修改 AGENT.md、修改模板文件、修改 init.sh。
+  关键词：加一个 skill、新增 skill、删除 skill、修改 skill、改 skill 名、重命名 skill、改名、名字搞错了、合并到 skill、更新 skill、给 skill 加脚本、给 skill 加功能、改 workflow、改流程、修复工作流、修复问题、工作流问题、改 agent、改 AGENT.md、给 agent 加规则、给 agent 加限制、agent 体系、改模板、改 init。
 ---
 
 # blas-new-op-workflow 工作流维护指南

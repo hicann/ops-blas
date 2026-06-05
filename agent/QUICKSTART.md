@@ -70,11 +70,13 @@ bash agent/init.sh --clean
 - 可通过 `opencode models` 查看当前环境可用的模型列表
 - 未列出的 agent（如 tester、reviewer、writer）默认使用 `"default"`，即跟随主 Agent 的模型
 
-配置完成后重新运行初始化：
+**手动配置时**，配置完成后重新运行初始化：
 
 ```bash
 bash agent/init.sh opencode
 ```
+
+**Agent 配置时**，Agent 会自动运行 init.sh 使配置生效，无需手动操作。
 
 脚本会自动将非 `"default"` 的配置写入项目根目录的 `opencode.json`（与已有内容合并）。全部为 `"default"` 时不生成 `opencode.json`。
 

@@ -1,6 +1,8 @@
 # 修改 Skill
 
 > 适用于：`agent/skills/*/SKILL.md`、`agent/skills/cannbot_references.json`
+>
+> `<target>` 根据当前运行环境确定：OpenCode 环境使用 `opencode`，Claude Code 环境使用 `claude`。
 
 ## 新增一个 Skill
 
@@ -10,7 +12,7 @@
 4. 若 Subagent 使用：在对应 `agent/agents/<name>.md` 的 `skills:` 列表中添加
 5. 检查 `task-prompts.md` 中是否有步骤需要「加载 <skill-name> 技能」，若有则确认步骤 4 中已添加
 6. 如果是 cannbot 外部 skill，更新 `cannbot_references.json`
-7. **必须**提醒用户运行 `bash agent/init.sh <target>` 以创建软链接，否则该 skill 无法被运行时加载
+7. **必须**自行运行 `bash agent/init.sh <target>` 创建软链接使配置生效，**禁止**让用户退出当前会话重新运行 init
 8. 执行 `references/common.md` 通用检查
 
 ## 修改已有 Skill
@@ -28,7 +30,7 @@
 3. 从所有 `agent/agents/*.md` 的 `skills:` 列表中移除
 4. 从 `task-prompts.md` 中移除所有「加载 <skill-name> 技能」的指令
 5. 如果是 cannbot 外部 skill，从 `cannbot_references.json` 中移除
-6. 提醒用户运行 `bash agent/init.sh <target> --clean` 重新初始化
+6. 自行运行 `bash agent/init.sh <target> --clean` 重新初始化，**禁止**让用户退出当前会话重新运行 init
 7. 执行 `references/common.md` 通用检查
 
 ## cannbot_references.json 格式

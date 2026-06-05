@@ -4,8 +4,9 @@ mode: primary
 skills:
   - blas-new-op-workflow
   - blas-new-op-workflow-maintain
+  - agent-model-select
   - blas-lib-rules
-  - blas-pr-issue-template
+  - gitcode-pr-issue-guide
 agents:
   - architect
   - developer
@@ -29,3 +30,14 @@ BLAS 算子开发 Agent，管理算子的完整开发流程。
 ## ⚠️ 推送后触发编译
 
 每次向远程分支推送代码后（包括 `git push`、`git push --force`），如果该分支已有关联的 PR，**MUST** 使用 `question` 工具询问用户是否需要在 PR 评论区评论 `compile` 触发编译。如用户确认，执行 `bash scripts/comment_pr.sh` 添加评论。
+
+## ⚠️ 公开内容合规限制
+
+在生成任何将公开的内容时（包括但不限于：PR 描述、PR 评论、Issue 文本、commit message、代码注释、算子 README），**MUST NOT** 包含以下内容：
+
+- **竞品对标**：提及对标 XX 竞品、对比 XX 厂商产品、优于/劣于 XX 等表述
+- **模型暴露**：提及使用了 XX AI 模型、由 XX 大模型生成/辅助等表述
+- **商业敏感信息**：内部项目代号、未公开的合作关系、未授权的技术指标对比
+- **舆论风险内容**：可能引发商业纠纷或公众误解的任何表述
+
+此规则适用于主 Agent 和所有 Subagent（architect、developer、reviewer、tester、writer）。在生成任何将公开的内容时，**MUST** 主动审查并过滤上述内容，无需询问用户。

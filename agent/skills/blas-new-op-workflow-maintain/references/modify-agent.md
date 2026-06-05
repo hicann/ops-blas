@@ -15,7 +15,8 @@
 1. 修改 `agent/AGENT.md`
 2. 检查 `skills:` 列表是否包含所有主 Agent 直接使用的 skill
 3. 检查 `agents:` 列表是否包含所有可用的 subagent
-4. 执行 `references/common.md` 通用检查
+4. **新增全局规则时**，检查下游 skill（如 `gitcode-pr-issue-guide`、`blas-new-op-workflow`）和 Subagent 定义文件（`agents/*.md`）是否需要配合执行该规则，若需要则在对应文件中增加引用或执行步骤
+5. 执行 `references/common.md` 通用检查
 
 ## frontmatter 字段说明
 
