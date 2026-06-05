@@ -70,6 +70,7 @@ What it does:
   5. Symlink agent/skills/* -> config/skills/ (local skills)
   6. Read cannbot_references.json and symlink referenced cannbot skills
   7. Setup cann-samples and asc-devkit (use local path or clone to .agent/)
+  8. Generate opencode.json from model_config.json (opencode only)
 EOF
 }
 
@@ -260,14 +261,14 @@ if [ "$CLEAN_MODE" = true ]; then
         ok ".agent/ removed"
     fi
 fi
-step "[1/7] Creating $CONFIG_DIR_NAME directory and .agent/dev-docs..."
+step "[1/8] Creating $CONFIG_DIR_NAME directory and .agent/dev-docs..."
 mkdir -p "$CONFIG_DIR"
 ok "$CONFIG_DIR_NAME/ created"
 mkdir -p "$OPS_BLAS_DIR/.agent/dev-docs"
 ok ".agent/dev-docs/ created"
 
 # --- Step 2: Symlink agent/AGENT.md -> config/ (claude: CLAUDE.md, opencode: AGENTS.md) ---
-step "[2/7] Linking agent configuration..."
+step "[2/8] Linking agent configuration..."
 agent_md="$AGENT_DIR/AGENT.md"
 if [ -f "$agent_md" ]; then
     dst="$CONFIG_DIR/$GUIDE_DST_NAME"
@@ -281,7 +282,7 @@ else
 fi
 
 # --- Step 3: Symlink agent/agents/*.md -> config/agents/ ---
-step "[3/7] Linking agents..."
+step "[3/8] Linking agents..."
 mkdir -p "$CONFIG_DIR/agents"
 local_agents="$AGENT_DIR/agents"
 agent_count=0
@@ -304,7 +305,7 @@ else
 fi
 
 # --- Step 4: Setup cannbot-skills ---
-step "[4/7] Setting up cannbot-skills..."
+step "[4/8] Setting up cannbot-skills..."
 
 if [ -n "$CANNBOT_PATH" ]; then
     ok "Using local cannbot-skills: $CANNBOT_PATH"
@@ -326,7 +327,7 @@ else
 fi
 
 # --- Step 5: Symlink local skills -> config/skills/ ---
-step "[5/7] Linking skills..."
+step "[5/8] Linking skills..."
 mkdir -p "$CONFIG_DIR/skills"
 local_skills="$AGENT_DIR/skills"
 local_skill_count=0
@@ -352,7 +353,7 @@ else
 fi
 
 # --- Step 6: Link cannbot skills from cannbot_references.json ---
-step "[6/7] Linking cannbot skills from cannbot_references.json..."
+step "[6/8] Linking cannbot skills from cannbot_references.json..."
 refs_json="$local_skills/cannbot_references.json"
 
 if [ -f "$refs_json" ]; then
@@ -395,7 +396,7 @@ else
 fi
 
 # --- Step 7: Setup cann-samples and asc-devkit ---
-step "[7/7] Setting up external reference repos..."
+step "[7/8] Setting up external reference repos..."
 
 AGENT_DIR_PATH="$OPS_BLAS_DIR/.agent"
 
@@ -449,6 +450,95 @@ else
         }
         [ -d "$ASC_TARGET" ] && ok "asc-devkit cloned"
     fi
+fi
+
+# --- Step 8: Generate opencode.json from model_config.json (opencode only) ---
+step "[8/8] Generating opencode.json from model_config.json..."
+
+if [ "$TARGET_ENV" = "opencode" ]; then
+    CUSTOM_MODEL_JSON="$AGENT_DIR/agents/model_config.json"
+    OPENCODE_JSON="$OPS_BLAS_DIR/opencode.json"
+
+    if [ -f "$CUSTOM_MODEL_JSON" ] && command -v python3 &> /dev/null; then
+        AVAILABLE_MODELS=""
+        if command -v opencode &> /dev/null; then
+            AVAILABLE_MODELS=$(opencode models 2>/dev/null || true)
+        fi
+        python3 - "$CUSTOM_MODEL_JSON" "$OPENCODE_JSON" "$AVAILABLE_MODELS" << 'PYEOF'
+import json, sys, os
+
+custom_model_path = sys.argv[1]
+opencode_json_path = sys.argv[2]
+available_models_raw = sys.argv[3] if len(sys.argv) > 3 else ""
+
+available_models = set()
+for line in available_models_raw.strip().split("\n"):
+    line = line.strip()
+    if line:
+        available_models.add(line)
+
+with open(custom_model_path, 'r') as f:
+    custom = json.load(f)
+
+# Collect non-default agents
+agent_config = {}
+default_agents = []
+for agent_name, cfg in custom.items():
+    if agent_name.startswith("_") or agent_name == "comment":
+        continue
+    model = cfg.get("model", "default")
+    if model and model != "default":
+        if available_models and model not in available_models:
+            print(f"  \033[0;33m⚠\033[0m\033[2m {agent_name}: model '{model}' not available, falling back to default\033[0m")
+            default_agents.append(agent_name)
+        else:
+            agent_config[agent_name] = {"model": model}
+    else:
+        default_agents.append(agent_name)
+
+# Read existing opencode.json
+existing = {}
+if os.path.exists(opencode_json_path):
+    with open(opencode_json_path, 'r') as f:
+        existing = json.load(f)
+
+# Remove agents that are now default
+existing_agents = existing.get("agent", {})
+for name in default_agents:
+    existing_agents.pop(name, None)
+
+# Add/update non-default agents
+existing_agents.update(agent_config)
+
+if existing_agents:
+    existing["agent"] = existing_agents
+else:
+    existing.pop("agent", None)
+
+# Skip writing if nothing to write
+if not existing:
+    if os.path.exists(opencode_json_path):
+        os.remove(opencode_json_path)
+        print("  \033[0;32m✓\033[0m\033[2m opencode.json removed (all agents use default)\033[0m")
+    else:
+        print("  \033[2m→ All agents use default model, skipping opencode.json\033[0m")
+    sys.exit(0)
+
+with open(opencode_json_path, 'w') as f:
+    json.dump(existing, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+
+count = len(agent_config)
+agents_list = ", ".join(agent_config.keys()) if agent_config else "none"
+print(f"  \033[0;32m✓\033[0m\033[2m opencode.json updated ({count} custom agents: {agents_list})\033[0m")
+PYEOF
+    elif [ ! -f "$CUSTOM_MODEL_JSON" ]; then
+        info "model_config.json not found, skipping"
+    else
+        warn "python3 not available, skipping opencode.json generation"
+    fi
+else
+    info "Target is claude, skipping opencode.json generation"
 fi
 
 # --- Summary ---

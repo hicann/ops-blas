@@ -59,7 +59,7 @@ print(json.dumps({'title': title, 'body': body, 'access_token': sys.argv[2]}))
 import sys, json
 try:
     d = json.load(sys.stdin)
-    print(d.get('html_url', 'ERROR: ' + str(d)))
+    print(d.get('web_url') or d.get('html_url') or 'ERROR: ' + str(d))
 except:
     print('ERROR: 无法解析响应')
 " 2>/dev/null || echo "ERROR: 请求失败")

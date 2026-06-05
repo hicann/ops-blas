@@ -20,8 +20,17 @@
 | 5 | 软链接本地 skills | `.opencode/skills/* -> agent/skills/*` |
 | 6 | 软链接 cannbot skills | 读取 `cannbot_references.json`，从 cannbot-skills 仓库软链接 |
 | 7 | 设置外部参考仓库 | clone cann-samples 和 asc-devkit 到 `.agent/` |
+| 8 | 生成 opencode.json | 读取 `model_config.json`，将非 default 的模型配置写入项目级 `opencode.json`（仅 opencode） |
 
-## 关键参数
+## model_config.json
+
+`agent/agents/model_config.json` 是用户本地配置文件（在 `.gitignore` 中，不提交到仓库）。
+
+- `model` 设为 `"default"` 表示使用全局默认模型
+- `model` 设为具体模型 ID 时，init.sh 步骤 8 将其写入项目级 `opencode.json`
+- init.sh 会通过 `opencode models` 校验模型可用性，不可用时回退 default 并输出 warning
+- 将模型改回 `"default"` 后重新运行 init.sh，会自动清理 `opencode.json` 中的旧配置
+- 仅对 opencode 目标生效，claude 目标跳过此步骤
 
 | 参数 | 说明 |
 |------|------|

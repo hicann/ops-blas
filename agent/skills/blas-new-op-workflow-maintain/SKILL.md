@@ -70,6 +70,7 @@ ops-blas/
 | 5 | 软链接本地 skills | `.opencode/skills/* -> agent/skills/*` |
 | 6 | 软链接 cannbot skills | 读取 `cannbot_references.json`，从 cannbot-skills 仓库软链接 |
 | 7 | 设置外部参考仓库 | clone cann-samples 和 asc-devkit 到 `.agent/` |
+| 8 | 生成 opencode.json | 读取 `model_config.json`，将非 default 的模型配置写入项目级 `opencode.json`（仅 opencode） |
 
 **关键理解**：
 - `agent/` 是**源文件目录**，所有修改都在这里进行

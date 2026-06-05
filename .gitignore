@@ -76,3 +76,6 @@ perf/
 .claude
 .opencode
 .agent
+
+# Local model config (generated from template)
+agent/agents/model_config.json
