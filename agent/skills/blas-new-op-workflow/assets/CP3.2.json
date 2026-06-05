@@ -14,6 +14,14 @@
         {"label": "批准", "description": "验收通过，进入上库阶段"},
         {"label": "需要修改", "description": "验收存在问题，打回修订"}
       ]
+    },
+    {
+      "header": "大 shape 用例精简",
+      "question": "开发阶段保留了全部大 shape 用例用于充分验证。上库前是否精简为 1 条代表性用例，避免拉长 CI 时间？",
+      "options": [
+        {"label": "精简为 1 条", "description": "仅保留 1 条代表性大 shape 用例，其余删除"},
+        {"label": "保留全部", "description": "保留开发阶段的全部大 shape 用例"}
+      ]
     }
   ]
 }

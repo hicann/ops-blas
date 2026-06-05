@@ -27,6 +27,7 @@
 | 2.2.3 测试验收 | tester (scene: test-execution) | 读取 LOG.md 继续 |
 | 3.1 代码检视 | reviewer | 读取 LOG.md 继续 |
 | 3.2 性能验收 | developer | 读取 LOG.md 继续 |
+| 3.3 大 shape 精简 | developer | 读取 LOG.md 继续 |
 | 4.1 编写文档 | writer (scene: write-readme) | 读取 LOG.md 继续 |
 | 4.2 代码检视 | reviewer | 读取 LOG.md 继续 |
 | 4.3 开发总结 | writer (scene: questionnaire) | 读取 LOG.md 继续 |
@@ -162,9 +163,10 @@ scene: test-design
 输出:
   - .agent/dev-docs/{operator_name}/1.3.B-测试方案设计.md (按模板填写)
 验收标准:
-  - L0/L1 用例表完整
-  - 精度标准明确
-  - 迭代规划清晰
+   - L0/L1 用例表完整
+   - 精度标准明确
+   - 迭代规划清晰
+    - 大 shape 用例覆盖：矩阵类 m/n/k >= 1024（至少含 2048 或 4096），向量类 n >= 10000（至少含 100000），不因硬件限制缩减 shape
 ```
 
 ### 1.4.A 开发方案评审
@@ -215,12 +217,13 @@ subagent: developer
   - blas/{family}/{operator_name}/archXX/{operator_name}_kernel.cpp
   - blas/{family}/{operator_name}/archXX/{operator_name}_tiling_data.h
 验收标准:
-  - 编译通过
-  - 编码规范符合 blas-ascendc-coding-rules
-  - host.cpp 中已集成 dlog 日志：#include "log/log.h"，关键路径使用 OP_LOGE/I/D
-  - 参数校验失败、ACL Runtime 调用失败使用 OP_LOGE 输出错误信息
-  - Tiling 数据和 Kernel 启动参数使用 OP_LOGD/OP_LOGI 输出
-  - 代码以 blas-op-templates 模板为起点，按设计文档填充业务逻辑
+   - 编译通过
+   - 编码规范符合 blas-ascendc-coding-rules
+   - host.cpp 中已集成 dlog 日志：#include "log/log.h"，关键路径使用 OP_LOGE/I/D
+   - 参数校验失败、ACL Runtime 调用失败使用 OP_LOGE 输出错误信息
+   - Tiling 数据和 Kernel 启动参数使用 OP_LOGD/OP_LOGI 输出
+   - 代码以 blas-op-templates 模板为起点，按设计文档填充业务逻辑
+   - BLAS 标准对齐：存储顺序为列主序（Column-Major），lda/ldb/ldc 等参数语义与 BLAS 标准一致，禁止参考仓内存储顺序错误的已有算子
 ```
 
 ### 2.1.1.B / 2.2.1.B 测试开发
@@ -239,11 +242,13 @@ scene: test-development
   - test/{family}/{operator_name}/arch35/{operator_name}_test.csv (CSV 用例表，列名=API 参数名)
   - test/{family}/{operator_name}/CMakeLists.txt
 验收标准:
-  - CSV 用例覆盖测试设计文档中的所有场景
-  - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
-  - golden.h / npu_wrapper.h 实现正确
-  - CMake 使用 ops_blas_add_gtest_tests
-  - 编译通过
+   - CSV 用例覆盖测试设计文档中的所有场景
+   - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
+   - golden.h / npu_wrapper.h 实现正确
+   - golden.h 必须与标准 BLAS 库输出一致（安装 OpenBLAS/MKL 验证），使用列主序
+   - 填充函数只使用 test/frame/fill.h 中已有的公共函数，禁止在测试文件中定义临时填充函数；若需新增，必须补充到 fill.h
+   - CMake 使用 ops_blas_add_gtest_tests
+   - 编译通过
 ```
 
 ### 2.1.2 / 2.2.2 汇合联调
@@ -257,9 +262,10 @@ subagent: developer
 输出:
   - .agent/dev-docs/{operator_name}/2.1.2-汇合联调报告.md（迭代一）/ 2.2.2-汇合联调报告.md（迭代二）(按模板填写)
 验收标准:
-  - 编译通过
-  - ST 通过率 100%
-  - 状态字段 = ✅通过
+   - 编译通过
+   - ST 通过率 100%
+   - 状态字段 = ✅通过
+   - 测试代码未被修改：联调过程中禁止删除或修改测试用例（CSV 行、TEST_P）、golden.h 计算逻辑、npu_wrapper.h 封装逻辑
 ```
 
 ### 2.1.3 / 2.2.3 测试验收
@@ -273,10 +279,13 @@ scene: test-execution
 输出:
   - .agent/dev-docs/{operator_name}/2.1.3-测试验收报告.md（迭代一）/ 2.2.3-测试验收报告.md（迭代二）
 验收标准:
-  - L0 用例通过率 100%（迭代一）/ L0+L1 全量通过率 100%（迭代二）
-  - 状态字段明确
-  - 失败用例已记录
-  - 测试代码完整性验证：确认测试代码（param.h/golden.h/npu_wrapper.h/test.cpp/test.csv）未被联调过程篡改，与测试设计文档一致
+   - L0 用例通过率 100%（迭代一）/ L0+L1 全量通过率 100%（迭代二），不允许有任何失败
+   - 状态字段明确
+   - 失败用例已记录（若有）
+    - 测试代码完整性验证（强制）：
+      - 检查 CSV 文件行数与测试设计文档中的用例数一致
+      - 检查 param.h/golden.h/npu_wrapper.h/test.cpp/test.csv 的 git diff，确认无未授权修改
+      - 若发现测试代码被篡改，立即标记验收失败，打回开发侧重新联调
 ```
 
 ### 3.1 代码检视
@@ -289,10 +298,12 @@ subagent: reviewer
 输出:
   - .agent/dev-docs/{operator_name}/3.1-代码检视报告.md
 验收标准:
-  - 代码规范检查完成
-  - 风险点已记录
-  - 状态字段明确
-  - 日志规范检查：host.cpp 中日志级别使用正确、消息格式符合 blas-log 规范
+   - 代码规范检查完成
+   - 风险点已记录
+   - 状态字段明确
+   - 日志规范检查：host.cpp 中日志级别使用正确、消息格式符合 blas-log 规范
+   - 冗余代码检查（HIGH 置信度）：未使用的 #include、未调用的函数/宏、未使用的变量/参数、死代码、重复定义，发现即要求删除
+   - 变更范围检查（强制）：通过 `git diff` 对比基准分支，确认所有变更仅涉及本算子相关文件（blas/{family}/{operator_name}/、test/{family}/{operator_name}/、include/cann_ops_blas.h 等），不得包含对其他算子或公共模块的误改（如格式化、重排、删除等）
 ```
 
 ### 3.2 性能验收
@@ -312,6 +323,21 @@ subagent: developer
   - 瓶颈分析完整
   - 性能测试的中间文件/结果文件统一存放在 test/{family}/{operator_name}/perf/ 目录下
   - 性能分析结束后及时删除 test/{family}/{operator_name}/perf/ 下的所有中间文件和结果文件
+```
+
+### 3.3 大 shape 精简
+
+```yaml
+subagent: developer
+输入:
+  - CP3.2.ret.json（用户选择「精简为 1 条」时触发）
+  - 当前测试 CSV 文件路径
+输出:
+  - 精简后的 CSV 文件（仅保留 1 条代表性大 shape 用例）
+验收标准:
+   - CSV 中大 shape 用例仅保留 1 条
+   - 保留的用例具有代表性（覆盖最大或典型大 shape）
+   - ST 编译通过且通过率 100%
 ```
 
 ### 4.1 编写文档
@@ -341,13 +367,14 @@ subagent: reviewer
 输出:
   - .agent/dev-docs/{operator_name}/4.2-代码检视报告.md
 验收标准:
-  - 规范检查完成
-  - 一致性检查完成
-  - 风险点已记录
-  - 状态字段明确
-  - 冗余代码检查：未使用的 #include、未调用的函数/宏、死代码
-  - 交付件清单核对：最终合入的文件集合是最小集
-  - 日志规范检查：无残留 printf/LOG_PRINT，全部使用 OP_LOGE/I/D/W
+   - 规范检查完成
+   - 一致性检查完成
+   - 风险点已记录
+   - 状态字段明确
+   - 冗余代码检查（HIGH 置信度，零容忍）：未使用的 #include、未调用的函数/宏、未使用的变量/参数、死代码、重复定义，发现即要求删除
+    - 交付件清单核对：最终合入的文件集合是最小集，不含任何未使用的文件
+   - 日志规范检查：无残留 printf/LOG_PRINT，全部使用 OP_LOGE/I/D/W
+   - 变更范围检查（强制）：通过 `git diff` 对比基准分支，确认所有变更仅涉及本算子相关文件（blas/{family}/{operator_name}/、test/{family}/{operator_name}/、include/cann_ops_blas.h 等），不得包含对其他算子或公共模块的误改（如格式化、重排、删除等）
 ```
 
 ### 4.3 开发总结
@@ -360,11 +387,13 @@ scene: questionnaire
   - CP4.3.json 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/CP4.3.json)
   - PR 模板文件路径 (模板路径: agent/skills/blas-pr-issue-template/assets/PULL_REQUEST_TEMPLATE.zh-CN.md)
   - LOG.md（用于提取开发过程摘要）
-  - 1.2-需求分析.md（用于提取算子功能描述）
+  - 1.2-需求分析.md（用于提取算子功能描述，同时作为 Issue 文本来源）
+  - 1.3.A-开发方案设计.md（用于提取 Tiling/Kernel 设计思路，作为 Issue Design 字段来源）
   - 2.1.3-测试验收报告.md / 2.2.3-测试验收报告.md（用于提取测试结论）
   - 3.2-性能报告.md（用于提取性能结论）
 输出:
   - .agent/dev-docs/{operator_name}/CP4.3.json (按模板填写)
+  - .agent/dev-docs/{operator_name}/4.3-Issue.md (Issue 文本，内容来自 1.2-需求分析.md)
   - .agent/dev-docs/{operator_name}/4.3-上库PR模板.md (按 PR 模板填写，见下方填写规范)
   - 更新 LOG.md
 验收标准:
@@ -372,8 +401,23 @@ scene: questionnaire
   - 各阶段记录完整
   - 问题记录完整
   - CP4.3.json 中 {aclblasXxx} 和 {operator_name} 已替换，不修改 question/options 结构
+  - 4.3-Issue.md 内容来自 1.2-需求分析.md，包含算子功能描述、参数约束、精度标准等需求信息
   - 4.3-上库PR模板.md 各字段已填写（见下方填写规范）
 ```
+
+**4.3-Issue.md 填写规范：**
+
+Issue 文本的内容**必须来自 1.2-需求分析.md**（算子最开始设计的需求文档），而非自行编写。使用 `blas-pr-issue-template` 技能的**需求建议模板**（`feature-request.yml`），按以下规则填充：
+
+| 字段 | 填充来源 | 说明 |
+|------|---------|------|
+| Issue 标题 | 固定格式 | `Feat: 新增面向{目标芯片}的aclblas{Xxx}接口` |
+| Background（背景信息） | 1.2-需求分析.md | 算子功能描述、参数约束、精度标准、目标芯片及 CANN 版本 |
+| Origin（信息来源） | 固定值 | `cann 开发者` |
+| Benefit / Necessity | 1.2-需求分析.md | 应用场景、需求价值 |
+| Design（设计方案） | 1.3.A-开发方案设计.md | Tiling/Kernel 设计思路概述 |
+
+**提交流程**：4.3-Issue.md 生成后，通过 `blas-pr-issue-template` 技能提交到 GitCode，获取 Issue URL，然后将该 URL 填入 4.3-上库PR模板.md 的"关联的Issue"字段。
 
 **4.3-上库PR模板.md 填写规范：**
 
@@ -382,7 +426,7 @@ scene: questionnaire
 | 字段 | 填充来源 | 说明 |
 |------|---------|------|
 | 描述 | 1.2-需求分析.md + 交付物清单 | 概述算子功能、目标芯片/dtype、实现方法（Tiling策略、Kernel结构） |
-| 关联的Issue | LOG.md 中的 issue 链接 | 如有则列出，无则填"无" |
+| 关联的Issue | 4.3-Issue.md 提交后的 Issue 链接 | 通过 `blas-pr-issue-template` 技能提交 Issue 后，将返回的 Issue URL 填入此处 |
 | 测试 | 2.2.3-测试验收报告.md + 3.2-性能报告.md | 列出 ST 通过率、精度标准、性能数据 |
 | 文档更新 | 交付物清单中的文档部分 | 列出新增/修改的文档文件 |
 | 类型标签 | 固定选"新特性" | 算子新增属于新特性 |

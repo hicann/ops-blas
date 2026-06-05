@@ -43,7 +43,8 @@ Arguments:
 
 Options:
   --help, -h                Show this help message
-  --clean                   Remove existing config directory before init
+  --clean                   Remove existing config directories before init
+                            When used alone (bash init.sh --clean), removes .claude/, .opencode/, .agent/
   --cannbot <path>          Path to cannbot-skills directory (default: clone from official)
   --samples <path>          Path to cann-samples directory (default: clone from official)
   --asc <path>              Path to asc-devkit directory (default: clone from official)
@@ -57,6 +58,7 @@ Examples:
   bash init.sh claude
   bash init.sh opencode
   bash init.sh claude --clean
+  bash init.sh --clean                          # only cleanup, no init
   bash init.sh claude --cannbot /path/to/cannbot-skills
   bash init.sh claude --samples /path/to/cann-samples --asc /path/to/asc-devkit
 
@@ -84,8 +86,14 @@ case "$1" in
         show_help
         exit 0
         ;;
+    --clean)
+        TARGET_ENV=""
+        CLEAN_MODE=true
+        shift
+        ;;
     claude|opencode)
         TARGET_ENV="$1"
+        CLEAN_MODE=false
         shift
         ;;
     *)
@@ -96,7 +104,6 @@ case "$1" in
         ;;
 esac
 
-CLEAN_MODE=false
 CANNBOT_PATH=""
 SAMPLES_PATH=""
 ASC_PATH=""
@@ -144,6 +151,29 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# --- Resolve paths ---
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+AGENT_DIR="$SCRIPT_DIR"                          # agent/
+OPS_BLAS_DIR=$(realpath "$SCRIPT_DIR/..")        # ops-blas/
+
+# --- Clean-only mode: bash init.sh --clean ---
+if [ "$CLEAN_MODE" = true ] && [ -z "$TARGET_ENV" ]; then
+    echo -e "  ${BOLD}Cleaning up...${NC}"
+    for dir_name in .claude .opencode .agent; do
+        target="$OPS_BLAS_DIR/$dir_name"
+        if [ -d "$target" ] || [ -L "$target" ]; then
+            rm -rf "$target"
+            ok "$dir_name/ removed"
+        else
+            info "$dir_name/ not found, skipping"
+        fi
+    done
+    echo ""
+    echo -e "  ${GREEN}${BOLD}✓ Cleanup completed!${NC}"
+    echo ""
+    exit 0
+fi
+
 # --- Environment-specific settings ---
 if [ "$TARGET_ENV" = "claude" ]; then
     CONFIG_DIR_NAME=".claude"
@@ -155,10 +185,6 @@ else
     QUICK_START_CMD="cd $OPS_BLAS_DIR && opencode"
 fi
 
-# --- Resolve paths ---
-SCRIPT_DIR=$(dirname "$(realpath "$0")")
-AGENT_DIR="$SCRIPT_DIR"                          # agent/
-OPS_BLAS_DIR=$(realpath "$SCRIPT_DIR/..")        # ops-blas/
 CONFIG_DIR="$OPS_BLAS_DIR/$CONFIG_DIR_NAME"
 
 if [ -n "$CANNBOT_PATH" ]; then
@@ -221,10 +247,18 @@ fi
 cd "$OPS_BLAS_DIR"
 
 # --- Step 1: Create config directory and .agent/dev-docs ---
-if [ "$CLEAN_MODE" = true ] && [ -d "$CONFIG_DIR" ]; then
-    info "Cleaning existing $CONFIG_DIR_NAME/ directory..."
-    rm -rf "$CONFIG_DIR"
-    ok "$CONFIG_DIR_NAME/ removed"
+if [ "$CLEAN_MODE" = true ]; then
+    if [ -d "$CONFIG_DIR" ]; then
+        info "Cleaning existing $CONFIG_DIR_NAME/ directory..."
+        rm -rf "$CONFIG_DIR"
+        ok "$CONFIG_DIR_NAME/ removed"
+    fi
+    AGENT_CLEAN="$OPS_BLAS_DIR/.agent"
+    if [ -d "$AGENT_CLEAN" ]; then
+        info "Cleaning existing .agent/ directory..."
+        rm -rf "$AGENT_CLEAN"
+        ok ".agent/ removed"
+    fi
 fi
 step "[1/7] Creating $CONFIG_DIR_NAME directory and .agent/dev-docs..."
 mkdir -p "$CONFIG_DIR"
@@ -278,13 +312,13 @@ else
     if [ -d "$SKILLS_REPO/.git" ]; then
         info "cannbot-skills already exists, updating..."
         cd "$SKILLS_REPO"
-        git pull --quiet 2>/dev/null || warn "git pull failed, using existing version"
+        pull_err=$(git pull --quiet 2>&1) || warn "git pull failed: $pull_err"
         cd "$OPS_BLAS_DIR"
         ok "cannbot-skills updated"
     else
         info "Cloning cannbot-skills from $CANNBOT_URL ..."
-        git clone --quiet "$CANNBOT_URL" "$SKILLS_REPO" 2>/dev/null || {
-            err "Failed to clone cannbot-skills from $CANNBOT_URL"
+        clone_err=$(git clone --quiet "$CANNBOT_URL" "$SKILLS_REPO" 2>&1) || {
+            err "Failed to clone cannbot-skills from $CANNBOT_URL: $clone_err"
             exit 1
         }
         ok "cannbot-skills cloned"
@@ -377,15 +411,15 @@ else
     if [ -d "$SAMPLES_TARGET/.git" ]; then
         info "cann-samples already exists, updating..."
         cd "$SAMPLES_TARGET"
-        git pull --quiet 2>/dev/null || warn "git pull failed, using existing version"
+        pull_err=$(git pull --quiet 2>&1) || warn "git pull failed: $pull_err"
         cd "$OPS_BLAS_DIR"
         ok "cann-samples updated"
     elif [ -L "$SAMPLES_TARGET" ]; then
         ok "cann-samples symlink exists"
     else
         info "Cloning cann-samples from $CANN_SAMPLES_URL ..."
-        git clone --quiet "$CANN_SAMPLES_URL" "$SAMPLES_TARGET" 2>/dev/null || {
-            warn "Failed to clone cann-samples, skipping"
+        clone_err=$(git clone --quiet "$CANN_SAMPLES_URL" "$SAMPLES_TARGET" 2>&1) || {
+            warn "Failed to clone cann-samples from $CANN_SAMPLES_URL: $clone_err"
         }
         [ -d "$SAMPLES_TARGET" ] && ok "cann-samples cloned"
     fi
@@ -403,15 +437,15 @@ else
     if [ -d "$ASC_TARGET/.git" ]; then
         info "asc-devkit already exists, updating..."
         cd "$ASC_TARGET"
-        git pull --quiet 2>/dev/null || warn "git pull failed, using existing version"
+        pull_err=$(git pull --quiet 2>&1) || warn "git pull failed: $pull_err"
         cd "$OPS_BLAS_DIR"
         ok "asc-devkit updated"
     elif [ -L "$ASC_TARGET" ]; then
         ok "asc-devkit symlink exists"
     else
         info "Cloning asc-devkit from $ASC_DEVKIT_URL ..."
-        git clone --quiet "$ASC_DEVKIT_URL" "$ASC_TARGET" 2>/dev/null || {
-            warn "Failed to clone asc-devkit, skipping"
+        clone_err=$(git clone --quiet "$ASC_DEVKIT_URL" "$ASC_TARGET" 2>&1) || {
+            warn "Failed to clone asc-devkit from $ASC_DEVKIT_URL: $clone_err"
         }
         [ -d "$ASC_TARGET" ] && ok "asc-devkit cloned"
     fi

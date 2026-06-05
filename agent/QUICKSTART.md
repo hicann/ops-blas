@@ -39,3 +39,9 @@ bash agent/init.sh claude --cannbot /path/to/cannbot-skills
 ```bash
 bash agent/init.sh claude --clean
 ```
+
+仅清理环境（清空 .claude/、.opencode/、.agent/，不做初始化）：
+
+```bash
+bash agent/init.sh --clean
+```
