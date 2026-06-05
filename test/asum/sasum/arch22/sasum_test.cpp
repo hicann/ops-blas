@@ -55,7 +55,7 @@ int32_t main(int32_t argc, char* argv[])
 
     constexpr uint32_t totalLength = 128;
     constexpr float valueX = 1.2f;
-    constexpr int64_t incx = 1;
+    constexpr int incx = 1;
 
     std::vector<float> x(totalLength, valueX);
     float result = 0.0f;
@@ -72,8 +72,8 @@ int32_t main(int32_t argc, char* argv[])
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* resultDevice = nullptr;
+    float* xDevice = nullptr;
+    float* resultDevice = nullptr;
 
     size_t totalByteSize = totalLength * sizeof(float);
     size_t outputByteSize = sizeof(float);

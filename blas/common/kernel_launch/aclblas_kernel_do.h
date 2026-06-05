@@ -81,6 +81,13 @@ void snrm2_kernel_do(GM_ADDR x, GM_ADDR result, GM_ADDR workSpace, GM_ADDR tilin
 void csrot_kernel_do(GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream);
 
+struct SasumTilingData;
+
+// arch35-style: tiling passed by value
+void sasum_kernel_do(GM_ADDR inGM, GM_ADDR outGM, GM_ADDR workSpace,
+                     const SasumTilingData& tiling, uint32_t numBlocks, void *stream);
+
+// arch22-style: tiling passed as GM pointer (for backward compatibility)
 void sasum_kernel_do(GM_ADDR inGM, GM_ADDR outGM, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream);
 

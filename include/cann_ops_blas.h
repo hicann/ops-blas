@@ -186,7 +186,7 @@ aclblasStatus_t aclblasCdotc(
     aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
     uint8_t* result);
 
-aclblasStatus_t aclblasSasum(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
+aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float* x, int incx, float* result);
 
 aclblasStatus_t aclblasIamax(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
 

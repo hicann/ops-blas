@@ -103,7 +103,7 @@ AsumTilingData CalAsumTilingData(uint32_t totalEleNum, uint32_t vecCoreNum)
     return tilingData;
 }
 
-aclblasStatus_t aclblasSasum(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result)
+aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float* x, int incx, float* result)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -123,7 +123,9 @@ aclblasStatus_t aclblasSasum(aclblasHandle_t handle, const int64_t n, uint8_t* x
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    sasum_kernel_do(x, result, nullptr, tilingDevice, numBlocks, useStream);
+    auto* xAddr = reinterpret_cast<uint8_t*>(const_cast<float*>(x));
+    auto* resultAddr = reinterpret_cast<uint8_t*>(result);
+    sasum_kernel_do(xAddr, resultAddr, nullptr, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
