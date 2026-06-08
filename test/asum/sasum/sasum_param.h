@@ -20,14 +20,14 @@
 struct SasumParam : public BlasTestParamBase {
     int n = 0;
     int incx = 1;
-    BlasDataFill x = BlasDataFill::RANDOM;
+    BlasFillMode x = parseFill("RANDOM");
     double absTol = 1e-4;
 
     SasumParam(const csv_map& map) : BlasTestParamBase(map)
     {
         n = parseInt(ReadMap(map, "n", "0"));
         incx = parseInt(ReadMap(map, "incx", "1"));
-        x = parseDataFill(ReadMap(map, "x", "RANDOM"));
+        x = parseFill(ReadMap(map, "x", "RANDOM"));
         absTol = parseDouble(ReadMap(map, "abs_tol", "0.0001"));
     }
 };

@@ -21,64 +21,6 @@
 #include "stpsv_golden.h"
 #include "stpsv_npu_wrapper.h"
 
-// ── helpers ──
-
-inline std::vector<float> MakeTriangularPacked(int n, bool upper, uint32_t seed)
-{
-    size_t apLen = static_cast<size_t>(n) * (n + 1) / 2;
-    std::vector<float> ap(apLen, 0.0f);
-
-    std::mt19937 rng(seed ? seed : 42);
-    std::uniform_real_distribution<float> dist(0.0f, 0.5f);
-
-    size_t idx = 0;
-    if (upper) {
-        for (int j = 0; j < n; ++j) {
-            for (int i = 0; i <= j; ++i) {
-                ap[idx] = dist(rng);
-                idx++;
-            }
-        }
-    } else {
-        for (int j = 0; j < n; ++j) {
-            for (int i = j; i < n; ++i) {
-                ap[idx] = dist(rng);
-                idx++;
-            }
-        }
-    }
-
-    // Make diagonally dominant for numerical stability
-    for (int i = 0; i < n; ++i) {
-        if (upper) {
-            ap[TpsvPackedUpperIdxCpu(i, i)] += 2.0f;
-        } else {
-            ap[TpsvPackedLowerIdxCpu(i, i, n)] += 2.0f;
-        }
-    }
-
-    return ap;
-}
-
-inline std::vector<float> MakeStrided(int count, int inc, uint32_t seed)
-{
-    if (count <= 0) return {};
-    int absInc = std::abs(inc);
-    size_t size = static_cast<size_t>((count - 1) * absInc + 1);
-    std::vector<float> data(size, 0.0f);
-
-    std::mt19937 rng(seed ? seed : 42);
-    std::uniform_real_distribution<float> dist(0.0f, 0.5f);
-
-    for (int i = 0; i < count; ++i) {
-        int idx = (inc > 0) ? (i * inc) : ((count - 1 - i) * absInc);
-        data[idx] = dist(rng);
-    }
-    return data;
-}
-
-// ── GTest class ──
-
 class TpsvArch35Test : public BlasTest<TpsvParam> { };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -90,8 +32,15 @@ TEST_P(TpsvArch35Test, CsvDriven) {
     const auto& p = GetParam();
 
     bool isUpper = (p.uplo == ACLBLAS_UPPER);
-    auto ap = MakeTriangularPacked(p.n, isUpper, p.randomSeed);
-    auto x  = MakeStrided(p.n, p.incx, p.randomSeed + 1);
+    auto ap = makeBlasTriangular(p.n, isUpper, "RANDOM", p.randomSeed);
+    for (int i = 0; i < p.n; ++i) {
+        if (isUpper) {
+            ap[TpsvPackedUpperIdxCpu(i, i)] += 2.0f;
+        } else {
+            ap[TpsvPackedLowerIdxCpu(i, i, p.n)] += 2.0f;
+        }
+    }
+    auto x = makeBlasStrided(p.n, p.incx, "RANDOM", p.randomSeed + 1);
     std::vector<float> golden = x;
 
     aclblasStatus_t ret = aclblasStpsv_npu(

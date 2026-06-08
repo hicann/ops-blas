@@ -41,9 +41,9 @@ TEST_P(SsyrArch35Test, CsvDriven)
 
     std::vector<float> xHost = makeBlasStrided(p.n, p.incx, p.x, p.randomSeed);
     std::vector<float> aHost =
-        makeBlasArray(static_cast<int64_t>(aSize), p.a, p.description, kBlasSentinel, p.randomSeed);
+        makeBlasArray(static_cast<int64_t>(aSize), p.a, p.randomSeed);
     std::vector<float> aOrig =
-        makeBlasArray(static_cast<int64_t>(aSize), p.a, p.description, kBlasSentinel, p.randomSeed);
+        makeBlasArray(static_cast<int64_t>(aSize), p.a, p.randomSeed);
 
     const float* xPtr = xHost.empty() ? nullptr : xHost.data();
     float* aPtr = aHost.empty() ? nullptr : aHost.data();

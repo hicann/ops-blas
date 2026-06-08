@@ -32,7 +32,7 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(StrttpArch35Test, CsvDriven) {
     const auto& p = GetParam();
 
-    std::vector<float> aHost  = makeBlasArray(static_cast<int64_t>(p.lda) * p.n, p.a, p.description);
+    std::vector<float> aHost  = makeBlasArray(static_cast<int64_t>(p.lda) * p.n, p.a, p.randomSeed);
     std::vector<float> apHost = makeBlasArray(static_cast<int64_t>(p.n) * (p.n + 1) / 2, p.ap);
 
     const float* aPtr  = aHost.empty()  ? nullptr : aHost.data();

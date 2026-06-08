@@ -37,7 +37,7 @@ static std::vector<float> GenerateTestMatrix(const AclblasSgeqrfBatchedParam& p,
 {
     if (matSize <= 0)
         return {};
-    return makeBlasMatrix(p.m, p.n, p.lda, p.aFill, p.description, static_cast<uint32_t>(batchIdx * 100 + 42));
+    return makeBlasMatrix(p.m, p.n, p.lda, p.aFill, static_cast<uint32_t>(batchIdx * 100 + 42));
 }
 
 static void GenerateBatchData(

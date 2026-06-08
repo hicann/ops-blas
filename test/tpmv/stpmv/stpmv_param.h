@@ -19,8 +19,8 @@ struct StpmvParam : public BlasTestParamBase {
     aclblasOperation_t trans = ACLBLAS_OP_N;
     aclblasDiagType_t diag = ACLBLAS_NON_UNIT;
     int n = 0;
-    BlasDataFill ap = BlasDataFill::INDEX;
-    BlasDataFill x = BlasDataFill::INDEX;
+    BlasFillMode ap = parseFill("INDEX");
+    BlasFillMode x = parseFill("INDEX");
     int incx = 1;
 
     StpmvParam(const csv_map& map) : BlasTestParamBase(map)
@@ -29,8 +29,8 @@ struct StpmvParam : public BlasTestParamBase {
         trans = parseOpTrans(ReadMap(map, "trans", "N"));
         diag = parseDiagType(ReadMap(map, "diag", "NON_UNIT"));
         n = parseInt(ReadMap(map, "n", "0"));
-        ap = parseDataFill(ReadMap(map, "aPacked", "INDEX"));
-        x = parseDataFill(ReadMap(map, "x", "INDEX"));
+        ap = parseFill(ReadMap(map, "aPacked", "INDEX"));
+        x = parseFill(ReadMap(map, "x", "INDEX"));
         incx = parseInt(ReadMap(map, "incx", "1"));
     }
 };

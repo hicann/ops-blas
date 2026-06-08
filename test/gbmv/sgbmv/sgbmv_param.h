@@ -24,12 +24,12 @@ struct GbmvParam : public BlasTestParamBase {
     int kl = 0;
     int ku = 0;
     float alpha = 1.0f;
-    BlasDataFill a = BlasDataFill::RANDOM;
+    BlasFillMode a = parseFill("RANDOM");
     int lda = 0;
-    BlasDataFill x = BlasDataFill::RANDOM;
+    BlasFillMode x = parseFill("RANDOM");
     int incx = 1;
     float beta = 0.0f;
-    BlasDataFill y = BlasDataFill::RANDOM;
+    BlasFillMode y = parseFill("RANDOM");
     int incy = 1;
 
     GbmvParam(const csv_map& map) : BlasTestParamBase(map)
@@ -40,12 +40,12 @@ struct GbmvParam : public BlasTestParamBase {
         kl = parseInt(ReadMap(map, "kl", "0"));
         ku = parseInt(ReadMap(map, "ku", "0"));
         alpha = parseFloat(ReadMap(map, "alpha", "1.0"));
-        a = parseDataFill(ReadMap(map, "a", "RANDOM"));
+        a = parseFill(ReadMap(map, "a", "RANDOM"));
         lda = parseInt(ReadMap(map, "lda", std::to_string(kl + ku + 1)));
-        x = parseDataFill(ReadMap(map, "x", "RANDOM"));
+        x = parseFill(ReadMap(map, "x", "RANDOM"));
         incx = parseInt(ReadMap(map, "incx", "1"));
         beta = parseFloat(ReadMap(map, "beta", "0.0"));
-        y = parseDataFill(ReadMap(map, "y", "RANDOM"));
+        y = parseFill(ReadMap(map, "y", "RANDOM"));
         incy = parseInt(ReadMap(map, "incy", "1"));
     }
 };

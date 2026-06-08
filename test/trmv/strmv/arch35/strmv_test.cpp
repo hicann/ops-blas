@@ -21,43 +21,6 @@
 #include "strmv_golden.h"
 #include "strmv_npu_wrapper.h"
 
-inline std::vector<float> MakeTriangularFull(int n, int lda, bool upper, uint32_t seed)
-{
-    const int allocLda = std::max(lda, n);
-    const size_t aSize = (n > 0) ? static_cast<size_t>(allocLda) * n : 1;
-    std::vector<float> a(aSize, 0.0f);
-    if (n <= 0) return a;
-
-    std::mt19937 rng(seed ? seed : 42);
-    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
-
-    for (int j = 0; j < n; ++j) {
-        int iStart = upper ? 0 : j;
-        int iEnd = upper ? j : (n - 1);
-        for (int i = iStart; i <= iEnd; ++i) {
-            a[static_cast<size_t>(i + allocLda * j)] = dist(rng);
-        }
-    }
-    return a;
-}
-
-inline std::vector<float> MakeStrided(int count, int inc, uint32_t seed)
-{
-    if (count <= 0) return {};
-    int absInc = std::abs(inc);
-    size_t size = static_cast<size_t>((count - 1) * absInc + 1);
-    std::vector<float> data(size, 0.0f);
-
-    std::mt19937 rng(seed ? seed : 42);
-    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
-
-    for (int i = 0; i < count; ++i) {
-        int idx = (inc > 0) ? (i * inc) : ((count - 1 - i) * absInc);
-        data[idx] = dist(rng);
-    }
-    return data;
-}
-
 class StrmvArch35Test : public BlasTest<StrmvParam> { };
 
 INSTANTIATE_TEST_SUITE_P(
@@ -69,8 +32,9 @@ TEST_P(StrmvArch35Test, CsvDriven) {
     const auto& p = GetParam();
 
     bool isUpper = (p.uplo == ACLBLAS_UPPER);
-    auto a = MakeTriangularFull(p.n, p.lda, isUpper, p.randomSeed);
-    auto x = MakeStrided(p.n, p.incx, p.randomSeed + 1);
+    std::string matFill = isUpper ? "RANDOM_UPPER" : "RANDOM_LOWER";
+    auto a = makeBlasMatrix(p.n, p.n, p.lda, matFill, p.randomSeed);
+    auto x = makeBlasStrided(p.n, p.incx, "RANDOM", p.randomSeed + 1);
     std::vector<float> golden = x;
 
     aclblasStatus_t ret = aclblasStrmv_npu(

@@ -22,7 +22,7 @@ struct AclblasSgeqrfBatchedParam : public BlasTestParamBase {
     int n = 0;
     int lda = 0;
     int batchSize = 1;
-    BlasDataFill aFill = BlasDataFill::RANDOM;
+    BlasFillMode aFill = parseFill("RANDOM");
     bool aArrayNull = false;
     bool tauArrayNull = false;
 
@@ -32,7 +32,7 @@ struct AclblasSgeqrfBatchedParam : public BlasTestParamBase {
         n = parseInt(ReadMap(map, "n", "0"));
         lda = parseInt(ReadMap(map, "lda", std::to_string(std::max(1, m))));
         batchSize = parseInt(ReadMap(map, "batch_size", "1"));
-        aFill = parseDataFill(ReadMap(map, "a_fill", "random"));
+        aFill = parseFill(ReadMap(map, "a_fill", "RANDOM"));
         aArrayNull = (ReadMap(map, "a_array_null", "false") == "true");
         tauArrayNull = (ReadMap(map, "tau_array_null", "false") == "true");
     }

@@ -117,8 +117,8 @@ struct LtMatmulParam : public BlasTestParamBase {
     bool computeDescNull = false;  // pass nullptr computeDesc (TC_L0_26)
     bool alphaNull = false;        // pass nullptr alpha (TC_L0_27)
     bool Anull = false;            // pass nullptr A device ptr (TC_L0_28)
-    BlasDataFill scaleAFill = BlasDataFill::RANDOM;
-    BlasDataFill scaleBFill = BlasDataFill::RANDOM;
+    BlasFillMode scaleAFill = parseFill("RANDOM");
+    BlasFillMode scaleBFill = parseFill("RANDOM");
 
     LtMatmulParam(const csv_map& m) : BlasTestParamBase(m)
     {
@@ -145,12 +145,12 @@ struct LtMatmulParam : public BlasTestParamBase {
         Anull = (ReadMap(m, "A_null", "false") == "true");
 
         // Scale factor fill strategy (only meaningful for MXFP types)
-        std::string sfA = ReadMap(m, "scaleA_fill", "random");
-        std::string sfB = ReadMap(m, "scaleB_fill", "random");
-        if (sfA == "none") scaleAFill = BlasDataFill::ONES;  // not applicable for FP32
-        else scaleAFill = parseDataFill(sfA);
-        if (sfB == "none") scaleBFill = BlasDataFill::ONES;
-        else scaleBFill = parseDataFill(sfB);
+        std::string sfA = ReadMap(m, "scaleA_fill", "RANDOM");
+        std::string sfB = ReadMap(m, "scaleB_fill", "RANDOM");
+        if (sfA == "none") scaleAFill = parseFill("VALUE_NORM_1");  // not applicable for FP32
+        else scaleAFill = parseFill(sfA);
+        if (sfB == "none") scaleBFill = parseFill("VALUE_NORM_1");
+        else scaleBFill = parseFill(sfB);
 
         // Default ld values (row-major: ld >= physical cols)
         int physColsA = getPhysicalColsA(M, K, transA);

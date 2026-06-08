@@ -43,7 +43,7 @@ TEST_P(StpmvArch35Test, CsvDriven)
     const bool isErrorPath = (p.expectResult != ACLBLAS_STATUS_SUCCESS);
     const int safeN = (!isErrorPath && p.n > 0) ? p.n : 0;
     const bool isUpper = (p.uplo == ACLBLAS_UPPER);
-    std::vector<float> apHost = makeBlasTriangular(safeN, isUpper, p.ap, "", p.randomSeed);
+    std::vector<float> apHost = makeBlasTriangular(safeN, isUpper, p.ap, p.randomSeed);
     std::vector<float> xHost = makeBlasStrided(safeN, p.incx, p.x, p.randomSeed + 1);
 
     const float* apPtr = apHost.empty() ? nullptr : apHost.data();

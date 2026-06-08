@@ -143,29 +143,29 @@ TEST_P(GemvBatchedArch35Test, CsvDriven)
 
     // Generate float data using safe dimensions
     auto aFloat = makeBlasArray(
-        static_cast<int64_t>(safeBatchCount) * safeLda * safeN, p.a, p.description,
-        kBlasSentinel, p.randomSeed);
+        static_cast<int64_t>(safeBatchCount) * safeLda * safeN, p.a,
+        p.randomSeed);
 
     std::vector<float> xFloat(safeBatchCount * xStride);
     std::vector<float> yFloat(safeBatchCount * yStride);
     for (int b = 0; b < safeBatchCount; b++) {
-        if (p.x != BlasDataFill::NULLPTR) {
+        if (p.x.method != BlasFillMode::M_NULLPTR) {
             auto xBatch = makeBlasStrided(xCount, p.incx, p.x, p.randomSeed + 1 + b);
             for (size_t i = 0; i < xStride; i++)
                 xFloat[b * xStride + i] = xBatch[i];
         }
-        if (p.y != BlasDataFill::NULLPTR) {
+        if (p.y.method != BlasFillMode::M_NULLPTR) {
             auto yBatch = makeBlasStrided(yCount, p.incy, p.y, p.randomSeed + 2 + b);
             for (size_t i = 0; i < yStride; i++)
                 yFloat[b * yStride + i] = yBatch[i];
         }
     }
 
-    const float* alphaPtr = (p.alphaFill == BlasDataFill::NULLPTR) ? nullptr : &p.alpha;
-    const float* betaPtr = (p.betaFill == BlasDataFill::NULLPTR) ? nullptr : &p.beta;
-    const float* aPtr = (p.a == BlasDataFill::NULLPTR) ? nullptr : aFloat.data();
-    const float* xPtr = (p.x == BlasDataFill::NULLPTR) ? nullptr : xFloat.data();
-    float* yErrPtr = (p.y == BlasDataFill::NULLPTR) ? nullptr : yFloat.data();
+    const float* alphaPtr = (p.alphaFill.method == BlasFillMode::M_NULLPTR) ? nullptr : &p.alpha;
+    const float* betaPtr = (p.betaFill.method == BlasFillMode::M_NULLPTR) ? nullptr : &p.beta;
+    const float* aPtr = (p.a.method == BlasFillMode::M_NULLPTR) ? nullptr : aFloat.data();
+    const float* xPtr = (p.x.method == BlasFillMode::M_NULLPTR) ? nullptr : xFloat.data();
+    float* yErrPtr = (p.y.method == BlasFillMode::M_NULLPTR) ? nullptr : yFloat.data();
 
     // Early-return / error cases — always tested via dtype 1 (S: float in/out)
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS) {

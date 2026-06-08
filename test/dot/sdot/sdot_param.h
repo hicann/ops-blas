@@ -17,17 +17,17 @@
 
 struct SdotParam : public BlasTestParamBase {
     int n = 0;
-    BlasDataFill x = BlasDataFill::RANDOM;
+    BlasFillMode x = parseFill("RANDOM");
     int incx = 1;
-    BlasDataFill y = BlasDataFill::RANDOM;
+    BlasFillMode y = parseFill("RANDOM");
     int incy = 1;
 
     SdotParam(const csv_map& map) : BlasTestParamBase(map)
     {
         n = parseInt(ReadMap(map, "n", "0"));
-        x = parseDataFill(ReadMap(map, "x", "RANDOM"));
+        x = parseFill(ReadMap(map, "x", "RANDOM"));
         incx = parseInt(ReadMap(map, "incx", "1"));
-        y = parseDataFill(ReadMap(map, "y", "RANDOM"));
+        y = parseFill(ReadMap(map, "y", "RANDOM"));
         incy = parseInt(ReadMap(map, "incy", "1"));
     }
 };

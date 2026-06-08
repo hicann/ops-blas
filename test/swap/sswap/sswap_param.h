@@ -22,20 +22,16 @@ struct SswapParam : public BlasTestParamBase {
     int n = 0;
     int incx = 1;
     int incy = 1;
-    std::string xFill = "INDEX";
-    std::string yFill = "ONES";
-    std::string xDesc;
-    std::string yDesc;
+    BlasFillMode x = parseFill("INDEX");
+    BlasFillMode y = parseFill("VALUE_NORM_1");
 
     SswapParam(const csv_map& m) : BlasTestParamBase(m)
     {
         n = parseInt(ReadMap(m, "n", "0"));
         incx = parseInt(ReadMap(m, "incx", "1"));
         incy = parseInt(ReadMap(m, "incy", "1"));
-        xFill = ReadMap(m, "x_fill", "INDEX");
-        yFill = ReadMap(m, "y_fill", "ONES");
-        xDesc = ReadMap(m, "x_desc", "");
-        yDesc = ReadMap(m, "y_desc", "");
+        x = parseFill(ReadMap(m, "x_fill", "INDEX"));
+        y = parseFill(ReadMap(m, "y_fill", "VALUE_NORM_1"));
     }
 };
 

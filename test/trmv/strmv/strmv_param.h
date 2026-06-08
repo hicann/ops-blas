@@ -27,26 +27,9 @@ struct StrmvParam : public BlasTestParamBase {
 
     StrmvParam(const csv_map& map) : BlasTestParamBase(map)
     {
-        std::string uploStr = ReadMap(map, "uplo", "LOWER");
-        std::string transStr = ReadMap(map, "trans", "N");
-        std::string diagStr = ReadMap(map, "diag", "NON_UNIT");
-
-        if (uploStr == "INVALID") {
-            uplo = static_cast<aclblasFillMode_t>(0xFF);
-        } else {
-            uplo = parseFillMode(uploStr);
-        }
-        if (transStr == "INVALID") {
-            trans = static_cast<aclblasOperation_t>(0xFF);
-        } else {
-            trans = parseOpTrans(transStr);
-        }
-        if (diagStr == "INVALID") {
-            diag = static_cast<aclblasDiagType_t>(0xFF);
-        } else {
-            diag = parseDiagType(diagStr);
-        }
-
+        uplo = parseFillMode(ReadMap(map, "uplo", "LOWER"));
+        trans = parseOpTrans(ReadMap(map, "trans", "N"));
+        diag = parseDiagType(ReadMap(map, "diag", "NON_UNIT"));
         n = parseInt(ReadMap(map, "n", "0"));
         lda = parseInt(ReadMap(map, "lda", std::to_string(n)));
         incx = parseInt(ReadMap(map, "incx", "1"));

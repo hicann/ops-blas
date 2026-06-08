@@ -159,10 +159,26 @@ inline uint32_t parseUint(const std::string& s, uint32_t def = 0)
     }
 }
 
+// ── Generic enum parser: map lookup → numeric fallback → default ──
+template <typename EnumT>
+inline EnumT parseEnum(const std::string& s, const std::unordered_map<std::string, EnumT>& table, EnumT defaultVal)
+{
+    if (s.empty())
+        return defaultVal;
+    auto it = table.find(s);
+    if (it != table.end())
+        return it->second;
+    try {
+        return static_cast<EnumT>(std::stoi(s));
+    } catch (...) {
+        return defaultVal;
+    }
+}
+
 // aclblasStatus_t parser (must be defined before BlasTestParamBase)
 inline aclblasStatus_t parseStatus(const std::string& s)
 {
-    static const std::unordered_map<std::string, aclblasStatus_t> table = {
+    static const std::unordered_map<std::string, aclblasStatus_t> t = {
         {"ACLBLAS_STATUS_SUCCESS", ACLBLAS_STATUS_SUCCESS},
         {"SUCCESS", ACLBLAS_STATUS_SUCCESS},
         {"ACLBLAS_STATUS_NOT_INITIALIZED", ACLBLAS_STATUS_NOT_INITIALIZED},
@@ -186,18 +202,8 @@ inline aclblasStatus_t parseStatus(const std::string& s)
         {"ACLBLAS_STATUS_INVALID_ENUM", ACLBLAS_STATUS_INVALID_ENUM},
         {"INVALID_ENUM", ACLBLAS_STATUS_INVALID_ENUM},
         {"ACLBLAS_STATUS_UNKNOWN", ACLBLAS_STATUS_UNKNOWN},
-        {"UNKNOWN", ACLBLAS_STATUS_UNKNOWN},
-    };
-    if (s.empty())
-        return ACLBLAS_STATUS_SUCCESS;
-    auto it = table.find(s);
-    if (it != table.end())
-        return it->second;
-    try {
-        return static_cast<aclblasStatus_t>(std::stoi(s));
-    } catch (...) {
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
+        {"UNKNOWN", ACLBLAS_STATUS_UNKNOWN}};
+    return parseEnum(s, t, ACLBLAS_STATUS_INTERNAL_ERROR);
 }
 
 // ── BlasTestParamBase: common fields loaded from every CSV row ──
@@ -235,117 +241,81 @@ inline std::string PrintCaseInfoString(const ::testing::TestParamInfo<T>& info)
 // aclblasFillMode_t  (121=UPPER, 122=LOWER)
 inline aclblasFillMode_t parseFillMode(const std::string& s)
 {
-    if (s == "ACLBLAS_UPPER" || s == "UPPER" || s == "121")
-        return ACLBLAS_UPPER;
-    if (s == "ACLBLAS_LOWER" || s == "LOWER" || s == "122")
-        return ACLBLAS_LOWER;
-    if (s == "INVALID" || s == "0xFF")
-        return static_cast<aclblasFillMode_t>(0xFF);
-    try {
-        return static_cast<aclblasFillMode_t>(std::stoi(s));
-    } catch (...) {
-        return static_cast<aclblasFillMode_t>(0xFF);
-    }
+    static const std::unordered_map<std::string, aclblasFillMode_t> t = {
+        {"ACLBLAS_UPPER", ACLBLAS_UPPER},
+        {"UPPER", ACLBLAS_UPPER},
+        {"ACLBLAS_LOWER", ACLBLAS_LOWER},
+        {"LOWER", ACLBLAS_LOWER},
+        {"INVALID", static_cast<aclblasFillMode_t>(0xFF)}};
+    return parseEnum(s, t, static_cast<aclblasFillMode_t>(0xFF));
 }
 
 // aclblasDiagType_t  (131=NON_UNIT, 132=UNIT)
 inline aclblasDiagType_t parseDiagType(const std::string& s)
 {
-    if (s == "ACLBLAS_NON_UNIT" || s == "NON_UNIT" || s == "131")
-        return ACLBLAS_NON_UNIT;
-    if (s == "ACLBLAS_UNIT" || s == "UNIT" || s == "132")
-        return ACLBLAS_UNIT;
-    if (s == "INVALID" || s == "0xFF")
-        return static_cast<aclblasDiagType_t>(0xFF);
-    try {
-        return static_cast<aclblasDiagType_t>(std::stoi(s));
-    } catch (...) {
-        return ACLBLAS_NON_UNIT;
-    }
+    static const std::unordered_map<std::string, aclblasDiagType_t> t = {
+        {"ACLBLAS_NON_UNIT", ACLBLAS_NON_UNIT},
+        {"NON_UNIT", ACLBLAS_NON_UNIT},
+        {"ACLBLAS_UNIT", ACLBLAS_UNIT},
+        {"UNIT", ACLBLAS_UNIT},
+        {"INVALID", static_cast<aclblasDiagType_t>(0xFF)}};
+    return parseEnum(s, t, ACLBLAS_NON_UNIT);
 }
 
 // aclblasSideMode_t  (141=LEFT, 142=RIGHT)
 inline aclblasSideMode_t parseSideMode(const std::string& s)
 {
-    if (s == "ACLBLAS_SIDE_LEFT" || s == "LEFT" || s == "141")
-        return ACLBLAS_SIDE_LEFT;
-    if (s == "ACLBLAS_SIDE_RIGHT" || s == "RIGHT" || s == "142")
-        return ACLBLAS_SIDE_RIGHT;
-    try {
-        return static_cast<aclblasSideMode_t>(std::stoi(s));
-    } catch (...) {
-        return ACLBLAS_SIDE_LEFT;
-    }
+    static const std::unordered_map<std::string, aclblasSideMode_t> t = {
+        {"ACLBLAS_SIDE_LEFT", ACLBLAS_SIDE_LEFT},
+        {"LEFT", ACLBLAS_SIDE_LEFT},
+        {"ACLBLAS_SIDE_RIGHT", ACLBLAS_SIDE_RIGHT},
+        {"RIGHT", ACLBLAS_SIDE_RIGHT}};
+    return parseEnum(s, t, ACLBLAS_SIDE_LEFT);
 }
 
 // aclblasOperation_t  (111=N, 112=T, 113=C)
 inline aclblasOperation_t parseOpTrans(const std::string& s)
 {
-    if (s == "ACLBLAS_OP_N" || s == "N" || s == "111")
-        return ACLBLAS_OP_N;
-    if (s == "ACLBLAS_OP_T" || s == "T" || s == "112")
-        return ACLBLAS_OP_T;
-    if (s == "ACLBLAS_OP_C" || s == "C" || s == "113")
-        return ACLBLAS_OP_C;
-    if (s == "ACLBLAS_OP_H" || s == "H" || s == "113")
-        return ACLBLAS_OP_C;
-    if (s == "INVALID" || s == "0xFF")
-        return static_cast<aclblasOperation_t>(0xFF);
-    try {
-        return static_cast<aclblasOperation_t>(std::stoi(s));
-    } catch (...) {
-        return ACLBLAS_OP_N;
-    }
+    static const std::unordered_map<std::string, aclblasOperation_t> t = {
+        {"ACLBLAS_OP_N", ACLBLAS_OP_N},
+        {"N", ACLBLAS_OP_N},
+        {"ACLBLAS_OP_T", ACLBLAS_OP_T},
+        {"T", ACLBLAS_OP_T},
+        {"ACLBLAS_OP_C", ACLBLAS_OP_C},
+        {"C", ACLBLAS_OP_C},
+        {"ACLBLAS_OP_H", ACLBLAS_OP_C},
+        {"H", ACLBLAS_OP_C},
+        {"INVALID", static_cast<aclblasOperation_t>(0xFF)}};
+    return parseEnum(s, t, ACLBLAS_OP_N);
 }
 
 // aclblasComputeType_t  (0..10)
 inline aclblasComputeType_t parseComputeType(const std::string& s)
 {
-    static const std::unordered_map<std::string, aclblasComputeType_t> table = {
+    static const std::unordered_map<std::string, aclblasComputeType_t> t = {
         {"ACLBLAS_COMPUTE_16F", ACLBLAS_COMPUTE_16F},
         {"COMPUTE_16F", ACLBLAS_COMPUTE_16F},
-        {"0", ACLBLAS_COMPUTE_16F},
         {"ACLBLAS_COMPUTE_16F_PEDANTIC", ACLBLAS_COMPUTE_16F_PEDANTIC},
         {"COMPUTE_16F_PEDANTIC", ACLBLAS_COMPUTE_16F_PEDANTIC},
-        {"1", ACLBLAS_COMPUTE_16F_PEDANTIC},
         {"ACLBLAS_COMPUTE_32F", ACLBLAS_COMPUTE_32F},
         {"COMPUTE_32F", ACLBLAS_COMPUTE_32F},
-        {"2", ACLBLAS_COMPUTE_32F},
         {"ACLBLAS_COMPUTE_32F_PEDANTIC", ACLBLAS_COMPUTE_32F_PEDANTIC},
         {"COMPUTE_32F_PEDANTIC", ACLBLAS_COMPUTE_32F_PEDANTIC},
-        {"3", ACLBLAS_COMPUTE_32F_PEDANTIC},
         {"ACLBLAS_COMPUTE_32F_FAST_16F", ACLBLAS_COMPUTE_32F_FAST_16F},
         {"COMPUTE_32F_FAST_16F", ACLBLAS_COMPUTE_32F_FAST_16F},
-        {"4", ACLBLAS_COMPUTE_32F_FAST_16F},
         {"ACLBLAS_COMPUTE_32F_FAST_16BF", ACLBLAS_COMPUTE_32F_FAST_16BF},
         {"COMPUTE_32F_FAST_16BF", ACLBLAS_COMPUTE_32F_FAST_16BF},
-        {"5", ACLBLAS_COMPUTE_32F_FAST_16BF},
         {"ACLBLAS_COMPUTE_32F_FAST_TF32", ACLBLAS_COMPUTE_32F_FAST_TF32},
         {"COMPUTE_32F_FAST_TF32", ACLBLAS_COMPUTE_32F_FAST_TF32},
-        {"6", ACLBLAS_COMPUTE_32F_FAST_TF32},
         {"ACLBLAS_COMPUTE_64F", ACLBLAS_COMPUTE_64F},
         {"COMPUTE_64F", ACLBLAS_COMPUTE_64F},
-        {"7", ACLBLAS_COMPUTE_64F},
         {"ACLBLAS_COMPUTE_64F_PEDANTIC", ACLBLAS_COMPUTE_64F_PEDANTIC},
         {"COMPUTE_64F_PEDANTIC", ACLBLAS_COMPUTE_64F_PEDANTIC},
-        {"8", ACLBLAS_COMPUTE_64F_PEDANTIC},
         {"ACLBLAS_COMPUTE_32I", ACLBLAS_COMPUTE_32I},
         {"COMPUTE_32I", ACLBLAS_COMPUTE_32I},
-        {"9", ACLBLAS_COMPUTE_32I},
         {"ACLBLAS_COMPUTE_32I_PEDANTIC", ACLBLAS_COMPUTE_32I_PEDANTIC},
-        {"COMPUTE_32I_PEDANTIC", ACLBLAS_COMPUTE_32I_PEDANTIC},
-        {"10", ACLBLAS_COMPUTE_32I_PEDANTIC},
-    };
-    if (s.empty())
-        return ACLBLAS_COMPUTE_32F;
-    auto it = table.find(s);
-    if (it != table.end())
-        return it->second;
-    try {
-        return static_cast<aclblasComputeType_t>(std::stoi(s));
-    } catch (...) {
-        return ACLBLAS_COMPUTE_32F;
-    }
+        {"COMPUTE_32I_PEDANTIC", ACLBLAS_COMPUTE_32I_PEDANTIC}};
+    return parseEnum(s, t, ACLBLAS_COMPUTE_32F);
 }
 
 #endif // CSV_LOADER_H

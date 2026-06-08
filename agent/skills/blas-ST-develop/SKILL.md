@@ -34,7 +34,7 @@ test/{op}/
 |--------|------|
 | `csv_loader.h` | `csv_map`、`ReadMap`、`GetCasesFromCsv`、`PrintCaseInfoString`、枚举解析、`BlasTestParamBase`、`isNullHandleCase`、`parseInt/parseFloat/parseDouble/parseUint` |
 | `blas_test.h` | `BlasTest<ParamType>` 模板基类（含 SetUpTestSuite/TearDownTestSuite/handle_/stream_） |
-| `fill.h` | `BlasDataFill` 枚举、`makeBlasArray`、`makeBlasTriangular`、`makeBlasBanded`、`makeBlasStrided`、`applyExoticFill` |
+| `fill.h` | `BlasFillMode` 结构体、`makeBlasArray`、`makeBlasTriangular`、`makeBlasBanded`、`makeBlasStrided`、`makeBlasMatrix` |
 | `verify.h` | `Verifier` 精度比对类 |
 | `types.h` | `VerifyConfig`、`PrecisionMode` |
 | `data.h` | `DataGenerator`（旧式算子兼容用） |
@@ -74,7 +74,7 @@ ls test/frame/csv_loader.h test/frame/blas_test.h test/frame/fill.h test/frame/v
 
 文件： `test/{op}/{op}_param.h`
 
-继承 `BlasTestParamBase`，字段按 API 参数顺序排列。数组参数类型为 `BlasDataFill`。
+继承 `BlasTestParamBase`，字段按 API 参数顺序排列。数组参数类型为 `BlasFillMode`。
 
 ```cpp
 #ifndef STPTTR_PARAM_H
@@ -88,15 +88,15 @@ ls test/frame/csv_loader.h test/frame/blas_test.h test/frame/fill.h test/frame/v
 struct StpttrParam : public BlasTestParamBase {
     aclblasFillMode_t uplo = ACLBLAS_LOWER;
     int n = 0;
-    BlasDataFill ap = BlasDataFill::INDEX;
-    BlasDataFill a  = BlasDataFill::SENTINEL;
+    BlasFillMode ap = BlasFillMode("INDEX");          // 顺序正整数 1, 2, 3, ...
+    BlasFillMode a  = BlasFillMode("VALUE_NORM_N999"); // 哨兵值 -999
     int lda = 0;
 
     StpttrParam(const csv_map& m) : BlasTestParamBase(m) {
         uplo = parseFillMode(ReadMap(m, "uplo", "LOWER"));
         n    = parseInt(ReadMap(m, "n", "0"));
-        ap   = parseDataFill(ReadMap(m, "ap", "index"));
-        a    = parseDataFill(ReadMap(m, "a", "sentinel"));
+        ap   = BlasFillMode(ReadMap(m, "ap", "INDEX"));
+        a    = BlasFillMode(ReadMap(m, "a", "VALUE_NORM_N999"));
         lda  = parseInt(ReadMap(m, "lda", std::to_string(std::max(1, n))));
     }
 };
@@ -104,7 +104,36 @@ struct StpttrParam : public BlasTestParamBase {
 #endif
 ```
 
-**BlasDataFill 取值**：`index`、`random`、`zeros`、`ones`、`nullptr`、`sentinel`
+**BlasFillMode 命名规则**：`METHOD_PATTERN_VAL...`，从某位开始可不填（后续取默认值），不允许跳位。参数化 PATTERN（如 BANDED）先消耗结构参数，剩余 VAL 用于填充值。
+
+| 位 | 可选值 | 说明 |
+|----|--------|------|
+| METHOD（必填） | `NULLPTR` / `INDEX` / `RANDOM` / `VALUE` | 值获取方式 |
+| PATTERN | `NORM` / `UPPER` / `LOWER` / `DIAG` / `ALTER` / `EXTREME` / `ILLCOND` / `BANDED` | 矩阵形状/分布模式 |
+| VAL... | 数值（`N`前缀=负，`P`可省略）或特殊标记 | 结构参数 + 填充值参数 |
+
+**常用写法示例**：
+
+| CSV 写法 | 含义 |
+|---------|------|
+| `INDEX` | 顺序 1, 2, 3, ... |
+| `INDEX_NORM_N1` | 顺序 -1, -2, -3, ... |
+| `INDEX_ALTER` | 正负交替 |
+| `RANDOM` | 全值域随机 |
+| `RANDOM_NORM_1E6` | 随机 [-1e6, 1e6] |
+| `RANDOM_UPPER` | 上三角随机 |
+| `RANDOM_LOWER` | 下三角随机 |
+| `RANDOM_DIAG` | 对角随机 |
+| `RANDOM_BANDED_2_3` | 带状矩阵 kl=2 ku=3，band 内随机 |
+| `INDEX_BANDED_1_1` | 带状矩阵 kl=1 ku=1，band 内顺序值 |
+| `VALUE_BANDED_2_2_0` | 带状矩阵 kl=2 ku=2，band 内全零 |
+| `VALUE_NORM_0` | 全零 |
+| `VALUE_NORM_1` | 全一 |
+| `VALUE_NORM_N999` | 哨兵值 -999 |
+| `VALUE_NORM_1E10` | 大常数 1e10 |
+| `VALUE_NORM_INF` | 正无穷 |
+| `VALUE_NORM_NAN` | 非数 |
+| `VALUE_DIAG_1` | 单位矩阵 |
 
 **BlasTestParamBase 公共字段**：`caseName`（用例名）、`description`（语义描述）、`expectResult`（期望返回码）
 
@@ -163,13 +192,13 @@ inline aclblasStatus_t aclblasStpttr_npu(
 
 ```csv
 case_name,description,uplo,n,ap,a,lda,expect_result
-TC_L0_01,handle_null,ACLBLAS_LOWER,5,nullptr,nullptr,5,ACLBLAS_STATUS_NOT_INITIALIZED
-TC_L0_06,n1_lower,ACLBLAS_LOWER,1,index,sentinel,1,ACLBLAS_STATUS_SUCCESS
-TC_L1_19,zeros_lower,ACLBLAS_LOWER,8,zeros,sentinel,8,ACLBLAS_STATUS_SUCCESS
+TC_L0_01,handle_null,ACLBLAS_LOWER,5,NULLPTR,NULLPTR,5,ACLBLAS_STATUS_NOT_INITIALIZED
+TC_L0_06,n1_lower,ACLBLAS_LOWER,1,INDEX,VALUE_NORM_N999,1,ACLBLAS_STATUS_SUCCESS
+TC_L1_19,zeros_lower,ACLBLAS_LOWER,8,VALUE_NORM_0,VALUE_NORM_N999,8,ACLBLAS_STATUS_SUCCESS
 ```
 
 - `expect_result`：`ACLBLAS_STATUS_SUCCESS` / `ACLBLAS_STATUS_INVALID_VALUE` / `ACLBLAS_STATUS_NOT_INITIALIZED`
-- 数组列的值为 `BlasDataFill` 枚举
+- 数组列的值为 `BlasFillMode` 字符串（见上方命名规则）
 - CSV 路径由 `ReplaceFileExtension2Csv(__FILE__)` 自动推导（与 .cpp 同名 .csv）
 
 ### 4.2 GTest 入口
@@ -192,8 +221,8 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(StpttrArch35Test, CsvDriven) {
     const auto& p = GetParam();
 
-    std::vector<float> apHost = makeBlasTriangular(p.n, p.uplo == ACLBLAS_UPPER, p.ap, p.description);
-    std::vector<float> aHost  = makeBlasArray(static_cast<size_t>(p.lda) * p.n, p.a);
+    std::vector<float> apHost = makeBlasTriangular(p.n, p.uplo == ACLBLAS_UPPER, p.ap, p.randomSeed);
+    std::vector<float> aHost  = makeBlasArray(static_cast<int64_t>(p.lda) * p.n, p.a, p.randomSeed);
 
     const float* apPtr = apHost.empty() ? nullptr : apHost.data();
     float*       aPtr  = aHost.empty()  ? nullptr : aHost.data();
@@ -250,7 +279,7 @@ bash build.sh --ops=stpttr --run --device=1   # 指定卡1
 |------|------|
 | CSV 读取失败 | 确认 CSV 与 .cpp 同名同目录，`ReplaceFileExtension2Csv(__FILE__)` 自动定位 |
 | null handle 测试多余代码 | 改用 `TEST_F` 单独测，不下 CSV |
-| 数组填充不匹配 | 检查 `BlasDataFill` 取值是否正确，三角矩阵用 `makeBlasTriangular`，带状用 `makeBlasBanded` |
+| 数组填充不匹配 | 检查 `BlasFillMode` 字符串是否正确，三角矩阵用 `makeBlasTriangular`，带状用 `makeBlasBanded` |
 | 精度 fail | 看 Verifier 日志中的 MERE/MARE 或 exact mismatch 计数 |
 | `gtest_main` 链接冲突 | 框架统一使用 `test/frame/test_main.cpp`，勿自行写 `main()` |
 

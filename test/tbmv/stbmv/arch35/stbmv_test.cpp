@@ -21,44 +21,6 @@
 #include "stbmv_golden.h"
 #include "stbmv_npu_wrapper.h"
 
-inline std::vector<float> MakeBandMatrix(int n, int k, int lda, bool upper, bool unitDiag, uint32_t seed)
-{
-    const size_t aSize = (n > 0) ? static_cast<size_t>(lda) * n : 1;
-    std::vector<float> a(aSize, 0.0f);
-    if (n <= 0) return a;
-
-    std::mt19937 rng(seed ? seed : 42);
-    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
-
-    for (int col = 0; col < n; ++col) {
-        int rowStart = upper ? std::max(0, col - k) : col;
-        int rowEnd = upper ? col : std::min(n - 1, col + k);
-        for (int row = rowStart; row <= rowEnd; ++row) {
-            size_t idx = upper
-                ? static_cast<size_t>(k + row - col) + static_cast<size_t>(col) * lda
-                : static_cast<size_t>(row - col) + static_cast<size_t>(col) * lda;
-            a[idx] = (row == col && unitDiag) ? 1.0f : dist(rng);
-        }
-    }
-    return a;
-}
-
-inline std::vector<float> MakeStrided(int count, int inc, uint32_t seed)
-{
-    if (count <= 0) return {};
-    int absInc = std::abs(inc);
-    size_t size = static_cast<size_t>((count - 1) * absInc + 1);
-    std::vector<float> data(size, 0.0f);
-
-    std::mt19937 rng(seed ? seed : 42);
-    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
-
-    for (int i = 0; i < count; ++i) {
-        int idx = (inc > 0) ? (i * inc) : ((count - 1 - i) * absInc);
-        data[idx] = dist(rng);
-    }
-    return data;
-}
 
 class StbmvArch35Test : public BlasTest<StbmvParam> { };
 
@@ -70,10 +32,11 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(StbmvArch35Test, CsvDriven) {
     const auto& p = GetParam();
 
-    bool isUpper = (p.uplo == ACLBLAS_UPPER);
-    bool isUnit = (p.diag == ACLBLAS_UNIT);
-    auto a = MakeBandMatrix(p.n, p.k, p.lda, isUpper, isUnit, p.randomSeed);
-    auto x = MakeStrided(p.n, p.incx, p.randomSeed + 1);
+    int kl = (p.uplo == ACLBLAS_UPPER) ? 0 : p.k;
+    int ku = (p.uplo == ACLBLAS_UPPER) ? p.k : 0;
+
+    auto a = makeBlasBanded(p.n, p.n, kl, ku, p.lda, "RANDOM", p.randomSeed);
+    auto x = makeBlasStrided(p.n, p.incx, "RANDOM", p.randomSeed + 1);
     std::vector<float> golden = x;
 
     aclblasStatus_t ret = aclblasStbmv_npu(

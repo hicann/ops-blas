@@ -38,8 +38,8 @@ TEST_P(SswapArch35Test, CsvDriven)
     const auto& p = GetParam();
 
     // Step 1: Generate host data
-    std::vector<float> xHost = makeBlasArray(p.n, parseDataFill(p.xFill), p.xDesc, kBlasSentinel, p.randomSeed);
-    std::vector<float> yHost = makeBlasArray(p.n, parseDataFill(p.yFill), p.yDesc, kBlasSentinel, p.randomSeed);
+    std::vector<float> xHost = makeBlasArray(p.n, p.x, p.randomSeed);
+    std::vector<float> yHost = makeBlasArray(p.n, p.y, p.randomSeed);
 
     float* xPtr = xHost.empty() ? nullptr : xHost.data();
     float* yPtr = yHost.empty() ? nullptr : yHost.data();
@@ -58,8 +58,8 @@ TEST_P(SswapArch35Test, CsvDriven)
 
     // Step 5: Compute CPU golden (swap modifies both x and y in-place)
     // We need copies of the original data for golden computation
-    std::vector<float> goldenX = makeBlasArray(p.n, parseDataFill(p.xFill), p.xDesc, kBlasSentinel, p.randomSeed);
-    std::vector<float> goldenY = makeBlasArray(p.n, parseDataFill(p.yFill), p.yDesc, kBlasSentinel, p.randomSeed);
+    std::vector<float> goldenX = makeBlasArray(p.n, p.x, p.randomSeed);
+    std::vector<float> goldenY = makeBlasArray(p.n, p.y, p.randomSeed);
     aclblasSswap_cpu(SswapArch35Test::handle_, p.n, goldenX.data(), p.incx, goldenY.data(), p.incy);
 
     // Step 6: Verify both outputs with EXACT precision

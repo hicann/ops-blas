@@ -151,13 +151,13 @@ TEST_P(LtMatmulArch35Test, CsvDriven) {
     std::vector<uint16_t> D_bf16;
 
     if (dtypeA == ACL_FLOAT) {
-        A_data = makeBlasArray(static_cast<int64_t>(physRowsA) * p.lda, BlasDataFill::RANDOM, p.description, p.randomSeed);
+        A_data = makeBlasArray(static_cast<int64_t>(physRowsA) * p.lda, "RANDOM", p.randomSeed);
     }
     if (dtypeB == ACL_FLOAT) {
-        B_data = makeBlasArray(static_cast<int64_t>(physRowsB) * p.ldb, BlasDataFill::RANDOM, p.description, p.randomSeed);
+        B_data = makeBlasArray(static_cast<int64_t>(physRowsB) * p.ldb, "RANDOM", p.randomSeed);
     }
     if (dtypeC == ACL_FLOAT && !p.CIsNull) {
-        C_data = makeBlasArray(static_cast<int64_t>(M) * p.ldc, BlasDataFill::RANDOM, p.description, p.randomSeed);
+        C_data = makeBlasArray(static_cast<int64_t>(M) * p.ldc, "RANDOM", p.randomSeed);
     }
     if (dtypeD == ACL_FLOAT) {
         D_data.resize(static_cast<size_t>(M) * p.ldd, 0.0f);
@@ -209,7 +209,7 @@ TEST_P(LtMatmulArch35Test, CsvDriven) {
     if (isMxfpType(dtypeA)) {
         size_t scaleABytes = mxScaleBufferBytesA(M, K, p.transA);
         scaleA_data.resize(scaleABytes);
-        if (p.scaleAFill == BlasDataFill::ZEROS) {
+        if (p.scaleAFill.method == BlasFillMode::M_VALUE && p.scaleAFill.val1 == 0.0f) {
             for (auto& b : scaleA_data) b = 0;
         } else {
             for (auto& b : scaleA_data) b = static_cast<uint8_t>(scale8Dist(rng));
@@ -218,7 +218,7 @@ TEST_P(LtMatmulArch35Test, CsvDriven) {
     if (isMxfpType(dtypeB)) {
         size_t scaleBBytes = mxScaleBufferBytesB(N, K, p.transB);
         scaleB_data.resize(scaleBBytes);
-        if (p.scaleBFill == BlasDataFill::ZEROS) {
+        if (p.scaleBFill.method == BlasFillMode::M_VALUE && p.scaleBFill.val1 == 0.0f) {
             for (auto& b : scaleB_data) b = 0;
         } else {
             for (auto& b : scaleB_data) b = static_cast<uint8_t>(scale8Dist(rng));

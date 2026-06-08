@@ -22,9 +22,9 @@ struct SsyrParam : public BlasTestParamBase {
     aclblasFillMode_t uplo = ACLBLAS_UPPER;
     int n = 0;
     float alpha = 1.0f;
-    BlasDataFill x = BlasDataFill::RANDOM;
+    BlasFillMode x = parseFill("RANDOM");
     int incx = 1;
-    BlasDataFill a = BlasDataFill::RANDOM;
+    BlasFillMode a = parseFill("RANDOM");
     int lda = 0;
 
     SsyrParam(const csv_map& map) : BlasTestParamBase(map)
@@ -32,9 +32,9 @@ struct SsyrParam : public BlasTestParamBase {
         uplo = parseFillMode(ReadMap(map, "uplo", "UPPER"));
         n = parseInt(ReadMap(map, "n", "0"));
         alpha = parseFloat(ReadMap(map, "alpha", "1.0"));
-        x = parseDataFill(ReadMap(map, "x", "RANDOM"));
+        x = parseFill(ReadMap(map, "x", "RANDOM"));
         incx = parseInt(ReadMap(map, "incx", "1"));
-        a = parseDataFill(ReadMap(map, "a", "RANDOM"));
+        a = parseFill(ReadMap(map, "a", "RANDOM"));
         lda = parseInt(ReadMap(map, "lda", std::to_string(std::max(1, n))));
     }
 };

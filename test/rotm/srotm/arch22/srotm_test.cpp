@@ -28,8 +28,8 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(SrotmArch22Test, CsvDriven) {
     const auto& p = GetParam();
 
-    auto x = makeBlasStrided(p.n, p.incx, BlasDataFill::RANDOM, p.randomSeed);
-    auto y = makeBlasStrided(p.n, p.incy, BlasDataFill::RANDOM, p.randomSeed);
+    auto x = makeBlasStrided(p.n, p.incx, "RANDOM_NORM_2_2", p.randomSeed);
+    auto y = makeBlasStrided(p.n, p.incy, "RANDOM_NORM_2_2", p.randomSeed);
     std::vector<float> resultX = x;
     std::vector<float> resultY = y;
     std::vector<float> goldenX = x;

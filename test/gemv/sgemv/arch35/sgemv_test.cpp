@@ -43,12 +43,12 @@ TEST_P(SgemvArch35Test, CsvDriven)
 
     // Generate input data with distinct seeds for A, x, y
     auto aHost =
-        makeBlasArray(static_cast<int64_t>(p.lda) * std::max(1, p.n), p.a, p.description, kBlasSentinel, p.randomSeed);
+        makeBlasArray(static_cast<int64_t>(p.lda) * std::max(1, p.n), p.a, p.randomSeed);
     auto xHost = makeBlasStrided(xCount, p.incx, p.x, p.randomSeed + 1);
     auto yHost = makeBlasStrided(yCount, p.incy, p.y, p.randomSeed + 2);
 
-    const float* alphaPtr = (p.alphaFill == BlasDataFill::NULLPTR) ? nullptr : &p.alpha;
-    const float* betaPtr = (p.betaFill == BlasDataFill::NULLPTR) ? nullptr : &p.beta;
+    const float* alphaPtr = (p.alphaFill.method == BlasFillMode::M_NULLPTR) ? nullptr : &p.alpha;
+    const float* betaPtr = (p.betaFill.method == BlasFillMode::M_NULLPTR) ? nullptr : &p.beta;
 
     // NPU path: copy y, run kernel, result lands in yNpu
     std::vector<float> yNpu = yHost;

@@ -31,7 +31,7 @@ TEST_P(GbmvArch35Test, CsvDriven) {
     const int xCount = isTransN ? p.n : p.m;
     const int yCount = isTransN ? p.m : p.n;
 
-    auto a = makeBlasBanded(p.m, p.n, p.kl, p.ku, p.lda, p.a, p.randomSeed);
+    auto a = makeBlasBanded(p.m, p.n, p.lda, p.a, p.randomSeed);
     auto x = makeBlasStrided(xCount, p.incx, p.x, p.randomSeed);
     auto y = makeBlasStrided(yCount, p.incy, p.y, p.randomSeed);
     std::vector<float> result = y;

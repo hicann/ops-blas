@@ -23,9 +23,9 @@ struct TrsvParam : public BlasTestParamBase {
     aclblasOperation_t trans = ACLBLAS_OP_N;
     aclblasDiagType_t diag = ACLBLAS_NON_UNIT;
     int64_t n = 0;
-    BlasDataFill A = BlasDataFill::RANDOM;
+    BlasFillMode A = parseFill("RANDOM");
     int64_t lda = 0;
-    BlasDataFill x = BlasDataFill::RANDOM;
+    BlasFillMode x = parseFill("RANDOM");
     int64_t incx = 1;
 
     TrsvParam(const csv_map& map) : BlasTestParamBase(map)
@@ -34,9 +34,9 @@ struct TrsvParam : public BlasTestParamBase {
         trans = parseOpTrans(ReadMap(map, "trans", "N"));
         diag = parseDiagType(ReadMap(map, "diag", "NON_UNIT"));
         n = parseInt(ReadMap(map, "n", "0"));
-        A = parseDataFill(ReadMap(map, "A", "RANDOM"));
+        A = parseFill(ReadMap(map, "A", "RANDOM"));
         lda = parseInt(ReadMap(map, "lda", std::to_string(std::max(int64_t(1), n))));
-        x = parseDataFill(ReadMap(map, "x", "RANDOM"));
+        x = parseFill(ReadMap(map, "x", "RANDOM"));
         incx = parseInt(ReadMap(map, "incx", "1"));
     }
 };

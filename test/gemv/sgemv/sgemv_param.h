@@ -22,14 +22,14 @@ struct SgemvParam : public BlasTestParamBase {
     int m = 0;
     int n = 0;
     float alpha = 1.0f;
-    BlasDataFill alphaFill = BlasDataFill::RANDOM;
-    BlasDataFill a = BlasDataFill::RANDOM;
+    BlasFillMode alphaFill = parseFill("RANDOM");
+    BlasFillMode a = parseFill("RANDOM");
     int lda = 0;
-    BlasDataFill x = BlasDataFill::RANDOM;
+    BlasFillMode x = parseFill("RANDOM");
     int incx = 1;
     float beta = 0.0f;
-    BlasDataFill betaFill = BlasDataFill::RANDOM;
-    BlasDataFill y = BlasDataFill::RANDOM;
+    BlasFillMode betaFill = parseFill("RANDOM");
+    BlasFillMode y = parseFill("RANDOM");
     int incy = 1;
 
     SgemvParam(const csv_map& map) : BlasTestParamBase(map)
@@ -38,14 +38,14 @@ struct SgemvParam : public BlasTestParamBase {
         m = parseInt(ReadMap(map, "m", "0"));
         n = parseInt(ReadMap(map, "n", "0"));
         alpha = parseFloat(ReadMap(map, "alpha", "1.0"));
-        alphaFill = parseDataFill(ReadMap(map, "alpha_fill", "RANDOM"));
-        a = parseDataFill(ReadMap(map, "a", "RANDOM"));
+        alphaFill = parseFill(ReadMap(map, "alpha_fill", "RANDOM"));
+        a = parseFill(ReadMap(map, "a", "RANDOM"));
         lda = parseInt(ReadMap(map, "lda", std::to_string(std::max(1, m))));
-        x = parseDataFill(ReadMap(map, "x", "RANDOM"));
+        x = parseFill(ReadMap(map, "x", "RANDOM"));
         incx = parseInt(ReadMap(map, "incx", "1"));
         beta = parseFloat(ReadMap(map, "beta", "0.0"));
-        betaFill = parseDataFill(ReadMap(map, "beta_fill", "RANDOM"));
-        y = parseDataFill(ReadMap(map, "y", "RANDOM"));
+        betaFill = parseFill(ReadMap(map, "beta_fill", "RANDOM"));
+        y = parseFill(ReadMap(map, "y", "RANDOM"));
         incy = parseInt(ReadMap(map, "incy", "1"));
     }
 };

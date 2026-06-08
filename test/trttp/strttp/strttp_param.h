@@ -20,17 +20,17 @@
 struct StrttpParam : public BlasTestParamBase {
     aclblasFillMode_t uplo = ACLBLAS_LOWER;
     int n = 0;
-    BlasDataFill a = BlasDataFill::INDEX;
+    BlasFillMode a = parseFill("INDEX");
     int lda = 0;
-    BlasDataFill ap = BlasDataFill::ZEROS;
+    BlasFillMode ap = parseFill("VALUE_NORM_0");
 
     StrttpParam(const csv_map& map) : BlasTestParamBase(map)
     {
         uplo = parseFillMode(ReadMap(map, "uplo", "LOWER"));
         n = parseInt(ReadMap(map, "n", "0"));
-        a = parseDataFill(ReadMap(map, "a", "INDEX"));
+        a = parseFill(ReadMap(map, "a", "INDEX"));
         lda = parseInt(ReadMap(map, "lda", std::to_string(std::max(1, n))));
-        ap = parseDataFill(ReadMap(map, "ap", "ZEROS"));
+        ap = parseFill(ReadMap(map, "ap", "VALUE_NORM_0"));
     }
 };
 

@@ -41,7 +41,7 @@ TEST_P(TrsvArch22Test, CsvDriven)
     const int64_t allocLda = std::max(allocN, p.lda);
 
     // ── Step 1: Generate A matrix ──
-    auto aHost = makeBlasArray(allocLda * allocN, p.A, p.description, kBlasSentinel, p.randomSeed);
+    auto aHost = makeBlasArray(allocLda * allocN, p.A, p.randomSeed);
     // Strengthen diagonal to avoid near-singular triangular system
     if (!aHost.empty()) {
         for (int64_t i = 0; i < allocN; i++) {

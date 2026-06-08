@@ -32,8 +32,8 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(StpttrArch35Test, CsvDriven) {
     const auto& p = GetParam();
 
-    std::vector<float> apHost = makeBlasTriangular(p.n, p.uplo == ACLBLAS_UPPER, p.ap, p.description);
-    std::vector<float> aHost  = makeBlasArray(static_cast<int64_t>(p.lda) * p.n, p.a);
+    std::vector<float> apHost = makeBlasTriangular(p.n, p.uplo == ACLBLAS_UPPER, p.ap, p.randomSeed);
+    std::vector<float> aHost  = makeBlasArray(static_cast<int64_t>(p.lda) * p.n, p.a, p.randomSeed);
 
     const float* apPtr = apHost.empty() ? nullptr : apHost.data();
     float*       aPtr  = aHost.empty()  ? nullptr : aHost.data();
