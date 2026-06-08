@@ -28,15 +28,23 @@ struct GeqrfDeviceBuffers {
 inline void FreeGeqrfDeviceBuffers(GeqrfDeviceBuffers& bufs, int batchSize)
 {
     for (int b = 0; b < batchSize; b++) {
-        if (bufs.dA[b])
+        if (bufs.dA[b]) {
             aclrtFree(bufs.dA[b]);
-        if (bufs.dTau[b])
+            bufs.dA[b] = nullptr;
+        }
+        if (bufs.dTau[b]) {
             aclrtFree(bufs.dTau[b]);
+            bufs.dTau[b] = nullptr;
+        }
     }
-    if (bufs.dAarray)
+    if (bufs.dAarray) {
         aclrtFree(bufs.dAarray);
-    if (bufs.dTauArray)
+        bufs.dAarray = nullptr;
+    }
+    if (bufs.dTauArray) {
         aclrtFree(bufs.dTauArray);
+        bufs.dTauArray = nullptr;
+    }
 }
 
 inline aclblasStatus_t AllocGeqrfBatchBuffers(
@@ -75,16 +83,25 @@ inline aclblasStatus_t AllocGeqrfBatchBuffers(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-inline void CopyGeqrfResultsBack(
+inline aclblasStatus_t CopyGeqrfResultsBack(
     const GeqrfDeviceBuffers& bufs, float* const Aarray[], float* const TauArray[], int batchSize, size_t matBytes,
     size_t tauBytes)
 {
     for (int b = 0; b < batchSize; b++) {
-        if (Aarray[b] != nullptr && bufs.dA[b] != nullptr)
-            aclrtMemcpy(Aarray[b], matBytes, bufs.dA[b], matBytes, ACL_MEMCPY_DEVICE_TO_HOST);
-        if (TauArray[b] != nullptr && bufs.dTau[b] != nullptr)
-            aclrtMemcpy(TauArray[b], tauBytes, bufs.dTau[b], tauBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        if (Aarray[b] != nullptr && bufs.dA[b] != nullptr) {
+            aclError ret = aclrtMemcpy(Aarray[b], matBytes, bufs.dA[b], matBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+            if (ret != ACL_SUCCESS) {
+                return ACLBLAS_STATUS_INTERNAL_ERROR;
+            }
+        }
+        if (TauArray[b] != nullptr && bufs.dTau[b] != nullptr) {
+            aclError ret = aclrtMemcpy(TauArray[b], tauBytes, bufs.dTau[b], tauBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+            if (ret != ACL_SUCCESS) {
+                return ACLBLAS_STATUS_INTERNAL_ERROR;
+            }
+        }
     }
+    return ACLBLAS_STATUS_SUCCESS;
 }
 
 inline aclblasStatus_t aclblasSgeqrfBatched_npu(
@@ -112,9 +129,9 @@ inline aclblasStatus_t aclblasSgeqrfBatched_npu(
     aclblasStatus_t ret = aclblasSgeqrfBatched(handle, m, n, bufs.dAarray, lda, bufs.dTauArray, info, batchSize);
     aclrtSynchronizeDevice();
 
-    CopyGeqrfResultsBack(bufs, Aarray, TauArray, batchSize, matBytes, tauBytes);
+    aclblasStatus_t copyRet = CopyGeqrfResultsBack(bufs, Aarray, TauArray, batchSize, matBytes, tauBytes);
     FreeGeqrfDeviceBuffers(bufs, batchSize);
-    return ret;
+    return (ret != ACLBLAS_STATUS_SUCCESS) ? ret : copyRet;
 }
 
 #endif // ACLBLASSGEQRFBATCHED_NPU_H

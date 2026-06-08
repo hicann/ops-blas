@@ -167,3 +167,8 @@ void strsv_kernel_do(GM_ADDR gmAddrA, GM_ADDR gmAddrX, const StrsvTilingData &ti
 
 void geqrf_batched_kernel_do(GM_ADDR aarray, GM_ADDR tauArray, GM_ADDR tilingGm,
                              uint32_t numBlocks, void *stream);
+struct SgetrfBatchedTilingData;
+
+void sgetrf_batched_kernel_do(
+    GM_ADDR aarray, GM_ADDR pivotArray, GM_ADDR infoArray,
+    const SgetrfBatchedTilingData &tiling, uint32_t numBlocks, void *stream);
