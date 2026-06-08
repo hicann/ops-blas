@@ -9,14 +9,15 @@
  */
 
 #include <cstdint>
+#include <type_traits>
 #include "kernel_operator.h"
 #include "simt_api/asc_simt.h"
 #include "simt_api/asc_fp16.h"
+#include "simt_api/asc_bf16.h"
 #include "gemv_batched_tiling_data.h"
 
 using namespace AscendC;
 
-constexpr uint32_t BYTENUM_BLOCK       = 32;
 constexpr uint32_t ELENUM_BLOCK_FP16    = 16;
 constexpr uint32_t ELENUM_REPEAT_FP16   = 128;
 // V pipe round-down granularity (= B32 / sizeof(float) = 8)
@@ -36,7 +37,7 @@ public:
                                            uint32_t mOffset, uint32_t mCurr);
     __aicore__ inline void CopyInY(uint32_t curBatchId, uint32_t mOffset, uint32_t mCurr);
     __aicore__ inline void ApplyAlphaBeta(uint32_t curCalMatNum);
-    __aicore__ inline void CastleHalfToFloat();
+    __aicore__ inline void CastleHalfToFloat(uint32_t dotCnt);
     __aicore__ inline void CastleYHalfToFloat();
     __aicore__ inline void CastFloatToHalf();
     __aicore__ inline void CopyOutRsltFloat(uint32_t curBatchId, uint32_t mOffset, uint32_t mCurr);
@@ -69,8 +70,8 @@ private:
 
     LocalTensor<float> matTmpLocal;
     LocalTensor<float> vecTmpLocal;
-    LocalTensor<half>   matPreLocal;
-    LocalTensor<half>   vecPreLocal;
+    LocalTensor<T>   matPreLocal;
+    LocalTensor<T>   vecPreLocal;
     LocalTensor<float> matFloatLocal;
     LocalTensor<float> vecFloatLocal;
     LocalTensor<float> yInFloatLocal;
@@ -161,25 +162,25 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::InitUbuf()
     this->pipe.InitBuffer(this->vecTmpBuf, this->szVecTmp);
 
     if constexpr (!IS_FLOAT) {
-        this->pipe.InitBuffer(this->matPreBuf, this->maxMatEleNum * sizeof(half));
-        this->pipe.InitBuffer(this->vecPreBuf, this->maxVecEleNum * sizeof(half));
-        this->matPreLocal = matPreBuf.Get<half>();
-        this->vecPreLocal = vecPreBuf.Get<half>();
+        this->pipe.InitBuffer(this->matPreBuf, this->maxMatEleNum * sizeof(T));
+        this->pipe.InitBuffer(this->vecPreBuf, this->maxVecEleNum * sizeof(T));
+        this->matPreLocal = matPreBuf.Get<T>();
+        this->vecPreLocal = vecPreBuf.Get<T>();
     }
     this->matTmpLocal = matTmpBuf.Get<float>();
     this->vecTmpLocal = vecTmpBuf.Get<float>();
 
+    this->matFloatLocal = this->matTmpLocal[0];
+    uint32_t yOff = ((this->outTile + VEC_FLOAT_PER_REPEAT - 1) & ~(VEC_FLOAT_PER_REPEAT - 1));
     if constexpr (IS_FLOAT) {
-        this->matFloatLocal  = this->matTmpLocal[0];
-        this->mulResultLocal = this->matTmpLocal[0];  // same buffer for FP32
+        this->mulResultLocal = this->matTmpLocal[0];
         this->sumResultLocal = this->vecTmpLocal[0];
-        this->yInFloatLocal  = this->vecTmpLocal[this->outTile];
+        this->yInFloatLocal  = this->vecTmpLocal[yOff];
     } else {
-        this->matFloatLocal  = this->matTmpLocal[0];
         this->mulResultLocal = this->matTmpLocal[this->maxMatEleNum];
         this->vecFloatLocal  = this->vecTmpLocal[0];
         this->sumResultLocal = this->vecTmpLocal[this->dotTile];
-        this->yInFloatLocal  = this->vecTmpLocal[this->dotTile + this->outTile];
+        this->yInFloatLocal  = this->vecTmpLocal[this->dotTile + yOff];
     }
 }
 
@@ -188,27 +189,27 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyInMatAndVec(
     uint32_t curBatchId, uint32_t nOffset, uint32_t nCurr,
     uint32_t mOffset, uint32_t mCurr)
 {
-    // nOffset/nCurr = output dim; mOffset/mCurr = inner dim
-    // inA: loads nCurr "rows" each of mCurr elements
-    //   Normal (outDim=m, inDim=n): m rows of n cols each
-    //   Transpose (outDim=n, inDim=m): n cols of m rows each (column-major)
     LocalTensor<T> inALocal = inABuf.Get<T>();
     LocalTensor<T> inxLocal = inxBuf.Get<T>();
 
-    uint64_t inAOffset = (this->startMatId + curBatchId) * this->lda * this->n
-                       + nOffset * (uint32_t)this->lda + mOffset;
+    uint64_t inABase = (this->startMatId + curBatchId) * this->lda * this->n
+                     + nOffset * (uint32_t)this->lda + mOffset;
 
-    uint16_t matBlockCnt  = static_cast<uint16_t>(nCurr);
-    uint32_t matBlockLen  = mCurr * sizeof(T);
+    // Align mCurr for dstStride only; DataCopyPad handles non-32B blockLen internally.
+    uint32_t elemAlign = 32u / sizeof(T);
+    uint32_t mCurrAligned = ((mCurr + elemAlign - 1) & ~(elemAlign - 1));
     uint32_t matSrcStride = uint32_t(((uint32_t)this->lda - mCurr) * sizeof(T));
-    uint32_t matDstStride = uint32_t((this->dotTile - mCurr) * sizeof(T) / BYTENUM_BLOCK);
-    DataCopyExtParams copyMatParams{matBlockCnt, matBlockLen, matSrcStride, matDstStride, 0};
-    DataCopyPadExtParams<T> padParams{false, 0, 0, 0};
-    DataCopyPad(inALocal, this->inAGM[inAOffset], copyMatParams, padParams);
+    uint32_t matDstStride = uint32_t((this->dotTile - mCurrAligned) * sizeof(T) / 32);
+
+    DataCopyExtParams cp{static_cast<uint16_t>(nCurr),
+        static_cast<uint32_t>(mCurr * sizeof(T)), matSrcStride, matDstStride, 0};
+    DataCopyPadExtParams<T> pp{false, 0, 0, 0};
+    DataCopyPad(inALocal, this->inAGM[inABase], cp, pp);
 
     uint64_t inxOffset = (this->startMatId + curBatchId) * this->dotDim + mOffset;
-    DataCopyExtParams copyVecParams{uint16_t(1), uint32_t(mCurr * sizeof(T)), 0, 0, 0};
-    DataCopyPad(inxLocal, this->inxGM[inxOffset], copyVecParams, padParams);
+    DataCopyPad(inxLocal, this->inxGM[inxOffset],
+        DataCopyExtParams{1, static_cast<uint32_t>(mCurr * sizeof(T)), 0, 0, 0},
+        DataCopyPadExtParams<T>{false, 0, 0, 0});
 }
 
 template <typename T, const bool TRANS_T, bool HSS_MODE>
@@ -244,19 +245,24 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ApplyAlphaBeta(uint
 template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CastleYHalfToFloat()
 {
-    LocalTensor<half> inyLocal = inyBuf.Get<half>();
-    DataCopy(this->vecPreLocal, inyLocal, this->mCurr);
+    LocalTensor<T> inyLocal = inyBuf.Get<T>();
+    // Align to 32B to prevent DataCopy truncation (non-32B-aligned
+    // byte counts lose trailing elements on this hardware).
+    uint32_t cnt = ((this->mCurr + (32u / sizeof(T) - 1)) & ~(32u / sizeof(T) - 1));
+    DataCopy(this->vecPreLocal, inyLocal, cnt);
     PipeBarrier<PIPE_V>();
-    uint16_t castRepeatNum = (this->mCurr - 1) / ELENUM_REPEAT_FP16 + 1;
+    uint16_t castRepeatNum = (cnt - 1) / ELENUM_REPEAT_FP16 + 1;
     Cast(this->yInFloatLocal, this->vecPreLocal, RoundMode::CAST_NONE, castRepeatNum * ELENUM_REPEAT_FP16);
     PipeBarrier<PIPE_V>();
 }
 
 template <typename T, const bool TRANS_T, bool HSS_MODE>
-__aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CastleHalfToFloat()
+__aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CastleHalfToFloat(uint32_t dotCnt)
 {
-    LocalTensor<half> inALocal = inABuf.Get<half>();
-    LocalTensor<half> inxLocal = inxBuf.Get<half>();
+    // inALocal rows are at r*dotTile (padded by DataCopyPad rightPadding).
+    // Copy full rows including padding; ComputeDotProduct masks to dotCnt.
+    LocalTensor<T> inALocal = inABuf.Get<T>();
+    LocalTensor<T> inxLocal = inxBuf.Get<T>();
 
     uint32_t matRows = this->mCurr;
     uint16_t matCastRepeatNum = (matRows * this->dotTile - 1) / ELENUM_REPEAT_FP16 + 1;
@@ -266,15 +272,16 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CastleHalfToFloat()
     PipeBarrier<PIPE_V>();
     Cast(this->vecFloatLocal, this->vecPreLocal, RoundMode::CAST_NONE, this->dotTile);
     PipeBarrier<PIPE_V>();
-    Cast(this->matFloatLocal, this->matPreLocal, RoundMode::CAST_NONE, matRows * this->dotTile);
+    Cast(this->matFloatLocal, this->matPreLocal, RoundMode::CAST_NONE, matCastRepeatNum * ELENUM_REPEAT_FP16);
     PipeBarrier<PIPE_V>();
 }
 template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CastFloatToHalf()
 {
-    LocalTensor<half> outLocal = outBuf.Get<half>();
+    LocalTensor<T> outLocal = outBuf.Get<T>();
+    constexpr RoundMode rm = IsSameType<T, bfloat16_t>::value ? RoundMode::CAST_RINT : RoundMode::CAST_ROUND;
     uint16_t blockNum = (this->mCurr - 1) / ELENUM_BLOCK_FP16 + 1;
-    Cast(outLocal, this->sumResultLocal, RoundMode::CAST_NONE, blockNum * ELENUM_BLOCK_FP16);
+    Cast(outLocal, this->sumResultLocal, rm, blockNum * ELENUM_BLOCK_FP16);
     PipeBarrier<PIPE_ALL>();
 }
 
@@ -294,9 +301,9 @@ template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyOutRsltHalf(uint32_t curBatchId,
     uint32_t mOffset, uint32_t mCurr)
 {
-    LocalTensor<half> outLocal = outBuf.Get<half>();
+    LocalTensor<T> outLocal = outBuf.Get<T>();
     uint64_t outOffset = (this->startMatId + curBatchId) * this->outDim + mOffset;
-    DataCopyExtParams copyParams{uint16_t(1), uint32_t(mCurr * sizeof(half)), 0, 0, 0};
+    DataCopyExtParams copyParams{uint16_t(1), uint32_t(mCurr * sizeof(T)), 0, 0, 0};
     DataCopyPad(this->outGM[outOffset], outLocal, copyParams);
 }
 
@@ -306,16 +313,19 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Process()
     if (0 == this->calMatNum)
         return;
 
-    uint32_t outTile = this->outTile;  // 输出维度切分
-    uint32_t dotTile = this->dotTile;  // 点积维度切分
+    uint32_t outTile = this->outTile;
+    uint32_t dotTile = this->dotTile;
     uint32_t outDim = this->outDim;
     uint32_t dotDim = this->dotDim;
 
     for (uint32_t b = 0; b < this->calMatNum; b++) {
         for (uint32_t outOff = 0; outOff < outDim; outOff += outTile) {
             uint32_t outCnt = (outOff + outTile > outDim) ? (outDim - outOff) : outTile;
+            // outCntAlign may exceed outTile by up to VEC_FLOAT_PER_REPEAT-1;
+            // the excess is absorbed by round256-aligned vecTmpBuf allocation
+            // and by the aligned yInFloatLocal offset. CopyOut uses outCnt
+            // (the exact count), so no garbage is written to GM.
             uint32_t outCntAlign = ((outCnt + VEC_FLOAT_PER_REPEAT - 1) & ~(VEC_FLOAT_PER_REPEAT - 1));
-            if (outCntAlign > outTile) outCntAlign = outTile;
             this->mCurr = outCnt;
 
             CopyInY(b, outOff, outCnt);
@@ -325,13 +335,12 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Process()
             bool isFirstDot = true;
             for (uint32_t dotOff = 0; dotOff < dotDim; dotOff += dotTile) {
                 uint32_t dotCnt = (dotOff + dotTile > dotDim) ? (dotDim - dotOff) : dotTile;
-                // CopyInMatAndVec: nOffset/nCurr=output; mOffset/mCurr=dot
                 CopyInMatAndVec(b, outOff, outCnt, dotOff, dotCnt);
                 SetFlag<HardEvent::MTE2_V>(EVENT_ID0);
                 WaitFlag<HardEvent::MTE2_V>(EVENT_ID0);
 
                 if constexpr (!IS_FLOAT)
-                    CastleHalfToFloat();
+                    CastleHalfToFloat(dotCnt);
 
                 ComputeDotProduct(outCnt, dotCnt, dotTile, isFirstDot);
 
@@ -402,6 +411,7 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::OutputMChunkAndSync
         CastleYHalfToFloat();
     }
     ApplyAlphaBeta(mCurrAlign);
+
     if constexpr (!IS_FLOAT && !HSS_MODE)
         CastFloatToHalf();
 
@@ -429,7 +439,9 @@ inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
                       __gm__ const T_IN *aGm, __gm__ const T_IN *xGm, __gm__ T_OUT *yGm)
 {
     constexpr bool IN_FP16  = IsSameType<T_IN, half>::value;
+    constexpr bool IN_BF16  = IsSameType<T_IN, bfloat16_t>::value;
     constexpr bool OUT_FP16 = IsSameType<T_OUT, half>::value;
+    constexpr bool OUT_BF16 = IsSameType<T_OUT, bfloat16_t>::value;
     uint32_t outDim = IS_TRANS ? n : m, dotDim = IS_TRANS ? m : n;
     uint32_t total = numB * outDim;
     uint32_t aBatch = (uint32_t)lda * n;
@@ -444,11 +456,14 @@ inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
         if (incx < 0) xOff += (int32_t)((dotDim - 1u) * (uint32_t)(-incx));
         if (incy < 0) yOff += (int32_t)((outDim - 1u) * (uint32_t)(-incy));
         for (uint32_t dotIdx = 0; dotIdx < dotDim; dotIdx++) {
-            float av, xv;
             int32_t aIdx = IS_TRANS ? ((int32_t)outIdx * lda + (int32_t)dotIdx)
                                     : ((int32_t)dotIdx * lda + (int32_t)outIdx);
             int32_t xIdx = (int32_t)dotIdx * incx;
-            if constexpr (IN_FP16) {
+            float av, xv;
+            if constexpr (IN_BF16) {
+                av = __bfloat162float(aGm[aOff + aIdx]);
+                xv = __bfloat162float(xGm[xOff + xIdx]);
+            } else if constexpr (IN_FP16) {
                 av = __half2float(aGm[aOff + aIdx]);
                 xv = __half2float(xGm[xOff + xIdx]);
             } else {
@@ -458,72 +473,75 @@ inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
             acc += av * xv;
         }
         int32_t yIdx = (int32_t)outIdx * incy;
-        float oldY;
-        if constexpr (OUT_FP16)
-            oldY = __half2float(yGm[yOff + yIdx]);
-        else
-            oldY = (float)yGm[yOff + yIdx];
-        if constexpr (OUT_FP16)
-            yGm[yOff + yIdx] = __float2half_rn_sat(alpha * acc + beta * oldY);
-        else
-            yGm[yOff + yIdx] = (T_OUT)(alpha * acc + beta * oldY);
+        float oldY = OUT_BF16 ? __bfloat162float(yGm[yOff + yIdx]) : OUT_FP16 ? __half2float(yGm[yOff + yIdx]) : (float)yGm[yOff + yIdx];
+        float result = alpha * acc + beta * oldY;
+        if constexpr (OUT_BF16)      yGm[yOff + yIdx] = __float2bfloat16_rn_sat(result);
+        else if constexpr (OUT_FP16) yGm[yOff + yIdx] = __float2half_rn_sat(result);
+        else                         yGm[yOff + yIdx] = (T_OUT)result;
     }
 }
 
 // ============================================================
-// Kernel entry — SIMT for both Normal and Transpose (column-major)
+// Kernel entry helpers
 // ============================================================
+template <typename T_IN, typename T_OUT>
+__aicore__ inline void DispatchNormal(const __gm__ GemvBatchedTilingData *td, uint32_t nB, uint32_t sB,
+                                       int32_t lda, int32_t incx, int32_t incy,
+                                       GM_ADDR A, GM_ADDR x, GM_ADDR y)
+{
+    asc_vf_call<GemvSimt<T_IN, T_OUT, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
+        td->m, td->n, nB, sB, td->alpha, td->beta, lda, incx, incy,
+        reinterpret_cast<__gm__ const T_IN *>(A), reinterpret_cast<__gm__ const T_IN *>(x),
+        reinterpret_cast<__gm__ T_OUT *>(y));
+}
+
+template <typename T, bool HSS>
+__aicore__ inline void DispatchTranspose(const __gm__ GemvBatchedTilingData *td, uint32_t nB, uint32_t sB,
+                                          int32_t lda, int32_t incx, int32_t incy,
+                                          GM_ADDR A, GM_ADDR x, GM_ADDR y,
+                                          GM_ADDR workSpace, GM_ADDR tilingGm)
+{
+    if (td->incx == 1 && td->incy == 1) {
+        GemvBatchedAIV<T, true, HSS> op;
+        op.Init(A, x, y, workSpace, tilingGm); op.Process();
+        return;
+    }
+    using TO = typename std::conditional<HSS, float, T>::type;
+    asc_vf_call<GemvSimt<T, TO, true>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
+        td->m, td->n, nB, sB, td->alpha, td->beta, lda, incx, incy,
+        reinterpret_cast<__gm__ const T *>(A), reinterpret_cast<__gm__ const T *>(x),
+        reinterpret_cast<__gm__ TO *>(y));
+}
+
 extern "C" __global__ __aicore__ void gemv_batched(
     GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-    const auto *tdata = reinterpret_cast<__gm__ GemvBatchedTilingData *>(tilingGm);
-    uint32_t startB = GetBlockIdx() * tdata->batchPerCore;
-    uint32_t numB   = (GetBlockIdx() == tdata->usedCoreNum - 1) ? tdata->batchTail : tdata->batchPerCore;
-    if (numB == 0) return;
-    int32_t lda = tdata->lda, incx = tdata->incx, incy = tdata->incy;
+    const auto *td = reinterpret_cast<__gm__ GemvBatchedTilingData *>(tilingGm);
+    uint32_t sB = GetBlockIdx() * td->batchPerCore;
+    uint32_t nB = (GetBlockIdx() == td->usedCoreNum - 1) ? td->batchTail : td->batchPerCore;
+    if (nB == 0) return;
+    int32_t lda = td->lda, incx = td->incx, incy = td->incy;
 
-    if (tdata->trans == 0) {  // Normal → SIMT
-        if (tdata->dtype == 1) {       // FP32
-            asc_vf_call<GemvSimt<float, float, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-                tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
-                reinterpret_cast<__gm__ const float *>(A), reinterpret_cast<__gm__ const float *>(x),
-                reinterpret_cast<__gm__ float *>(y));
-        } else if (tdata->dtype == 0) { // FP16
-            asc_vf_call<GemvSimt<half, half, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-                tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
-                reinterpret_cast<__gm__ const half *>(A), reinterpret_cast<__gm__ const half *>(x),
-                reinterpret_cast<__gm__ half *>(y));
-        } else {                       // HSS
-            asc_vf_call<GemvSimt<half, float, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-                tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
-                reinterpret_cast<__gm__ const half *>(A), reinterpret_cast<__gm__ const half *>(x),
-                reinterpret_cast<__gm__ float *>(y));
-        }
-    } else {  // Transpose: AIV (contiguous) or SIMT (strided)
-        if (tdata->dtype == 2) {                       // HSS → AIV
-            GemvBatchedAIV<half, true, true> op;
-            op.Init(A, x, y, workSpace, tilingGm); op.Process();
-        } else if (tdata->dtype == 1) {                // FP32
-            if (tdata->incx == 1 && tdata->incy == 1) {
-                GemvBatchedAIV<float> op; op.Init(A, x, y, workSpace, tilingGm); op.Process();
-            } else {
-                asc_vf_call<GemvSimt<float, float, true>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-                    tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
-                    reinterpret_cast<__gm__ const float *>(A), reinterpret_cast<__gm__ const float *>(x),
-                    reinterpret_cast<__gm__ float *>(y));
-            }
-        } else {                                       // FP16
-            if (tdata->incx == 1 && tdata->incy == 1) {
-                GemvBatchedAIV<half> op; op.Init(A, x, y, workSpace, tilingGm); op.Process();
-            } else {
-                asc_vf_call<GemvSimt<half, half, true>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-                    tdata->m, tdata->n, numB, startB, tdata->alpha, tdata->beta, lda, incx, incy,
-                    reinterpret_cast<__gm__ const half *>(A), reinterpret_cast<__gm__ const half *>(x),
-                    reinterpret_cast<__gm__ half *>(y));
-            }
-        }
+#define D_NORM(T_IN, T_OUT) DispatchNormal<T_IN, T_OUT>(td, nB, sB, lda, incx, incy, A, x, y)
+#define D_TRANS(T, HSS)     DispatchTranspose<T, HSS>(td, nB, sB, lda, incx, incy, A, x, y, workSpace, tilingGm)
+
+    if (td->trans == 0) {
+        if      (td->dtype == 1) D_NORM(float,      float);
+        else if (td->dtype == 0) D_NORM(half,       half);
+        else if (td->dtype == 2) D_NORM(half,       float);
+        else if (td->dtype == 3) D_NORM(bfloat16_t, bfloat16_t);
+        else                     D_NORM(bfloat16_t, float);
+    } else {
+        if      (td->dtype == 1) D_TRANS(float,      false);
+        else if (td->dtype == 0) D_TRANS(half,       false);
+        else if (td->dtype == 2) D_TRANS(half,       true);
+        else if (td->dtype == 3) D_TRANS(bfloat16_t, false);
+        else                     D_TRANS(bfloat16_t, true);
     }
+
+#undef D_NORM
+#undef D_TRANS
 }
 
 void gemv_batched_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR y,

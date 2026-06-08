@@ -29,7 +29,7 @@ constexpr uint32_t WORKSPACE_SIZE = 16 * 1024 * 1024;
 
 // Per-batch UB usage with all buffers 256B-aligned.
 // VEC_SCOPE loads 64 floats ⇒ inxBuf widened to VL when nCol<64.
-enum class GemvType { S, HSH, HSS };
+enum class GemvType { S, HSH, HSS, TST, TSS };
 
 struct GemvBufCfg {
     uint32_t szIn;   // sizeof(A/x element)
@@ -38,9 +38,11 @@ struct GemvBufCfg {
     bool hasExtra;   // matPreBuf + vecPreBuf needed
 };
 
-static constexpr GemvBufCfg kGmvCfg_F32 = {sizeof(float),   sizeof(float),   1, false};
-static constexpr GemvBufCfg kGmvCfg_HSH = {sizeof(uint16_t),sizeof(uint16_t),2, true};
-static constexpr GemvBufCfg kGmvCfg_HSS = {sizeof(uint16_t),sizeof(float),   2, true};
+static constexpr GemvBufCfg kGmvCfg_F32 = {sizeof(float),      sizeof(float),      1, false};
+static constexpr GemvBufCfg kGmvCfg_HSH = {sizeof(uint16_t),   sizeof(uint16_t),   2, true};
+static constexpr GemvBufCfg kGmvCfg_HSS = {sizeof(uint16_t),   sizeof(float),      2, true};
+static constexpr GemvBufCfg kGmvCfg_TST = {sizeof(uint16_t),   sizeof(uint16_t),   2, true};
+static constexpr GemvBufCfg kGmvCfg_TSS = {sizeof(uint16_t),   sizeof(float),      2, true};
 
 struct GemvBufLayout { uint32_t inA, inx, inY, out, matTmp, vecTmp; uint32_t total; };
 
@@ -48,7 +50,9 @@ static GemvBufLayout ComputeBufferLayout(GemvType type, uint32_t mRow, uint32_t 
 {
     auto round256 = [](uint32_t x) { return (x + 255u) & ~255u; };
     GemvBufCfg c = (type == GemvType::HSH) ? kGmvCfg_HSH
-                 : (type == GemvType::HSS) ? kGmvCfg_HSS : kGmvCfg_F32;
+                 : (type == GemvType::HSS) ? kGmvCfg_HSS
+                 : (type == GemvType::TST) ? kGmvCfg_TST
+                 : (type == GemvType::TSS) ? kGmvCfg_TSS : kGmvCfg_F32;
     uint32_t vecE = (nCol < 64u) ? 64u : nCol;
     GemvBufLayout lay = {};
     lay.inA    = round256(GEMV_BATCHED_BN_NORMAL * mRow * nCol * c.szIn);
@@ -95,7 +99,7 @@ static void CalTilingTranspose(GemvType type, uint32_t dotDim, uint32_t outDim,
 {
     const uint32_t UB = GEMV_BATCHED_UBUF_SIZE;
     uint32_t elemSize = (type == GemvType::S) ? sizeof(float) : sizeof(uint16_t);
-    uint32_t align = 32u / elemSize, outMin = align;
+    uint32_t align = 32u / elemSize, outMin = 1;
     auto ubFunc = [type](uint32_t r, uint32_t c) { return ComputeUBPerBatch(type, r, c); };
     uint32_t dotAligned = AlignDown(dotDim + align - 1, align);
     uint32_t outFitForFullDot = BinaryMaxRowsCols(UB, outDim > 0 ? outDim : 65536u,
@@ -107,6 +111,7 @@ static void CalTilingTranspose(GemvType type, uint32_t dotDim, uint32_t outDim,
             [&](uint32_t c) { return ubFunc(outMin, c); });
         dotTile = AlignDown((dotTileMax < align) ? align : dotTileMax, align);
         if (dotTile < align) dotTile = align;
+        if (dotTile > dotAligned) dotTile = dotAligned;
         outFitForFullDot = BinaryMaxRowsCols(UB, outDim > 0 ? outDim : 65536u,
             [&](uint32_t r) { return ubFunc(r, dotTile); });
     }
@@ -192,14 +197,19 @@ static GemvBatchedTilingData CalTilingData(uint32_t batchCount, uint32_t m, uint
     td.m = m;          td.n = n;
 
     uint32_t batchGroupSize = 0, dotTile = 0, outTile = 0;
-    if (dtype == 2)
+    if (dtype == 2 || dtype == 4)  // HSS/TSS: mixed in/out
         CalTilingParamsHss(trans != 0, m, n, batchGroupSize, dotTile, outTile);
+    else if (dtype == 0 || dtype == 3)  // HSH/TST: same in/out
+        CalTilingParams(trans != 0, false, m, n, batchGroupSize, dotTile, outTile);
     else
-        CalTilingParams(trans != 0, dtype != 0, m, n, batchGroupSize, dotTile, outTile);
+        CalTilingParams(trans != 0, true, m, n, batchGroupSize, dotTile, outTile);
 
     td.batchGroupSize = batchGroupSize;  td.dotTile = dotTile;  td.outTile = outTile;
 
-    auto bufType = (dtype == 2) ? GemvType::HSS : ((dtype != 0) ? GemvType::S : GemvType::HSH);
+    auto bufType = (dtype == 2) ? GemvType::HSS
+                 : (dtype == 3) ? GemvType::TST
+                 : (dtype == 4) ? GemvType::TSS
+                 : (dtype != 0) ? GemvType::S : GemvType::HSH;
     auto lay = ComputeBufferLayout(bufType, outTile, dotTile);
     td.bufInA = lay.inA;  td.bufInx = lay.inx;  td.bufInY = lay.inY;
     td.bufOut = lay.out;  td.bufMatTmp = lay.matTmp;  td.bufVecTmp = lay.vecTmp;
@@ -290,4 +300,24 @@ aclblasStatus_t aclblasHSSgemvBatched(aclblasHandle_t handle, aclblasOperation_t
                                        int batchCount)
 {
     return GemvBatchedImpl<uint16_t, float>(handle, trans, m, n, alpha, A, lda, x, incx, beta, y, incy, batchCount, 2);
+}
+
+aclblasStatus_t aclblasTSTgemvBatched(aclblasHandle_t handle, aclblasOperation_t trans,
+                                       int m, int n,
+                                       const float *alpha, const uint16_t *A, int lda,
+                                       const uint16_t *x, int incx,
+                                       const float *beta, uint16_t *y, int incy,
+                                       int batchCount)
+{
+    return GemvBatchedImpl<uint16_t, uint16_t>(handle, trans, m, n, alpha, A, lda, x, incx, beta, y, incy, batchCount, 3);
+}
+
+aclblasStatus_t aclblasTSSgemvBatched(aclblasHandle_t handle, aclblasOperation_t trans,
+                                       int m, int n,
+                                       const float *alpha, const uint16_t *A, int lda,
+                                       const uint16_t *x, int incx,
+                                       const float *beta, float *y, int incy,
+                                       int batchCount)
+{
+    return GemvBatchedImpl<uint16_t, float>(handle, trans, m, n, alpha, A, lda, x, incx, beta, y, incy, batchCount, 4);
 }
