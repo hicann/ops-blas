@@ -40,7 +40,7 @@ struct SgerTilingData {
     uint32_t colCount[MAX_CORE_NUM];
 };
 
-static SgerTilingData CalSgerTilingData(int64_t m, int64_t n, int64_t lda, uint32_t coreNum)
+static SgerTilingData CalSgerTilingData(int m, int n, int lda, uint32_t coreNum)
 {
     SgerTilingData tiling;
     tiling.m = static_cast<uint32_t>(m);
@@ -81,8 +81,8 @@ static SgerTilingData CalSgerTilingData(int64_t m, int64_t n, int64_t lda, uint3
 }
 
 aclblasStatus_t aclblasSger(
-    aclblasHandle_t handle, int64_t m, int64_t n, const float* alpha, const float* x, int64_t incx, float* y,
-    int64_t incy, float* A, int64_t lda)
+    aclblasHandle_t handle, int m, int n, const float* alpha, const float* x, int incx, const float* y,
+    int incy, float* A, int lda)
 {
     if (m <= 0 || n <= 0) {
         return ACLBLAS_STATUS_SUCCESS;

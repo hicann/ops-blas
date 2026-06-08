@@ -1,0 +1,78 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+#include <vector>
+
+#include "verify.h"
+#include "blas_test.h"
+#include "csv_loader.h"
+#include "sger_param.h"
+#include "sger_golden.h"
+#include "sger_npu_wrapper.h"
+
+class SgerArch35Test : public BlasTest<SgerParam> { };
+
+TEST_F(SgerArch35Test, NullHandle) {
+    aclblasStatus_t ret = aclblasSger_npu(nullptr, 4, 4, nullptr, nullptr, 1, nullptr, 1, nullptr, 4);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    Sger, SgerArch35Test,
+    ::testing::ValuesIn(GetCasesFromCsv<SgerParam>(ReplaceFileExtension2Csv(__FILE__))),
+    PrintCaseInfoString<SgerParam>);
+
+TEST_P(SgerArch35Test, CsvDriven) {
+    const auto& p = GetParam();
+
+    // Generate host data for all array parameters
+    const int64_t absIncX = (p.incx >= 0) ? p.incx : -p.incx;
+    const int64_t absIncY = (p.incy >= 0) ? p.incy : -p.incy;
+    std::vector<float> xHost = makeBlasArray(p.m * absIncX, p.x, p.description);
+    std::vector<float> yHost = makeBlasArray(p.n * absIncY, p.y, p.description);
+    std::vector<float> aHost = makeBlasArray(p.lda * p.n, p.A, p.description);
+
+    // Set up alpha (scalar pointer)
+    float alphaHost = p.alphaValue;
+    const float* alphaPtr = (p.alpha == BlasDataFill::NULLPTR) ? nullptr : &alphaHost;
+
+    // Map array pointers: empty vector means nullptr for error-path testing
+    const float* xPtr = xHost.empty() ? nullptr : xHost.data();
+    float* yPtr = yHost.empty() ? nullptr : yHost.data();
+    float* aPtr = aHost.empty() ? nullptr : aHost.data();
+
+    // Step 1: Execute on NPU
+    aclblasStatus_t ret = aclblasSger_npu(
+        SgerArch35Test::handle_,
+        p.m, p.n, alphaPtr, xPtr, p.incx, yPtr, p.incy, aPtr, p.lda);
+
+    // Step 2: Check return code
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
+    if (p.expectResult != ACLBLAS_STATUS_SUCCESS) return;
+
+    // Step 3: Compute golden on CPU
+    std::vector<float> golden = aHost; // copy original A
+    aclblasSger_cpu(
+        SgerArch35Test::handle_,
+        p.m, p.n, alphaPtr, xPtr, p.incx, yPtr, p.incy, golden.data(), p.lda);
+
+    // Step 4: Verify precision
+    VerifyConfig cfg;
+    if (p.alphaValue == 0.0f) {
+        // alpha=0: A should remain unchanged (bit-exact)
+        cfg.mode = PrecisionMode::EXACT;
+    } else {
+        // FP32 community standard: MERE < 2^-13, MARE < 10 * 2^-13
+        cfg.mode = PrecisionMode::MERE_MARE;
+        // cfg.mereThreshold defaults to 1.0/8192.0 (2^-13)
+        // cfg.mareMultiplier defaults to 10.0
+    }
+    EXPECT_TRUE(Verifier::verifyVector(aPtr, golden.data(), aHost.size(), 1, cfg, p.caseName));
+}

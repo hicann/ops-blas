@@ -145,8 +145,13 @@ void ssymv_kernel_do(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR
 void spmv_kernel_do(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace, GM_ADDR tilingGm,
                     uint32_t numBlocks, void *stream);
 
+struct SgerTilingData;
+
 void sger_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR alpha, GM_ADDR tilingGm,
                    uint32_t numBlocks, void *stream);
+
+void sger_arch35_kernel_do(
+    GM_ADDR x, GM_ADDR y, GM_ADDR A, const SgerTilingData &tiling, uint32_t numBlocks, void *stream);
 
 struct SrotmTilingData;
 

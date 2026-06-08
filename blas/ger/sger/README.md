@@ -12,22 +12,26 @@ A = A + alpha * x * y^T
 
 其中：
 - `x`：长度为 `m` 的列向量
-- `y`：长度为 `n` 的行向量
+- `y`：长度为 `n` 的列向量
 - `alpha`：标量
 - `A`：`m x n` 矩阵
 
 ## 支持的产品
 
+- Atlas A5 训练系列产品/Atlas A5 推理系列产品
 - Atlas A3 训练系列产品/Atlas A3 推理系列产品
 - Atlas A2 训练系列产品/Atlas A2 推理系列产品
 
 ## 目录结构介绍
 
 ```
-├── sger
-│   ├── CMakeLists.txt      // 编译工程文件
-│   ├── README.md           // 说明文档
-│   └── sger_test.cpp       // 算子调用样例
+├── sger_host.cpp               // 通用 Host 侧实现
+├── sger_kernel.cpp             // 通用 Kernel 实现
+├── README.md                   // 说明文档
+└── arch35/
+    ├── sger_host.cpp           // arch35 Host 侧实现（ascend950）
+    ├── sger_kernel.cpp         // arch35 Kernel 实现（SIMT）
+    └── sger_tiling_data.h      // arch35 Tiling 数据结构定义
 ```
 
 ## 算子描述
@@ -43,11 +47,22 @@ A = A + alpha * x * y^T
   <tr><td align="center">y</td><td align="center">n</td><td align="center">float32</td><td align="center">ND</td></tr>
   <tr><td align="center">A</td><td align="center">m x n</td><td align="center">float32</td><td align="center">ND</td></tr>
   <tr><td rowspan="1" align="center">算子输出</td><td align="center">A</td><td align="center">m x n</td><td align="center">float32</td><td align="center">ND</td></tr>
-  <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">sger</td></tr>
+  <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">sger_kernel</td></tr>
   </table>
 
 - 调用实现：
   本样例为 Host API 调用示例，使用 `aclblasSger` 接口完成算子配置与执行。
+
+- 接口定义：
+
+```c
+aclblasStatus_t aclblasSger(aclblasHandle_t handle,
+                             int m, int n,
+                             const float *alpha,
+                             const float *x, int incx,
+                             const float *y, int incy,
+                             float *A, int lda);
+```
 
 ## 编译运行
 

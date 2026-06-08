@@ -23,6 +23,7 @@
 #include <chrono>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include <gtest/gtest.h>
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -40,25 +41,25 @@ constexpr float RTOL = 1e-4f;
 constexpr float ATOL = 1e-5f;
 
 void ComputeGoldenGer(
-    int64_t m, int64_t n, float alpha, const std::vector<float>& x, int64_t incx, const std::vector<float>& y,
-    int64_t incy, std::vector<float>& A, int64_t lda)
+    int m, int n, float alpha, const std::vector<float>& x, int incx, const std::vector<float>& y,
+    int incy, std::vector<float>& A, int lda)
 {
-    for (int64_t i = 0; i < m; i++) {
+    for (int i = 0; i < m; i++) {
         float xi = x[i * incx];
-        for (int64_t j = 0; j < n; j++) {
+        for (int j = 0; j < n; j++) {
             float yj = y[j * incy];
             A[i * lda + j] += alpha * xi * yj;
         }
     }
 }
 
-uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden, int64_t m, int64_t n, int64_t lda)
+uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden, int m, int n, int lda)
 {
-    auto printTensor = [](std::vector<float>& tensor, int64_t rows, int64_t cols, int64_t lda, const char* name) {
+    auto printTensor = [](std::vector<float>& tensor, int rows, int cols, int lda, const char* name) {
         std::cout << name << " (m=" << rows << ", n=" << cols << ", lda=" << lda << "):" << std::endl;
-        for (int64_t i = 0; i < std::min(rows, int64_t(4)); i++) {
+        for (int i = 0; i < std::min(rows, int(4)); i++) {
             std::cout << "  row " << i << ": ";
-            for (int64_t j = 0; j < std::min(cols, int64_t(8)); j++) {
+            for (int j = 0; j < std::min(cols, int(8)); j++) {
                 std::cout << tensor[i * lda + j] << " ";
             }
             if (cols > 8)
@@ -99,44 +100,35 @@ uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden, in
     }
 }
 
-int32_t main(int32_t argc, char* argv[])
+TEST(SgerTest, Basic)
 {
     int32_t deviceId = 0;
 
-    uint32_t seed;
-    if (argc > 1) {
-        seed = static_cast<uint32_t>(std::atoi(argv[1]));
-        std::cout << "Using seed from command line: " << seed << std::endl;
-    } else {
-        seed = std::chrono::system_clock::now().time_since_epoch().count();
-        std::cout << "Using time-based seed: " << seed << std::endl;
-    }
+    uint32_t seed = std::chrono::system_clock::now().time_since_epoch().count();
     std::mt19937 gen(seed);
     std::uniform_real_distribution<float> dis(-10.0f, 10.0f);
 
-    constexpr int64_t m = 4096;
-    constexpr int64_t n = 2048;
-    constexpr int64_t lda = 4096;
+    constexpr int m = 4096;
+    constexpr int n = 2048;
+    constexpr int lda = 4096;
     constexpr float alpha = 2.0f;
-    constexpr int64_t incx = 1;
-    constexpr int64_t incy = 1;
-
-    std::cout << "Sger Test (m=" << m << ", n=" << n << ", lda=" << lda << ")" << std::endl;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
 
     std::vector<float> A(m * lda, 0.0f);
     std::vector<float> x(m, 0.0f);
     std::vector<float> y(n, 0.0f);
 
-    for (int64_t i = 0; i < m; i++) {
+    for (int i = 0; i < m; i++) {
         x[i] = dis(gen);
     }
 
-    for (int64_t j = 0; j < n; j++) {
+    for (int j = 0; j < n; j++) {
         y[j] = dis(gen);
     }
 
-    for (int64_t i = 0; i < m; i++) {
-        for (int64_t j = 0; j < n; j++) {
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < n; j++) {
             A[i * lda + j] = dis(gen);
         }
     }
@@ -156,12 +148,12 @@ int32_t main(int32_t argc, char* argv[])
     aclblasSetStream(handle, stream);
 
     aclblasStatus_t ret = aclblasSger(handle, m, n, &alpha, x.data(), incx, y.data(), incy, A.data(), lda);
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSger failed. ERROR: %d\n", ret); return ret);
+    ASSERT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
 
     aclblasDestroy(handle);
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
-    return VerifyResult(A, golden, m, n, lda);
+    ASSERT_EQ(VerifyResult(A, golden, m, n, lda), 0u);
 }

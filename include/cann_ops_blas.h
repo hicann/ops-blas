@@ -139,8 +139,8 @@ aclblasStatus_t aclblasSspmv(
     int incx, const float* beta, float* y, int incy);
 
 aclblasStatus_t aclblasSger(
-    aclblasHandle_t handle, int64_t m, int64_t n, const float* alpha, const float* x, int64_t incx, float* y,
-    int64_t incy, float* A, int64_t lda);
+    aclblasHandle_t handle, int m, int n, const float* alpha, const float* x, int incx, const float* y,
+    int incy, float* A, int lda);
 
 aclblasStatus_t aclblasStrsv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
