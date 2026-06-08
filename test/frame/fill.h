@@ -21,31 +21,60 @@
 
 // ── BlasDataFill: how to initialise an array/buffer ──
 enum class BlasDataFill {
-    INDEX,    // 1, 2, 3, ...  (default)
-    RANDOM,   // random uniform [-2, 2]
-    ZEROS,    // all zeros
-    ONES,     // all ones
-    NULLPTR,  // null pointer (for error-path testing)
-    SENTINEL, // sentinel fill (-999)
-    MIXED     // alternating positive/negative: (-1)^i * (i+1) * scale
+    INDEX,       // 1, 2, 3, ...  (default)
+    RANDOM,      // random uniform [-2, 2]
+    ZEROS,       // all zeros
+    ONES,        // all ones
+    NULLPTR,     // null pointer (for error-path testing)
+    SENTINEL,    // sentinel value (-999)
+    MIXED,       // alternating positive/negative: (-1)^i * (i+1) * scale
+    IDENTITY,    // identity matrix (1s on diagonal, 0 elsewhere)
+    DIAGONAL,    // diagonal matrix with random diagonal values
+    UPPER_TRI,   // upper triangular (random in upper triangle, 0 below)
+    LOWER_TRI,   // lower triangular (random in lower triangle, 0 above)
+    LARGE_RANGE, // random uniform [-1e6, 1e6]
+    SMALL_RANGE, // random uniform [-1e-6, 1e-6]
+    ILL_COND     // ill-conditioned matrix (columns with vastly different norms)
 };
 
 inline BlasDataFill parseDataFill(const std::string& s)
 {
-    if (s == "INDEX" || s == "index")
-        return BlasDataFill::INDEX;
-    if (s == "RANDOM" || s == "random")
-        return BlasDataFill::RANDOM;
-    if (s == "ZEROS" || s == "zeros")
-        return BlasDataFill::ZEROS;
-    if (s == "ONES" || s == "ones")
-        return BlasDataFill::ONES;
-    if (s == "NULLPTR" || s == "nullptr")
-        return BlasDataFill::NULLPTR;
-    if (s == "SENTINEL" || s == "sentinel")
-        return BlasDataFill::SENTINEL;
-    if (s == "MIXED" || s == "mixed")
-        return BlasDataFill::MIXED;
+    static const std::pair<const char*, BlasDataFill> kMap[] = {
+        {"INDEX", BlasDataFill::INDEX},
+        {"index", BlasDataFill::INDEX},
+        {"RANDOM", BlasDataFill::RANDOM},
+        {"random", BlasDataFill::RANDOM},
+        {"ZEROS", BlasDataFill::ZEROS},
+        {"zeros", BlasDataFill::ZEROS},
+        {"ONES", BlasDataFill::ONES},
+        {"ones", BlasDataFill::ONES},
+        {"NULLPTR", BlasDataFill::NULLPTR},
+        {"nullptr", BlasDataFill::NULLPTR},
+        {"SENTINEL", BlasDataFill::SENTINEL},
+        {"sentinel", BlasDataFill::SENTINEL},
+        {"MIXED", BlasDataFill::MIXED},
+        {"mixed", BlasDataFill::MIXED},
+        {"IDENTITY", BlasDataFill::IDENTITY},
+        {"identity", BlasDataFill::IDENTITY},
+        {"DIAGONAL", BlasDataFill::DIAGONAL},
+        {"diagonal", BlasDataFill::DIAGONAL},
+        {"UPPER_TRI", BlasDataFill::UPPER_TRI},
+        {"upper_tri", BlasDataFill::UPPER_TRI},
+        {"upper", BlasDataFill::UPPER_TRI},
+        {"LOWER_TRI", BlasDataFill::LOWER_TRI},
+        {"lower_tri", BlasDataFill::LOWER_TRI},
+        {"lower", BlasDataFill::LOWER_TRI},
+        {"LARGE_RANGE", BlasDataFill::LARGE_RANGE},
+        {"large_range", BlasDataFill::LARGE_RANGE},
+        {"SMALL_RANGE", BlasDataFill::SMALL_RANGE},
+        {"small_range", BlasDataFill::SMALL_RANGE},
+        {"ILL_COND", BlasDataFill::ILL_COND},
+        {"ill_cond", BlasDataFill::ILL_COND},
+    };
+    for (const auto& entry : kMap) {
+        if (s == entry.first)
+            return entry.second;
+    }
     return BlasDataFill::INDEX;
 }
 
@@ -222,6 +251,84 @@ inline std::vector<float> makeBlasTriangular(
         }
     }
 
+    return data;
+}
+
+inline void FillStructuredMatrix(std::vector<float>& data, int m, int n, int lda, BlasDataFill fill, std::mt19937& rng)
+{
+    std::uniform_real_distribution<float> dist(-2.0f, 2.0f);
+    int mn = std::min(m, n);
+    switch (fill) {
+        case BlasDataFill::IDENTITY:
+            for (int j = 0; j < mn; j++)
+                data[j + static_cast<size_t>(j) * lda] = 1.0f;
+            break;
+        case BlasDataFill::DIAGONAL:
+            for (int j = 0; j < mn; j++)
+                data[j + static_cast<size_t>(j) * lda] = dist(rng);
+            break;
+        case BlasDataFill::UPPER_TRI:
+            for (int j = 0; j < n; j++)
+                for (int i = 0; i <= std::min(j, m - 1); i++)
+                    data[i + static_cast<size_t>(j) * lda] = dist(rng);
+            break;
+        case BlasDataFill::LOWER_TRI:
+            for (int j = 0; j < mn; j++)
+                for (int i = j; i < m; i++)
+                    data[i + static_cast<size_t>(j) * lda] = dist(rng);
+            break;
+        case BlasDataFill::ILL_COND:
+            for (int j = 0; j < n; j++) {
+                float scale = (j % 2 == 0) ? 1e6f : 1e-6f;
+                for (int i = 0; i < m; i++)
+                    data[i + static_cast<size_t>(j) * lda] = dist(rng) * scale;
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+// Full m×n column-major matrix with leading dimension lda.
+inline std::vector<float> makeBlasMatrix(
+    int m, int n, int lda, BlasDataFill fill, const std::string& desc = "", uint32_t seed = 0)
+{
+    if (fill == BlasDataFill::NULLPTR || m <= 0 || n <= 0 || lda <= 0)
+        return {};
+
+    const size_t storageSize = static_cast<size_t>(lda) * n;
+    const size_t maxIndex = static_cast<size_t>(m - 1) + static_cast<size_t>(n - 1) * lda + 1;
+    std::vector<float> data(std::max(storageSize, maxIndex), 0.0f);
+
+    if (fill == BlasDataFill::ZEROS) {
+        return data;
+    }
+    if (fill == BlasDataFill::ONES) {
+        std::fill(data.begin(), data.end(), 1.0f);
+        return data;
+    }
+
+    std::mt19937 rng(seed ? seed : 42);
+
+    if (fill == BlasDataFill::IDENTITY || fill == BlasDataFill::DIAGONAL || fill == BlasDataFill::UPPER_TRI ||
+        fill == BlasDataFill::LOWER_TRI || fill == BlasDataFill::ILL_COND) {
+        FillStructuredMatrix(data, m, n, lda, fill, rng);
+        return data;
+    }
+
+    // RANDOM / LARGE_RANGE / SMALL_RANGE / default
+    float lo = -2.0f;
+    float hi = 2.0f;
+    if (fill == BlasDataFill::LARGE_RANGE) {
+        lo = -1e6f;
+        hi = 1e6f;
+    } else if (fill == BlasDataFill::SMALL_RANGE) {
+        lo = -1e-6f;
+        hi = 1e-6f;
+    }
+    std::uniform_real_distribution<float> dist(lo, hi);
+    for (size_t idx = 0; idx < storageSize; idx++)
+        data[idx] = dist(rng);
     return data;
 }
 

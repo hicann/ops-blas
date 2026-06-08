@@ -164,3 +164,6 @@ void sgemv_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR
 struct StrsvTilingData;
 
 void strsv_kernel_do(GM_ADDR gmAddrA, GM_ADDR gmAddrX, const StrsvTilingData &tiling, void *stream);
+
+void geqrf_batched_kernel_do(GM_ADDR aarray, GM_ADDR tauArray, GM_ADDR tilingGm,
+                             uint32_t numBlocks, void *stream);

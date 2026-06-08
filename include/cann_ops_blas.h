@@ -294,6 +294,11 @@ aclblasStatus_t aclblasSgemv(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy);
 
+
+aclblasStatus_t aclblasSgeqrfBatched(
+    aclblasHandle_t handle, int m, int n, float* const Aarray[], int lda, float* const TauArray[], int* info,
+    int batchSize);
+
 #ifdef __cplusplus
 }
 #endif
