@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file aclblasSgetrfBatched_tiling_data.h
+ * \file sgetrf_batched_tiling_data.h
  * \brief Tiling data for batched single-precision LU factorization (getrfBatched).
  */
 

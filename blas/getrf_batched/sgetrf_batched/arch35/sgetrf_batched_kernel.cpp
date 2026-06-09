@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file aclblasSgetrfBatched_kernel.cpp
+ * \file sgetrf_batched_kernel.cpp
  * \brief Kernel-side implementation for batched single-precision LU factorization (SIMT).
  */
 
@@ -17,7 +17,7 @@
 #include "cann_ops_blas_common.h"
 #include "kernel_operator.h"
 #include "simt_api/asc_simt.h"
-#include "aclblasSgetrfBatched_tiling_data.h"
+#include "sgetrf_batched_tiling_data.h"
 
 using namespace AscendC;
 

@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef ACLBLASSGEQRFBATCHED_GOLDEN_H
-#define ACLBLASSGEQRFBATCHED_GOLDEN_H
+#ifndef SGEQRF_BATCHED_GOLDEN_H
+#define SGEQRF_BATCHED_GOLDEN_H
 
 #include <algorithm>
 #include <cmath>
@@ -154,4 +154,4 @@ inline aclblasStatus_t aclblasSgeqrfBatched_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // ACLBLASSGEQRFBATCHED_GOLDEN_H
+#endif // SGEQRF_BATCHED_GOLDEN_H

@@ -17,7 +17,7 @@
 #include "cann_ops_blas_common.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
-#include "aclblasSgeqrfBatched_tiling_data.h"
+#include "sgeqrf_batched_tiling_data.h"
 
 static const char* const TAG = "aclblasSgeqrfBatched";
 
@@ -104,7 +104,7 @@ static aclblasStatus_t LaunchGeqrfBatchedKernel(
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    geqrf_batched_kernel_do(
+    sgeqrf_batched_kernel_do(
         reinterpret_cast<GM_ADDR>(const_cast<float**>(Aarray)),
         reinterpret_cast<GM_ADDR>(const_cast<float**>(TauArray)), static_cast<GM_ADDR>(tilingDevice),
         tiling.usedCoreNum, stream);

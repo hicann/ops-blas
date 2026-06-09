@@ -1,22 +1,9 @@
 ---
 name: blas-new-op-workflow-maintain
-description: |
-  工作流维护技能。触发场景：给仓里新增/修改/删除/重命名 skill、给 skill 加脚本/加功能、修改或修复工作流流程、修改 agent 定义或行为规则、修改 AGENT.md、修改模板文件、修改 init.sh。
-  关键词：加一个 skill、新增 skill、删除 skill、修改 skill、改 skill 名、重命名 skill、改名、名字搞错了、合并到 skill、更新 skill、给 skill 加脚本、给 skill 加功能、改 workflow、改流程、修复工作流、修复问题、工作流问题、改 agent、改 AGENT.md、给 agent 加规则、给 agent 加限制、agent 体系、改模板、改 init。
+description: 工作流维护技能。任何对 agent/ 目录下文件的新增、修改、删除操作，都必须先触发本技能再执行操作，包括修改本技能自身。禁止未触发直接修改。
 ---
 
 # blas-new-op-workflow 工作流维护指南
-
-## 触发条件
-
-当用户要求以下操作时，必须加载本技能：
-- 修改 `blas-new-op-workflow` 的流程（SKILL.md、task-prompts.md、data-flow.md 等）
-- 新增/修改/删除 agent（developer.md、tester.md、reviewer.md 等）
-- 新增/修改/删除 skill（blas-ST-develop、blas-log 等）
-- 新增/修改/删除模板文件（assets/*.md、assets/*.json）
-- 修改 init.sh 部署脚本
-
----
 
 ## 目录结构
 
@@ -55,6 +42,7 @@ ops-blas/
 │
 └── .agent/                         # 临时工作目录（gitignore）
     ├── dev-docs/                   # 开发过程文档
+    ├── gitcode/                    # PR/Issue 中间文件（gitcode-pr-issue-guide 生成）
     ├── cann-samples/               # 外部仓库（clone 或 symlink）
     └── asc-devkit/                 # 外部仓库（clone 或 symlink）
 ```

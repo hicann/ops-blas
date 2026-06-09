@@ -15,25 +15,25 @@
 #include "verify.h"
 #include "blas_test.h"
 #include "csv_loader.h"
-#include "aclblasSgeqrfBatched_param.h"
-#include "aclblasSgeqrfBatched_golden.h"
-#include "aclblasSgeqrfBatched_npu_wrapper.h"
+#include "sgeqrf_batched_param.h"
+#include "sgeqrf_batched_golden.h"
+#include "sgeqrf_batched_npu_wrapper.h"
 
-class AclblasSgeqrfBatchedArch35Test : public BlasTest<AclblasSgeqrfBatchedParam> {};
+class SgeqrfBatchedArch35Test : public BlasTest<SgeqrfBatchedParam> {};
 
 // Null handle test — separate TEST_F per convention
-TEST_F(AclblasSgeqrfBatchedArch35Test, NullHandle)
+TEST_F(SgeqrfBatchedArch35Test, NullHandle)
 {
     aclblasStatus_t ret = aclblasSgeqrfBatched_npu(nullptr, 8, 8, nullptr, 8, nullptr, nullptr, 2);
     EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    AclblasSgeqrfBatched, AclblasSgeqrfBatchedArch35Test,
-    ::testing::ValuesIn(GetCasesFromCsv<AclblasSgeqrfBatchedParam>(ReplaceFileExtension2Csv(__FILE__))),
-    PrintCaseInfoString<AclblasSgeqrfBatchedParam>);
+    SgeqrfBatched, SgeqrfBatchedArch35Test,
+    ::testing::ValuesIn(GetCasesFromCsv<SgeqrfBatchedParam>(ReplaceFileExtension2Csv(__FILE__))),
+    PrintCaseInfoString<SgeqrfBatchedParam>);
 
-static std::vector<float> GenerateTestMatrix(const AclblasSgeqrfBatchedParam& p, int matSize, int batchIdx)
+static std::vector<float> GenerateTestMatrix(const SgeqrfBatchedParam& p, int matSize, int batchIdx)
 {
     if (matSize <= 0)
         return {};
@@ -41,9 +41,8 @@ static std::vector<float> GenerateTestMatrix(const AclblasSgeqrfBatchedParam& p,
 }
 
 static void GenerateBatchData(
-    const AclblasSgeqrfBatchedParam& p, int effectiveBatch, int matSize, int tauSize,
-    std::vector<std::vector<float>>& aBatch, std::vector<std::vector<float>>& tauBatch, std::vector<float*>& aPtrs,
-    std::vector<float*>& tauPtrs)
+    const SgeqrfBatchedParam& p, int effectiveBatch, int matSize, int tauSize, std::vector<std::vector<float>>& aBatch,
+    std::vector<std::vector<float>>& tauBatch, std::vector<float*>& aPtrs, std::vector<float*>& tauPtrs)
 {
     for (int b = 0; b < effectiveBatch; b++) {
         if (matSize > 0) {
@@ -58,7 +57,7 @@ static void GenerateBatchData(
 }
 
 static void VerifyBatchOutputs(
-    const AclblasSgeqrfBatchedParam& p, const std::vector<float*>& aPtrs, const std::vector<float*>& tauPtrs,
+    const SgeqrfBatchedParam& p, const std::vector<float*>& aPtrs, const std::vector<float*>& tauPtrs,
     const std::vector<float*>& aGoldenPtrs, const std::vector<float*>& tauGoldenPtrs, int effectiveBatch, int matSize,
     int tauSize, const VerifyConfig& cfg)
 {
@@ -79,7 +78,7 @@ static void VerifyBatchOutputs(
     }
 }
 
-TEST_P(AclblasSgeqrfBatchedArch35Test, CsvDriven)
+TEST_P(SgeqrfBatchedArch35Test, CsvDriven)
 {
     const auto& p = GetParam();
 
@@ -98,7 +97,7 @@ TEST_P(AclblasSgeqrfBatchedArch35Test, CsvDriven)
     std::vector<int> infoHost(std::max(1, effectiveBatch), 0);
 
     aclblasStatus_t ret = aclblasSgeqrfBatched_npu(
-        AclblasSgeqrfBatchedArch35Test::handle_, p.m, p.n, reinterpret_cast<float* const*>(aArrayPtr), p.lda,
+        SgeqrfBatchedArch35Test::handle_, p.m, p.n, reinterpret_cast<float* const*>(aArrayPtr), p.lda,
         reinterpret_cast<float* const*>(tauArrayPtr), infoHost.data(), p.batchSize);
 
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
@@ -115,7 +114,7 @@ TEST_P(AclblasSgeqrfBatchedArch35Test, CsvDriven)
 
     std::vector<int> infoGolden(std::max(1, effectiveBatch), 0);
     aclblasSgeqrfBatched_cpu(
-        AclblasSgeqrfBatchedArch35Test::handle_, p.m, p.n, reinterpret_cast<float* const*>(aGoldenPtrs.data()), p.lda,
+        SgeqrfBatchedArch35Test::handle_, p.m, p.n, reinterpret_cast<float* const*>(aGoldenPtrs.data()), p.lda,
         reinterpret_cast<float* const*>(tauGoldenPtrs.data()), infoGolden.data(), p.batchSize);
 
     VerifyConfig cfg;

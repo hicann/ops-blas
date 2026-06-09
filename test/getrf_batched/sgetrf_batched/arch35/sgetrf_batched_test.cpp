@@ -18,9 +18,9 @@
 #include "verify.h"
 #include "blas_test.h"
 #include "csv_loader.h"
-#include "sgetrfBatched_param.h"
-#include "sgetrfBatched_golden.h"
-#include "sgetrfBatched_npu_wrapper.h"
+#include "sgetrf_batched_param.h"
+#include "sgetrf_batched_golden.h"
+#include "sgetrf_batched_npu_wrapper.h"
 
 // ---------------------------------------------------------------------------
 // Matrix generation helpers

@@ -57,13 +57,13 @@ aclblasStatus_t aclblasSgeqrfBatched(
 ## 编译
 
 ```bash
-bash build.sh --ops=aclblasSgeqrfBatched
+bash build.sh --ops=geqrf_batched
 ```
 
 ## 测试
 
 ```bash
-bash build.sh --ops=aclblasSgeqrfBatched --run
+bash build.sh --ops=geqrf_batched --run
 ```
 
 ## 调用示例
@@ -179,12 +179,12 @@ int main()
 ## 文件结构
 
 ```
-blas/geqrf_batched/aclblasSgeqrfBatched/
+blas/geqrf_batched/sgeqrf_batched/
 ├── README.md                                    # 本文档
 └── arch35/
-    ├── aclblasSgeqrfBatched_host.cpp            # Host 侧：参数校验、Tiling 计算、Kernel 启动
-    ├── aclblasSgeqrfBatched_kernel.cpp          # Device 侧：SIMT Householder QR 分解 Kernel
-    └── aclblasSgeqrfBatched_tiling_data.h       # TilingData 结构体定义
+    ├── sgeqrf_batched_host.cpp                  # Host 侧：参数校验、Tiling 计算、Kernel 启动
+    ├── sgeqrf_batched_kernel.cpp                # Device 侧：SIMT Householder QR 分解 Kernel
+    └── sgeqrf_batched_tiling_data.h             # TilingData 结构体定义
 ```
 
 ## 设计要点

@@ -9,7 +9,7 @@
  */
 
 /*!
- * \file aclblasSgetrfBatched_host.cpp
+ * \file sgetrf_batched_host.cpp
  * \brief Host-side API for batched single-precision LU factorization: getrfBatched.
  */
 
@@ -20,7 +20,7 @@
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "aclblasSgetrfBatched_tiling_data.h"
+#include "sgetrf_batched_tiling_data.h"
 #include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 

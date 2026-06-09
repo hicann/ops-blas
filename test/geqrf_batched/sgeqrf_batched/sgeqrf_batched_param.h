@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef ACLBLASSGEQRFBATCHED_PARAM_H
-#define ACLBLASSGEQRFBATCHED_PARAM_H
+#ifndef SGEQRF_BATCHED_PARAM_H
+#define SGEQRF_BATCHED_PARAM_H
 
 #include <string>
 
@@ -17,7 +17,7 @@
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
 
-struct AclblasSgeqrfBatchedParam : public BlasTestParamBase {
+struct SgeqrfBatchedParam : public BlasTestParamBase {
     int m = 0;
     int n = 0;
     int lda = 0;
@@ -26,7 +26,7 @@ struct AclblasSgeqrfBatchedParam : public BlasTestParamBase {
     bool aArrayNull = false;
     bool tauArrayNull = false;
 
-    AclblasSgeqrfBatchedParam(const csv_map& map) : BlasTestParamBase(map)
+    SgeqrfBatchedParam(const csv_map& map) : BlasTestParamBase(map)
     {
         m = parseInt(ReadMap(map, "m", "0"));
         n = parseInt(ReadMap(map, "n", "0"));
@@ -38,4 +38,4 @@ struct AclblasSgeqrfBatchedParam : public BlasTestParamBase {
     }
 };
 
-#endif // ACLBLASSGEQRFBATCHED_PARAM_H
+#endif // SGEQRF_BATCHED_PARAM_H

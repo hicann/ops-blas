@@ -64,19 +64,26 @@ blas/<family>/<op_name>/
 
 ## 命名规范
 
-| 元素 | 规范 | 示例 |
-|------|------|------|
-| 算子目录 | `blas/<family>/<blas_name>/` | `blas/swap/sswap/` |
-| Kernel 文件 | `<op>_kernel.cpp` | `sswap_kernel.cpp` |
-| Host 文件 | `<op>_host.cpp` | `sswap_host.cpp` |
-| Tiling 头文件 | `<op>_tiling_data.h` | `sswap_tiling_data.h` |
-| Tiling 结构体 | `<Op>TilingData`（PascalCase） | `SswapTilingData` |
-| Kernel 类 | `<Op>AIV` 或 `<Op>Kernel<T>`（SIMD） | `SswapAIV` |
-| SIMT 计算函数 | `<Op>SimtCompute` + `__simt_vf__` | `SspmvSimtCompute` |
-| Kernel 入口 | `<op>_kernel`（`__global__`） | `sswap_kernel` |
-| Kernel 启动器 | `<op>_kernel_do` | `sswap_kernel_do` |
-| 公共 API | `aclblas<Op>`（PascalCase） | `aclblasSswap` |
-| 测试 fixture | `<Op>Arch35Test` | `SswapArch35Test` |
+**重要**：算子目录和文件名使用 **snake_case**（下划线分隔），API 名和结构体名使用 **PascalCase**。
+
+| 元素 | 规范 | 简单示例 | 复合词示例（如 _batched） |
+|------|------|---------|-------------------------|
+| 算子目录 | `blas/<family>/<operator_name>/`（snake_case） | `blas/swap/sswap/` | `blas/geqrf_batched/sgeqrf_batched/` |
+| Kernel 文件 | `<operator_name>_kernel.cpp` | `sswap_kernel.cpp` | `sgeqrf_batched_kernel.cpp` |
+| Host 文件 | `<operator_name>_host.cpp` | `sswap_host.cpp` | `sgeqrf_batched_host.cpp` |
+| Tiling 头文件 | `<operator_name>_tiling_data.h` | `sswap_tiling_data.h` | `sgeqrf_batched_tiling_data.h` |
+| Tiling 结构体 | `<OpName>TilingData`（PascalCase） | `SswapTilingData` | `SgeqrfBatchedTilingData` |
+| Kernel 类 | `<OpName>AIV` 或 `<OpName>Kernel<T>`（SIMD） | `SswapAIV` | `SgeqrfBatchedAIV` |
+| SIMT 计算函数 | `<OpName>SimtCompute` + `__simt_vf__` | `SspmvSimtCompute` | `SgemvBatchedSimtCompute` |
+| Kernel 入口 | `<operator_name>_kernel`（`__global__`） | `sswap_kernel` | `sgeqrf_batched_kernel` |
+| Kernel 启动器 | `<operator_name>_kernel_do` | `sswap_kernel_do` | `sgeqrf_batched_kernel_do` |
+| 公共 API | `aclblas<OpName>`（PascalCase） | `aclblasSswap` | `aclblasSgeqrfBatched` |
+| 测试 fixture | `<OpName>Arch35Test` | `SswapArch35Test` | `SgeqrfBatchedArch35Test` |
+
+**命名规则说明**：
+- `<operator_name>`：snake_case 格式，用于目录名和文件名（如 `sswap`、`sgeqrf_batched`、`sgetrf_batched`）
+- `<OpName>`：PascalCase 格式，用于结构体名、类名、API 名（如 `Sswap`、`SgeqrfBatched`、`SgetrfBatched`）
+- family 目录也使用 snake_case（如 `geqrf_batched`、`getrf_batched`、`gemv_batched`）
 
 ---
 

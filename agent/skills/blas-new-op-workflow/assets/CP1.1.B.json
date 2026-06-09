@@ -2,7 +2,8 @@
   "checkpoint": "CP1.1.B",
   "title": "精度与编程模型对齐",
   "summary": {
-    "算子名称": "{aclblasXxx}",
+    "API 名称": "{aclblasXxx}",
+    "目录/文件名": "{operator_name}",
     "前期对齐": "CP1.1.A 已确认：dtype={已选dtype}，目标芯片={已选芯片}",
     "说明": "确认精度标准和编程模型"
   },

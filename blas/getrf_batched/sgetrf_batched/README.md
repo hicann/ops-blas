@@ -119,12 +119,12 @@ P * A[i] = L * U,   i = 0, 1, ..., batchSize - 1
 
 ```
 blas/getrf_batched/
-└── sgetrfBatched/
+└── sgetrf_batched/
     ├── README.md                                  // 本文档
     └── arch35/
-        ├── aclblasSgetrfBatched_host.cpp          // Host 侧：参数校验、TilingData 计算、Kernel 启动
-        ├── aclblasSgetrfBatched_kernel.cpp        // Kernel 侧：SIMT LU 分解（主元/非主元双路径）
-        └── aclblasSgetrfBatched_tiling_data.h     // TilingData 结构体（Host 和 Kernel 共用）
+        ├── sgetrf_batched_host.cpp                // Host 侧：参数校验、TilingData 计算、Kernel 启动
+        ├── sgetrf_batched_kernel.cpp              // Kernel 侧：SIMT LU 分解（主元/非主元双路径）
+        └── sgetrf_batched_tiling_data.h           // TilingData 结构体（Host 和 Kernel 共用）
 ```
 
 ## 编译

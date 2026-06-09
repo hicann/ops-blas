@@ -2,7 +2,8 @@
   "checkpoint": "CP1.2",
   "title": "需求分析确认",
   "summary": {
-    "算子名称": "{aclblasXxx}",
+    "API 名称": "{aclblasXxx}",
+    "目录/文件名": "{operator_name}",
     "前期对齐": "CP1.1 已确认：dtype/目标芯片/编程模型/精度标准",
     "本次确认": "需求分析文档中的参数约束、可行性评估等分析结论"
   },

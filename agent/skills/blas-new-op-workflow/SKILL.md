@@ -75,7 +75,7 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
 | ⛔ CP1.1.A | CP1.1.A.json | 用户 | 算子名/dtype/目标芯片对齐 | AskUserQuestion 对齐基础信息，确认 operator_name | |
 | 1.1.B 环境准备 | CP1.1.A确认的算子名 | developer | 2.0.1-开发环境.md、git 分支 | 环境检查、创建分支（使用确认后的 operator_name） | |
 | 1.1.S2 总结 | CP1.1.A结论 + 1.1-参考资料清单.md | writer | CP1.1.B.json | 根据 dtype/芯片裁剪，整理接口与参考问卷 | |
-| ⛔ CP1.1.B | CP1.1.B.json | 用户 | 精度标准/编程模型对齐 | AskUserQuestion，通过后 git commit -m "CP1.1: 已对齐算子基础信息" | |
+| ⛔ CP1.1.B | CP1.1.B.json | 用户 | 精度标准/编程模型对齐 | AskUserQuestion，通过后 git commit -m "CP1.1: 已完成算子基础信息与精度标准对齐" | |
 | 1.2 需求分析 | CP1.1结论 + 1.1-参考资料清单.md | architect | 1.2-需求分析.md、CP1.2.json | 参数约束、可行性评估 + 整理为问卷 | |
 | ⛔ CP1.2 | CP1.2.json | 用户 | 需求分析审批 | AskUserQuestion，通过后 git commit -m "CP1.2: 已完成需求分析" | |
 | 1.3.A 开发方案设计 | 1.2-需求分析.md | architect | 1.3.A-开发方案设计.md | Tiling / Kernel / Host 设计 | ┐ |

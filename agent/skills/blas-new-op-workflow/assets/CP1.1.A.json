@@ -2,16 +2,17 @@
   "checkpoint": "CP1.1.A",
   "title": "算子基础信息对齐",
   "summary": {
-    "算子名称": "{aclblasXxx}",
+    "API 名称": "{aclblasXxx}",
+    "目录/文件名": "{operator_name}",
     "需求来源": "{用户原始描述}",
-    "说明": "确认算子名、数据类型和目标芯片，后续问题依赖这些选择"
+    "说明": "确认算子 API 名、目录名、数据类型和目标芯片，后续问题依赖这些选择"
   },
   "questions": [
     {
-      "header": "算子名",
-      "question": "根据您的需求，推断的算子全名为 {aclblasXxx}（用于目录名、分支名、接口名前缀）。是否使用此命名？",
+      "header": "算子命名",
+      "question": "根据您的需求，推断的命名如下：\n- API 名（PascalCase）：{aclblasXxx}（用于接口函数名、git 分支名）\n- 目录/文件名（snake_case）：{operator_name}（用于算子子目录和文件前缀，如 {operator_name}_host.cpp）\n是否使用此命名？",
       "options": [
-        {"label": "{aclblasXxx}", "description": "使用推断的命名"},
+        {"label": "使用推断的命名", "description": "API: {aclblasXxx}, 目录: {operator_name}"},
         {"label": "使用其他命名", "description": "我想指定其他名称"}
       ]
     },

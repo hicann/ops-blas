@@ -6,6 +6,7 @@ skills:
   - blas-new-op-workflow
   - blas-ST-develop
   - ops-precision-standard
+  - blas-build-commands
 permission:
   external_directory: allow
 ---

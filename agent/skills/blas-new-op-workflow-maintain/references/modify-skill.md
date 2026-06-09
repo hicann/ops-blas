@@ -21,7 +21,8 @@
 2. 检查是否有 agent 的 `skills:` frontmatter 引用了该 skill
 3. 检查 `task-prompts.md` 中是否有步骤加载该 skill
 4. 如果修改了 skill 的触发条件或功能范围，检查 `task-prompts.md` 中的加载指令是否需要更新
-5. 执行 `references/common.md` 通用检查
+5. **如果添加了新功能或新流程**，检查所有下游消费方（agent 定义、task-prompts.md 步骤）是否需要在关键决策点主动引用该功能，避免"有工具无触发"的断裂
+6. 执行 `references/common.md` 通用检查
 
 ## 删除一个 Skill
 

@@ -11,7 +11,7 @@
 #include <cstdint>
 #include "kernel_operator.h"
 #include "simt_api/asc_simt.h"
-#include "aclblasSgeqrfBatched_tiling_data.h"
+#include "sgeqrf_batched_tiling_data.h"
 
 using namespace AscendC;
 
@@ -191,7 +191,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(GEQRF_SIMT_THREADS) inline void GeqrfSimtFp3
     }
 }
 
-__global__ __aicore__ void geqrf_batched(GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr, GM_ADDR tilingGm)
+__global__ __aicore__ void sgeqrf_batched(GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr, GM_ADDR tilingGm)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
@@ -220,7 +220,8 @@ __global__ __aicore__ void geqrf_batched(GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr,
         g_smem);
 }
 
-void geqrf_batched_kernel_do(GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+void sgeqrf_batched_kernel_do(
+    GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
 {
-    geqrf_batched<<<numBlocks, 0, stream>>>(aarrayPtr, tauarrayPtr, tilingGm);
+    sgeqrf_batched<<<numBlocks, 0, stream>>>(aarrayPtr, tauarrayPtr, tilingGm);
 }

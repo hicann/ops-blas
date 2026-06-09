@@ -69,8 +69,9 @@ scene: questionnaire
 输出:
   - .agent/dev-docs/{operator_name}/CP1.1.A.json (按模板填写)
 验收标准:
-  - CP1.1.A.json 中 {aclblasXxx} 已替换为从用户需求推断的具体算子名（如 aclblasSgemv）
-  - 算子名问题的 question 文本中 {aclblasXxx} 和第一个 option 的 label 都替换为推断的具体名称
+  - CP1.1.A.json 中 {aclblasXxx} 已替换为从用户需求推断的 API 名（如 aclblasSgemv）
+  - CP1.1.A.json 中 {operator_name} 已替换为从用户需求推断的目录/文件名（snake_case，如 sgeqrf_batched、sgetrf_batched）
+  - 算子名问题的 question 文本中 {aclblasXxx} 和 {operator_name} 以及第一个 option 的 label/description 都替换为推断的具体名称
   - 目标芯片选项中对应用户指定的芯片添加 "default": true
   - 不修改 question/options 结构
 ```
@@ -80,12 +81,12 @@ scene: questionnaire
 ```yaml
 subagent: developer
 输入:
-  - CP1.1.A 确认的算子名（完整的 ACL 算子名，如 aclSswap）
+  - CP1.1.A 确认的 API 名（如 aclblasSswap）和目录名（如 sswap）
   - 2.0.1-开发环境.md 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/2.0.1-开发环境.md)
   - LOG.md 文件路径 (.agent/dev-docs/{operator_name}/LOG.md)
 输出:
   - .agent/dev-docs/{operator_name}/2.0.1-开发环境.md (按模板填写，仅填环境检查项)
-  - git 分支，格式为 {operator_name}（完整的 ACL 算子名，如 aclSswap）
+  - git 分支，格式为 {aclblasXxx}（使用 API 名，如 aclblasSswap）
 验收标准:
   - 开发环境检查通过
   - git 分支已创建
@@ -212,10 +213,14 @@ subagent: developer
   - 加载 blas-op-templates 技能获取对应编程模型的代码模板
   - 加载 op-samples-reference 技能，参考 cann-samples 仓库中的同类算子实现和编程模式
   - 加载 asc-devkit-reference 技能，参考 asc-devkit 仓库中的示例代码和 API 文档
+  - 加载 blas-build-commands 技能获取编译和验证命令
 输出:
   - blas/{family}/{operator_name}/archXX/{operator_name}_host.cpp
   - blas/{family}/{operator_name}/archXX/{operator_name}_kernel.cpp
   - blas/{family}/{operator_name}/archXX/{operator_name}_tiling_data.h
+注意:
+  - {operator_name} 使用 snake_case 格式（如 sgeqrf_batched、sgetrf_batched），不是 API 名（aclblasSgeqrfBatched）
+  - {family} 也使用 snake_case 格式（如 geqrf_batched、getrf_batched）
 验收标准:
    - 编译通过
    - 编码规范符合 blas-ascendc-coding-rules（含 R5-R9 OAT 量化规则）
@@ -224,7 +229,9 @@ subagent: developer
    - host.cpp 中已集成 dlog 日志：#include "log/log.h"，关键路径使用 OP_LOGE/I/D
    - 参数校验失败、ACL Runtime 调用失败使用 OP_LOGE 输出错误信息
    - Tiling 数据和 Kernel 启动参数使用 OP_LOGD/OP_LOGI 输出
-   - 代码以 blas-op-templates 模板为起点，按设计文档填充业务逻辑
+   - 代码以 blas-op-templates 模板为唯一骨架，按设计文档填充业务逻辑
+   - 代码结构合规：文件命名、目录布局、类名、函数签名必须与 blas-op-templates 模板一致，禁止从仓内已有算子复制代码骨架（仓内算子可能不符合当前规范）
+   - 参考仓内算子时仅提取算法思路（Tiling 切分、数据搬运策略、计算逻辑），禁止复制其文件命名、代码结构或目录布局
    - BLAS 标准对齐：存储顺序为列主序（Column-Major），lda/ldb/ldc 等参数语义与 BLAS 标准一致，禁止参考仓内存储顺序错误的已有算子
 ```
 
@@ -236,6 +243,7 @@ scene: test-development
 输入:
   - 1.3.B-测试方案设计.md (按迭代指定 L0 或 L0+L1 范围)
   - 加载 blas-ST-develop 技能获取 GTest+CSV 开发规范
+  - 加载 blas-build-commands 技能获取编译和验证命令
 输出:
   - test/{family}/{operator_name}/{operator_name}_param.h (参数结构体，继承 BlasTestParamBase)
   - test/{family}/{operator_name}/{operator_name}_golden.h (CPU golden，签名与 BLAS API 一致)
@@ -243,6 +251,9 @@ scene: test-development
   - test/{family}/{operator_name}/arch35/{operator_name}_test.cpp (GTest 入口，5 步流程)
   - test/{family}/{operator_name}/arch35/{operator_name}_test.csv (CSV 用例表，列名=API 参数名)
   - test/{family}/{operator_name}/CMakeLists.txt
+注意:
+  - {operator_name} 使用 snake_case 格式（如 sgeqrf_batched、sgetrf_batched），与 blas 侧目录名保持一致
+  - {family} 也使用 snake_case 格式（如 geqrf_batched、getrf_batched），与 blas 侧 family 目录保持一致
 验收标准:
    - CSV 用例覆盖测试设计文档中的所有场景
    - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
@@ -261,6 +272,7 @@ subagent: developer
   - 完整算子代码
   - ST 测试用例代码
   - 汇合联调报告模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/2.x.2-汇合联调报告.md)
+  - 加载 blas-build-commands 技能获取编译和验证命令
 输出:
   - .agent/dev-docs/{operator_name}/2.1.2-汇合联调报告.md（迭代一）/ 2.2.2-汇合联调报告.md（迭代二）(按模板填写)
 验收标准:
@@ -278,13 +290,14 @@ scene: test-execution
 输入:
   - 2.1.2-汇合联调报告.md（迭代一）/ 2.2.2-汇合联调报告.md（迭代二）
   - ST 测试工程路径
+  - 加载 blas-build-commands 技能获取编译和验证命令
 输出:
   - .agent/dev-docs/{operator_name}/2.1.3-测试验收报告.md（迭代一）/ 2.2.3-测试验收报告.md（迭代二）
 验收标准:
    - L0 用例通过率 100%（迭代一）/ L0+L1 全量通过率 100%（迭代二），不允许有任何失败
    - 状态字段明确
    - 失败用例已记录（若有）
-    - 测试代码完整性验证（强制）：
+   - 测试代码完整性验证（强制）：
       - 检查 CSV 文件行数与测试设计文档中的用例数一致
       - 检查 param.h/golden.h/npu_wrapper.h/test.cpp/test.csv 的 git diff，确认无未授权修改
       - 若发现测试代码被篡改，立即标记验收失败，打回开发侧重新联调
@@ -324,6 +337,7 @@ subagent: developer
   - 3.2-性能报告.md 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/3.2-性能报告.md)
   - 加载 op-samples-reference 技能，参考 cann-samples 仓库中的性能调优实践和瓶颈分析方法
   - 加载 asc-devkit-reference 技能，参考 asc-devkit 仓库中的性能优化实践和瓶颈分析方法
+  - 加载 blas-build-commands 技能获取编译和验证命令
 输出:
   - .agent/dev-docs/{operator_name}/3.2-性能报告.md (按模板填写)
 验收标准:
@@ -340,6 +354,7 @@ subagent: developer
 输入:
   - CP3.2.ret.json（用户选择「精简为 1 条」时触发）
   - 当前测试 CSV 文件路径
+  - 加载 blas-build-commands 技能获取编译和验证命令
 输出:
   - 精简后的 CSV 文件（仅保留 1 条代表性大 shape 用例）
 验收标准:
@@ -415,7 +430,7 @@ scene: questionnaire
   - 交付物清单完整
   - 各阶段记录完整
   - 问题记录完整
-  - CP4.3.json 中 {aclblasXxx} 和 {operator_name} 已替换，不修改 question/options 结构
+  - CP4.3.json 中 {aclblasXxx}、{archXX} 和 {operator_name} 已替换，不修改 question/options 结构
   - 4.3-Issue.md 内容来自 1.2-需求分析.md，包含算子功能描述、参数约束、精度标准等需求信息
   - 4.3-上库PR模板.md 各字段已填写（见下方填写规范）
 ```

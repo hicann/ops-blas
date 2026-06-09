@@ -8,8 +8,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef ACLBLASSGEQRFBATCHED_NPU_H
-#define ACLBLASSGEQRFBATCHED_NPU_H
+#ifndef SGEQRF_BATCHED_NPU_H
+#define SGEQRF_BATCHED_NPU_H
 
 #include <algorithm>
 #include <cstdint>
@@ -134,4 +134,4 @@ inline aclblasStatus_t aclblasSgeqrfBatched_npu(
     return (ret != ACLBLAS_STATUS_SUCCESS) ? ret : copyRet;
 }
 
-#endif // ACLBLASSGEQRFBATCHED_NPU_H
+#endif // SGEQRF_BATCHED_NPU_H
