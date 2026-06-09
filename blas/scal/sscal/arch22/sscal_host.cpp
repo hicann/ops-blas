@@ -103,14 +103,14 @@ SscalTilingData CalTilingData(uint32_t totalEleNum, uint32_t vecCoreNum, float a
     return tilingData;
 }
 
-aclblasStatus_t aclblasSscal(aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx)
+aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;
 
-    SscalTilingData tiling = CalTilingData(n, numBlocks, alpha);
+    SscalTilingData tiling = CalTilingData(n, numBlocks, *alpha);
 
     uint8_t* tilingDevice = nullptr;
     aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
@@ -124,7 +124,7 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, const int64_t n, const floa
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    sscal_kernel_do(x, nullptr, tilingDevice, numBlocks, useStream);
+    sscal_kernel_do((GM_ADDR)x, nullptr, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);

@@ -106,7 +106,7 @@ int32_t TestSscal(aclblasHandle handle, aclrtStream stream)
         return aclRet);
 
     std::cout << "========== Testing aclblasSscal ==========" << std::endl;
-    auto ret = aclblasSscal(handle, totalLength, alpha, xDevice, incx);
+    auto ret = aclblasSscal(handle, totalLength, &alpha, (float*)xDevice, incx);
     CHECK_RET(
         ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSscal failed. ERROR: %d\n", ret); aclrtFree(xDevice);
         return ret);

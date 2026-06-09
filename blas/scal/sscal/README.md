@@ -1,45 +1,33 @@
-## Sscal算子实现
+## Sscal 算子实现 (arch35 / ascend950)
 
 ## 概述
 
-BLAS Sscal算子实现。
+BLAS Sscal(Scale)算子实现，对应接口：
 
-Sscal(Scale)算子实现了向量缩放运算，是BLAS基础线性代数库中的核心算子之一。
+```cpp
+aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx);
+```
 
-本测试同时验证两个接口：
-- **aclblasSscal**: 实数向量 × 实数标量
-- **aclblasCsscal**: 复数向量 × 实数标量（复数向量视为2*n个float元素，复用sscal kernel）
+数学表达式：`x[i] = alpha * x[i]`（i = 0 .. n-1，步长为 incx）。
 
 ## 支持的产品
 
-- Atlas A3 训练系列产品/Atlas A3 推理系列产品
-- Atlas A2 训练系列产品/Atlas A2 推理系列产品
+- Atlas A5 训练系列产品 / Atlas A5 推理系列产品（ascend950）
 
-## 目录结构介绍
+## 目录结构
 
 ```
 ├── sscal
-│   ├── CMakeLists.txt      // 编译工程文件
-│   ├── README.md           // 说明文档
-│   └── sscal_test.cpp       // 算子调用样例
+│   ├── arch35                 // arch35(ascend950) 实现
+│   │   ├── sscal_host.cpp     // host 侧实现
+│   │   ├── sscal_kernel.cpp   // kernel 侧实现
+│   │   └── sscal_tiling_data.h // tiling 数据结构
+│   └── README.md              // 说明文档
 ```
+
+（编译由上层 `blas/CMakeLists.txt` 自动收集 arch35 目录源文件）
 
 ## 算子描述
-
-- 算子功能：  
-sscal算子实现了向量x乘以标量alpha。对应的数学表达式为：  
-```
-x = alpha * x
-```
-
-- 对应的接口：
-```cpp
-// 实数向量缩放
-int aclblasSscal(aclblasHandle handle, float *x, const float alpha, const int64_t n, const int64_t incx);
-
-// 复数向量缩放（实数标量）
-int aclblasCsscal(aclblasHandle handle, std::complex<float> *x, const float alpha, const int64_t n, const int64_t incx);
-```
 
 <table>
    <tr>
@@ -47,7 +35,7 @@ int aclblasCsscal(aclblasHandle handle, std::complex<float> *x, const float alph
       <td colspan="4" align="center">sscal 参数说明</td>
    </tr>
    <tr>
-      <td rowspan="6" align="center">参数列表</td>
+      <td rowspan="5" align="center">参数列表</td>
       <td align="center">Param.</td>
       <td align="center">Memory</td>
       <td align="center">in/out</td>
@@ -57,88 +45,61 @@ int aclblasCsscal(aclblasHandle handle, std::complex<float> *x, const float alph
       <td align="center">handle</td>
       <td align="center">host</td>
       <td align="center">in</td>
-      <td align="center">ACL流handle，用于传入stream。</td>
-   </tr>
-   <tr>
-      <td align="center">x</td>
-      <td align="center">device</td>
-      <td align="center">in/out</td>
-      <td align="center">向量，包含n个元素（sscal为float，csscal为complex）。</td>
-   </tr>
-   <tr>
-      <td align="center">alpha</td>
-      <td align="center">host</td>
-      <td align="center">in</td>
-      <td align="center">用于乘法的标量。</td>
+      <td align="center">ACL 流 handle，用于传入 stream。</td>
    </tr>
    <tr>
       <td align="center">n</td>
       <td align="center"></td>
       <td align="center">in</td>
-      <td align="center">向量x中的元素个数。</td>
+      <td align="center">向量 x 中的元素个数。</td>
    </tr>
    <tr>
-      <td align="center">incx</td>
-      <td align="center"></td>
+      <td align="center">alpha</td>
+      <td align="center">host</td>
       <td align="center">in</td>
-      <td align="center">x中连续元素之间的步长。</td>
+      <td align="center">标量乘数（float 指针）。</td>
+   </tr>
+   <tr>
+      <td align="center">x</td>
+      <td align="center">device</td>
+      <td align="center">in/out</td>
+      <td align="center">float 向量，包含 n 个元素。</td>
    </tr>
 </table>
 
-- 算子规格：
-  <table>
-  <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="4" align="center">Sscal</td></tr>
-  </tr>
-  <tr><td rowspan="2" align="center">算子输入</td><td align="center">name</td><td align="center">shape</td><td align="center">data type</td><td align="center">format</td></tr>
-  <tr><td align="center">x</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  <tr><td rowspan="1" align="center">算子输出</td><td align="center">x</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">sscal_kernel</td></tr>
-  </table>
+<table>
+   <tr><td rowspan="1" align="center">算子类型 (OpType)</td><td colspan="4" align="center">Sscal</td></tr>
+   <tr><td rowspan="2" align="center">算子输入</td><td align="center">name</td><td align="center">shape</td><td align="center">data type</td><td align="center">format</td></tr>
+   <tr><td align="center">x</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
+   <tr><td rowspan="1" align="center">算子输出</td><td align="center">x</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
+   <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">sscal_kernel</td></tr>
+</table>
 
-- 算子实现： 
+- 算子实现
 
-    将输入数据从GM地址搬运到UB，使用Muls指令完成向量乘标量运算，再将结果搬运回GM地址。
-    csscal接口将复数向量视为2*n个float元素，直接复用sscal kernel完成计算。
+  使用 TPipe + TQue(VECIN/VECOUT) 双队列流水：
+  1. MTE3: DataCopy / DataCopyPad 将 x 从 GM 搬入 UB（32B 对齐，tail 用 Pad 补齐）
+  2. V: Muls 指令完成向量乘标量 `outLocal[i] = inLocal[i] * alpha`
+  3. MTE3: DataCopy / DataCopyPad 将结果写回 GM
 
-- 调用实现  
-    使用内核调用符<<<>>>调用核函数。 
+  多核并行：按 AIV core 数量均分 n 个元素，每个 core 处理 `perCoreN` 个（ELEMENTS_PER_BLOCK=8 对齐），
+  末尾 core 吸收余数。Tile 循环避免 UB 溢出。
 
 ## 编译运行
 
-在本样例根目录下执行如下步骤，编译并执行算子。
-- 配置环境变量  
-  请根据当前环境上CANN开发套件包的安装方式，选择对应配置环境变量的命令。
-  - 默认路径，root用户安装CANN软件包
-    ```bash
-    source /usr/local/Ascend/cann/set_env.sh
-    ```
-
-  - 默认路径，非root用户安装CANN软件包
-    ```bash
-    source $HOME/Ascend/cann/set_env.sh
-    ```
-
-  - 指定路径install_path，安装CANN软件包
-    ```bash
-    source ${install_path}/cann/set_env.sh
-    ```
-
-- 样例执行
+- 配置环境变量
   ```bash
-  bash build.sh --ops=sscal --run # --ops=<算子名> --run可选参数，执行测试样例
+  source /usr/local/Ascend/cann/set_env.sh
   ```
-  执行结果如下，说明精度对比成功。
+
+- 编译并执行测试
   ```bash
-  ========== Testing aclblasSscal ==========
-  [Success] Sscal accuracy verification passed.
-  [PASS] Sscal test passed
-  ========== Testing aclblasCsscal ==========
-  [Success] Csscal accuracy verification passed.
-  [PASS] Csscal test passed
-  ========================================
-  Test Summary:
-    Passed: 2 - Sscal Csscal
-  ========================================
+  bash build.sh --ops=sscal --run --soc=ascend950
+  ```
+
+  执行结果示例：
+  ```bash
+  [----------] Global test environment tear-down
+  [==========] 38 tests from 2 test suites ran. (6826 ms total)
+  [  PASSED  ] 38 tests.
   ```
