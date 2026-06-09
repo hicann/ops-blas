@@ -20,7 +20,18 @@
 
 #include <cstdint>
 
+#include <acl/acl.h>
+
+#include "epilogue_alpha_beta_tiling_data.h"
 #include "matmul_tiling_data.h"
+
+// Epilogue: D = alpha * D_raw + beta * C
+void epilogue_alpha_beta_get_tiling(uint32_t m, uint32_t n, uint32_t numBlocks, EpilogueAlphaBetaTilingData& tilingData);
+void epilogue_alpha_beta_kernel_do(
+    uint8_t* dRaw, uint8_t* c, uint8_t* d, const EpilogueAlphaBetaTilingData& tiling, void* stream);
+void epilogue_alpha_beta_do(
+    uint8_t* dRaw, uint8_t* c, uint8_t* d, uint32_t m, uint32_t n, uint32_t ldc, uint32_t ldd, uint32_t lddRaw,
+    float alpha, float beta, aclDataType dtypeC, aclDataType dtypeDRaw, aclDataType dtypeD, void* stream);
 
 // FP32 x FP32 -> FP32
 void matmul_fp32_kernel_do(

@@ -8,14 +8,50 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include <cmath>
 #include <vector>
 #include <random>
 
 #include "verify.h"
 #include "csv_loader.h"
+#include "fill.h"
 #include "blasLtMatmul_param.h"
 #include "blasLtMatmul_golden.h"
 #include "blasLtMatmul_npu_wrapper.h"
+
+namespace {
+
+struct Fp32MatmulFills {
+    BlasFillMode a;
+    BlasFillMode b;
+    BlasFillMode c;
+};
+
+// Plain "RANDOM" expands to [-FLT_MAX, FLT_MAX] and overflows. For large K, use constant
+// factors so D ~= 1 and FP32 accumulation stays within the strict FP32 verify threshold.
+Fp32MatmulFills makeFp32MatmulFills(int kDim)
+{
+    Fp32MatmulFills fills{};
+    if (kDim >= 128) {
+        fills.a.method = BlasFillMode::M_VALUE;
+        fills.a.val1 = 1.0f / static_cast<float>(kDim);
+        fills.b.method = BlasFillMode::M_VALUE;
+        fills.b.val1 = 1.0f;
+        fills.c.method = BlasFillMode::M_VALUE;
+        fills.c.val1 = 0.0f;
+        return fills;
+    }
+
+    fills.a.method = BlasFillMode::M_RANDOM;
+    const float bound = 1.0f / std::sqrt(static_cast<float>(std::max(kDim, 1)));
+    fills.a.val1 = bound;
+    fills.a.val2 = bound;
+    fills.b = fills.a;
+    fills.c = fills.a;
+    return fills;
+}
+
+} // namespace
 
 // ── LtMatmul test fixture using aclblasLtHandle_t ──
 class LtMatmulArch35Test : public ::testing::TestWithParam<LtMatmulParam> {
@@ -150,14 +186,16 @@ TEST_P(LtMatmulArch35Test, CsvDriven) {
     std::vector<float> A_data, B_data, C_data, D_data;
     std::vector<uint16_t> D_bf16;
 
+    const Fp32MatmulFills fp32Fills = makeFp32MatmulFills(K);
+
     if (dtypeA == ACL_FLOAT) {
-        A_data = makeBlasArray(static_cast<int64_t>(physRowsA) * p.lda, "RANDOM", p.randomSeed);
+        A_data = makeBlasArray(static_cast<int64_t>(physRowsA) * p.lda, fp32Fills.a, p.randomSeed);
     }
     if (dtypeB == ACL_FLOAT) {
-        B_data = makeBlasArray(static_cast<int64_t>(physRowsB) * p.ldb, "RANDOM", p.randomSeed);
+        B_data = makeBlasArray(static_cast<int64_t>(physRowsB) * p.ldb, fp32Fills.b, p.randomSeed);
     }
     if (dtypeC == ACL_FLOAT && !p.CIsNull) {
-        C_data = makeBlasArray(static_cast<int64_t>(M) * p.ldc, "RANDOM", p.randomSeed);
+        C_data = makeBlasArray(static_cast<int64_t>(M) * p.ldc, fp32Fills.c, p.randomSeed);
     }
     if (dtypeD == ACL_FLOAT) {
         D_data.resize(static_cast<size_t>(M) * p.ldd, 0.0f);

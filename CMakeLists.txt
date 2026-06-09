@@ -123,6 +123,9 @@ if(ENABLE_BLASLT_MXFP8)
     ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul_mxfp4/arch35/matmul_mxfp4_host.cpp
     PROPERTIES LANGUAGE CXX)
 endif()
+set_source_files_properties(
+  ${CMAKE_CURRENT_LIST_DIR}/blasLt/epilogue/arch35/epilogue_alpha_beta_host.cpp
+  PROPERTIES LANGUAGE CXX)
 target_compile_definitions(${OPS_BLASLT} PRIVATE
   ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}
   ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR})

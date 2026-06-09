@@ -39,7 +39,7 @@ blasLt/
 │   ├── matmul_mxfp4_host.cpp              // MXFP4 Host 侧 Tiling
 │   └── matmul_mxfp4_kernel.cpp            // MXFP4 Kernel 侧实现
 └── utils/
-    └── matmul_utils.h                     // 公共工具
+    └── kernel_utils.h                       // shared kernel helpers
 ```
 
 测试代码位于 `test/blasLtMatmul/`：

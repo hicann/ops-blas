@@ -9,8 +9,8 @@
  */
 
 /*!
- * \file matmul_utils.h
- * \brief blasLt matmul 内核公共常量与内联工具（blasLt/utils）
+ * \file kernel_utils.h
+ * \brief Shared constants and inline helpers for blasLt kernel code (blasLt/utils)
  */
 
 #pragma once
@@ -49,7 +49,7 @@ __aicore__ inline constexpr bool IsFp4()
     return AscendC::IsSameType<T, fp4x2_e2m1_t>::value || AscendC::IsSameType<T, fp4x2_e1m2_t>::value;
 }
 
-// Patched by ops-blas: single template avoids mixed-integer overload ambiguity in MX tile code.
+// Single template avoids mixed-integer overload ambiguity in MX tile code.
 template <typename T, typename U>
 __aicore__ inline int64_t CeilDiv(T a, U b)
 {

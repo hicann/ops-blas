@@ -16,12 +16,12 @@
 #include <cstdlib>
 #include <cstring>
 #include <list>
-#include <securec.h>
 #include <mutex>
 #include <new>
 #include <unordered_map>
 #include <vector>
 
+#include "host_utils.h"
 #include "matmul_get_tiling.h"
 #include "matmul_kernel.h"
 #include "matmul_mxfp4_host.h"
@@ -29,28 +29,6 @@
 #define GM_ADDR uint8_t*
 
 namespace {
-
-inline aclblasStatus_t CheckedMemcpyS(void* dest, size_t destMax, const void* src, size_t count)
-{
-    if (memcpy_s(dest, destMax, src, count) != EOK) {
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    return ACLBLAS_STATUS_SUCCESS;
-}
-
-inline aclblasStatus_t CheckedMemsetS(void* dest, size_t destMax, size_t count)
-{
-    if (memset_s(dest, destMax, 0, count) != EOK) {
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    return ACLBLAS_STATUS_SUCCESS;
-}
-
-inline bool MemcpySSucceeds(void* dest, size_t destMax, const void* src, size_t count)
-{
-    return memcpy_s(dest, destMax, src, count) == EOK;
-}
-
 
 constexpr int ACLBLASLT_VERSION_MAJOR = 1;
 constexpr int ACLBLASLT_VERSION_MINOR = 0;
@@ -260,92 +238,6 @@ struct PackedAlgo {
 };
 static_assert(sizeof(PackedAlgo) == 16, "PackedAlgo must fit algo.data");
 
-template <typename T>
-static aclblasStatus_t AllocHandle(T** out)
-{
-    if (out == nullptr) {
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    }
-    *out = nullptr;
-    T* p = new (std::nothrow) T();
-    if (p == nullptr) {
-        return ACLBLAS_STATUS_ALLOC_FAILED;
-    }
-    *out = p;
-    return ACLBLAS_STATUS_SUCCESS;
-}
-
-template <typename T>
-static aclblasStatus_t FreeHandle(T* p)
-{
-    if (p == nullptr) {
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    }
-    delete p;
-    return ACLBLAS_STATUS_SUCCESS;
-}
-
-static size_t GetTypeSize(aclDataType dt)
-{
-    switch (dt) {
-        case ACL_FLOAT16:
-            return 2;
-        case ACL_FLOAT:
-        case ACL_INT32:
-            return 4;
-        case ACL_INT8:
-            return 1;
-        default:
-            return 0;
-    }
-}
-
-static bool IsDataTypeSupported(aclDataType dt)
-{
-    return GetTypeSize(dt) != 0;
-}
-
-static bool IsMxfp8Type(aclDataType dt)
-{
-    return dt == ACL_FLOAT8_E4M3FN || dt == ACL_FLOAT8_E5M2;
-}
-
-static bool IsMxfp4Type(aclDataType dt)
-{
-    return dt == ACL_FLOAT4_E2M1;
-}
-
-static bool CheckComputeTypeCompatibility(aclblasComputeType_t ct, aclDataType typeA, aclDataType typeB)
-{
-    // FP32 path: A and B must both be FP32
-    if (typeA == ACL_FLOAT && typeB == ACL_FLOAT) {
-        return ct == ACLBLAS_COMPUTE_32F || ct == ACLBLAS_COMPUTE_32F_PEDANTIC || ct == ACLBLAS_COMPUTE_32F_FAST_TF32;
-    }
-    // MXFP8 path: A and B must both be MXFP8 series (allow E4M3FN/E5M2 mixed)
-    if (IsMxfp8Type(typeA) && IsMxfp8Type(typeB)) {
-        return ct == ACLBLAS_COMPUTE_32F;
-    }
-    // MXFP4 path: A and B must both be E2M1
-    if (IsMxfp4Type(typeA) && IsMxfp4Type(typeB)) {
-        return ct == ACLBLAS_COMPUTE_32F;
-    }
-    // FP16 legacy path
-    if (typeA == ACL_FLOAT16 && typeB == ACL_FLOAT16) {
-        return ct == ACLBLAS_COMPUTE_16F || ct == ACLBLAS_COMPUTE_16F_PEDANTIC || ct == ACLBLAS_COMPUTE_32F ||
-               ct == ACLBLAS_COMPUTE_32F_PEDANTIC || ct == ACLBLAS_COMPUTE_32F_FAST_16F;
-    }
-    // INT8 legacy path
-    if (typeA == ACL_INT8 && typeB == ACL_INT8) {
-        return ct == ACLBLAS_COMPUTE_32I || ct == ACLBLAS_COMPUTE_32I_PEDANTIC;
-    }
-    return false;
-}
-
-static uint32_t CeilDivU64(uint64_t a, uint64_t b)
-{
-    return static_cast<uint32_t>((a + b - 1) / b);
-}
-
 static uint32_t GenerateAlgoId(
     DispatchPolicyType policy, uint32_t l1m, uint32_t l1n, uint32_t l1k, uint32_t splitKFactor)
 {
@@ -408,8 +300,8 @@ static void SelectL1TileShape(
         uint32_t cn = cand[1];
         uint32_t ck = cand[2];
 
-        uint32_t tilesM = CeilDivU64(m, cm);
-        uint32_t tilesN = CeilDivU64(n, cn);
+        uint32_t tilesM = CeilDiv<uint32_t>(m, cm);
+        uint32_t tilesN = CeilDiv<uint32_t>(n, cn);
         uint32_t totalTiles = tilesM * tilesN;
 
         float balanceScore =
@@ -1460,8 +1352,34 @@ aclblasStatus_t aclblasLtMatmul(
 
     // ===== Step 2: Epilogue alpha*D_raw + beta*C =====
     if (needEpilogue) {
-        uint32_t totalElements = static_cast<uint32_t>(m * n);
-        uint32_t dtypeDValue = (dtypeD == ACL_FLOAT) ? 0U : 27U;
+        if (betaValue != 0.0f && C == nullptr) {
+            return ACLBLAS_STATUS_INVALID_VALUE;
+        }
+
+        aclDataType dtypeC = CLayout->type;
+        aclDataType dtypeDRaw =
+            (dtypeA == ACL_FLOAT && dtypeB == ACL_FLOAT) ? ACL_FLOAT : dtypeD;
+        const uint32_t ldc = static_cast<uint32_t>(CLayout->ld > 0 ? CLayout->ld : n);
+        const uint32_t ldd = static_cast<uint32_t>(DLayout->ld > 0 ? DLayout->ld : n);
+        const uint32_t lddRaw = (dRawAddr == D) ? ldd : static_cast<uint32_t>(n);
+
+        if (cOverlap) {
+            const size_t dRawElemSize = (dtypeDRaw == ACL_BF16) ? sizeof(uint16_t) : sizeof(float);
+            const size_t requiredWorkspace = static_cast<size_t>(m) * static_cast<size_t>(n) * dRawElemSize;
+            if (workspace == nullptr || workspaceSizeInBytes < requiredWorkspace) {
+                return ACLBLAS_STATUS_INVALID_VALUE;
+            }
+        }
+
+        epilogue_alpha_beta_do(
+            static_cast<uint8_t*>(dRawAddr),
+            betaValue != 0.0f ? static_cast<uint8_t*>(const_cast<void*>(C)) : nullptr,
+            static_cast<uint8_t*>(D),
+            static_cast<uint32_t>(m), static_cast<uint32_t>(n),
+            ldc, ldd, lddRaw,
+            alphaValue, betaValue,
+            dtypeC, dtypeDRaw, dtypeD,
+            stream);
     }
 
     return ACLBLAS_STATUS_SUCCESS;

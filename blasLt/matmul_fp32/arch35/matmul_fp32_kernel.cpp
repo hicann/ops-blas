@@ -17,7 +17,7 @@
 
 #include "matmul_kernel.h"
 #include "matmul_tiling_data.h"
-#include "matmul_utils.h"
+#include "../../utils/kernel_utils.h"
 
 template <typename T>
 __aicore__ inline void MatmulCopyInA1(
