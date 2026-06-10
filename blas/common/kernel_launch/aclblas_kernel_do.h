@@ -17,14 +17,6 @@
 
 void cscal_kernel_do(GM_ADDR x, GM_ADDR maskBuf, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream);
-
-struct SscalTilingData;
-
-// arch35-style: tiling passed by value
-void sscal_kernel_do(GM_ADDR x, GM_ADDR workSpace, const SscalTilingData& tiling,
-                     uint32_t numBlocks, void *stream);
-
-// arch22-style: tiling passed as GM pointer (for backward compatibility)
 void sscal_kernel_do(GM_ADDR x, GM_ADDR workSpace, GM_ADDR tilingGm,
                      uint32_t numBlocks, void *stream);
 

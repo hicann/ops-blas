@@ -61,6 +61,16 @@ done < "$pr_filelist"
 
 ops+=("blasLtMatmul")
 
+declare -A _seen
+_unique=()
+for _op in "${ops[@]}"; do
+    if [[ -z "${_seen[$_op]}" ]]; then
+        _seen[$_op]=1
+        _unique+=("$_op")
+    fi
+done
+ops=("${_unique[@]}")
+
 echo "Trigger Ops: ${ops[@]}."
 echo "Need run all: ${run_all}."
 

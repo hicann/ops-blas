@@ -31,4 +31,7 @@ struct SscalTilingData {
     uint32_t nthreads;
 };
 
+void sscal_kernel_do(uint8_t* x, uint8_t* workSpace, const SscalTilingData& tiling,
+                     uint32_t numBlocks, void *stream);
+
 #endif // SSCAL_TILING_DATA_H

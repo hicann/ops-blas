@@ -2,6 +2,7 @@ if(BUILD_TEST)
     include(${CMAKE_SOURCE_DIR}/cmake/test.cmake)
 
     set(_OPS_BLAS_BUILT_TESTS "")
+    set(_OPS_BLAS_ADDED_DIRS "")
 
     file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/skipped_tests.list "")
 
@@ -81,8 +82,12 @@ if(BUILD_TEST)
             continue()
         endif()
 
-        list(APPEND _OPS_BLAS_BUILT_TESTS "${TEST_NAME}")
-        add_subdirectory(${TEST_DIR})
+        list(FIND _OPS_BLAS_ADDED_DIRS "${TEST_DIR}" _added_idx)
+        if(_added_idx EQUAL -1)
+            list(APPEND _OPS_BLAS_ADDED_DIRS "${TEST_DIR}")
+            list(APPEND _OPS_BLAS_BUILT_TESTS "${TEST_NAME}")
+            add_subdirectory(${TEST_DIR})
+        endif()
     endforeach()
 
     # 生成测试清单，供 build.sh --run 区分 skip / fail

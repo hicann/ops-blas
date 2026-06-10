@@ -17,21 +17,20 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
+#include "fill.h"
 
 struct SscalParam : public BlasTestParamBase {
     int n = 0;
     int incx = 1;
     float alpha = 1.0f;
-    std::string xFill = "INDEX";
-    std::string xDesc;
+    BlasFillMode x = parseFill("RANDOM");
 
     SscalParam(const csv_map& m) : BlasTestParamBase(m)
     {
         n = parseInt(ReadMap(m, "n", "0"));
         incx = parseInt(ReadMap(m, "incx", "1"));
         alpha = parseFloat(ReadMap(m, "alpha", "1.0"));
-        xFill = ReadMap(m, "x_fill", "INDEX");
-        xDesc = ReadMap(m, "x_desc", "");
+        x = parseFill(ReadMap(m, "x", "RANDOM"));
     }
 };
 

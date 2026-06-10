@@ -35,10 +35,35 @@ INSTANTIATE_TEST_SUITE_P(
     Sscal, SscalArch35Test, ::testing::ValuesIn(GetCasesFromCsv<SscalParam>(ReplaceFileExtension2Csv(__FILE__))),
     PrintCaseInfoString<SscalParam>);
 
-static std::vector<float> MakeSscalInput(const SscalParam& p)
+TEST_P(SscalArch35Test, CsvDriven)
 {
-    if (p.incx == 1) {
-        return makeBlasArray(p.n, parseDataFill(p.xFill), p.xDesc, kBlasSentinel, p.randomSeed);
-    }
-    return makeBlasStrided(p.n, p.incx, parseDataFill(p.xFill), p.randomSeed);
+    const auto& p = GetParam();
+
+    std::vector<float> xHost =
+        (p.incx == 1) ? makeBlasArray(p.n, p.x, p.randomSeed)
+                      : makeBlasStrided(p.n, p.incx, p.x, p.randomSeed);
+    float* xPtr = xHost.empty() ? nullptr : xHost.data();
+    float alpha = p.alpha;
+
+    aclblasStatus_t ret = aclblasSscal_npu(SscalArch35Test::handle_, p.n, &alpha, xPtr, p.incx);
+
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
+    if (p.expectResult != ACLBLAS_STATUS_SUCCESS)
+        return;
+
+    if (p.n <= 0)
+        return;
+
+    std::vector<float> goldenX =
+        (p.incx == 1) ? makeBlasArray(p.n, p.x, p.randomSeed)
+                      : makeBlasStrided(p.n, p.incx, p.x, p.randomSeed);
+    aclblasSscal_cpu(SscalArch35Test::handle_, p.n, &alpha, goldenX.data(), p.incx);
+
+    VerifyConfig cfg;
+    cfg.mode = PrecisionMode::COMBINED;
+    cfg.absTol = 1e-5f;
+    cfg.relTol = 1e-5f;
+
+    int absInc = std::abs(p.incx);
+    EXPECT_TRUE(Verifier::verifyVector(xPtr, goldenX.data(), static_cast<size_t>(p.n), static_cast<int64_t>(absInc), cfg, p.caseName));
 }
