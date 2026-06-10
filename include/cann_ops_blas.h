@@ -313,6 +313,9 @@ aclblasStatus_t aclblasSgeqrfBatched(
 
 aclblasStatus_t aclblasSgetrfBatched(
     aclblasHandle_t handle, int n, float* const Aarray[], int lda, int* PivotArray, int* infoArray, int batchSize);
+aclblasStatus_t aclblasSgelsBatched(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, int nrhs, float* const Aarray[], int lda,
+    float* const Carray[], int ldc, int* devInfo, int batchSize);
 
 #ifdef __cplusplus
 }

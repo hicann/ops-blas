@@ -176,3 +176,9 @@ struct SgetrfBatchedTilingData;
 void sgetrf_batched_kernel_do(
     GM_ADDR aarray, GM_ADDR pivotArray, GM_ADDR infoArray,
     const SgetrfBatchedTilingData &tiling, uint32_t numBlocks, void *stream);
+
+struct SgelsBatchedTilingData;
+
+void sgels_decompose_kernel_do(
+    GM_ADDR aArray, GM_ADDR cArray, GM_ADDR workspace, GM_ADDR devInfo,
+    const SgelsBatchedTilingData &tiling, uint32_t numBlocks, void *stream);
