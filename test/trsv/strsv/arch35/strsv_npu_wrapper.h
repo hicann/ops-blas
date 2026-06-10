@@ -22,11 +22,11 @@ inline aclblasStatus_t aclblasStrsv_npu(
     aclblasFillMode_t uplo,
     aclblasOperation_t trans,
     aclblasDiagType_t diag,
-    int64_t n,
+    int n,
     const float* A,
-    int64_t lda,
+    int lda,
     float* x,
-    int64_t incx)
+    int incx)
 {
     return aclblasStrsv(handle, uplo, trans, diag, n, A, lda, x, incx);
 }

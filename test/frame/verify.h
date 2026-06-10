@@ -45,6 +45,15 @@ public:
         std::cout << "[" << caseId << "] Output: " << output << std::endl;
         std::cout << "[" << caseId << "] Golden: " << golden << std::endl;
 
+
+        if (output == golden) {
+            std::cout << "[" << caseId << "] PASSED (exact match)" << std::endl;
+            return true;
+        }
+        if (std::isnan(output) && std::isnan(golden)) {
+            std::cout << "[" << caseId << "] PASSED (both nan)" << std::endl;
+            return true;
+        }
         bool pass = false;
         switch (cfg.mode) {
             case PrecisionMode::ABS:
@@ -94,7 +103,10 @@ private:
 
         size_t failCount = 0;
         for (size_t i = 0; i < count; i++) {
-            float diff = std::abs(output[static_cast<int64_t>(i) * stride] - golden[static_cast<int64_t>(i) * stride]);
+            float outVal = output[static_cast<int64_t>(i) * stride];
+            float goldVal = golden[static_cast<int64_t>(i) * stride];
+            if (std::isnan(outVal) && std::isnan(goldVal)) continue;
+            float diff = std::abs(outVal - goldVal);
             if (diff > absTol) failCount++;
         }
 
@@ -116,6 +128,7 @@ private:
         for (size_t i = 0; i < count; i++) {
             float outVal = output[static_cast<int64_t>(i) * stride];
             float goldVal = golden[static_cast<int64_t>(i) * stride];
+            if (std::isnan(outVal) && std::isnan(goldVal)) continue;
             double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + eps);
             if (relErr > maxRelErr) maxRelErr = relErr;
         }
@@ -138,6 +151,7 @@ private:
         for (size_t i = 0; i < count; i++) {
             float outVal = output[static_cast<int64_t>(i) * stride];
             float goldVal = golden[static_cast<int64_t>(i) * stride];
+            if (std::isnan(outVal) && std::isnan(goldVal)) continue;
             double diff = std::abs(outVal - goldVal);
             double scale = std::abs(goldVal) + 1e-7;
             if (diff > absTol && diff > relTol * scale) failCount++;
@@ -173,6 +187,8 @@ private:
         for (size_t i = 0; i < count; i++) {
             float outVal = output[static_cast<int64_t>(i) * stride];
             float goldVal = golden[static_cast<int64_t>(i) * stride];
+            if (outVal == goldVal) continue;
+            if (std::isnan(outVal) && std::isnan(goldVal)) continue;
             double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + kEpsilon);
             sumRelErr += relErr;
             if (relErr > maxRelErr) maxRelErr = relErr;

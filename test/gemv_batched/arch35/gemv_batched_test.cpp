@@ -39,7 +39,14 @@ static float HalfToFloat(uint16_t h)
     uint32_t sign = (h >> 15) & 1;
     uint32_t exp = (h >> 10) & 0x1F;
     uint32_t mant = h & 0x3FF;
-    uint32_t f = (exp == 0) ? (sign << 31) | (mant << 13) : (sign << 31) | ((exp + 127 - 15) << 23) | (mant << 13);
+    uint32_t f;
+    if (exp == 0) {
+        f = (sign << 31) | (mant << 13);
+    } else if (exp == 31) {
+        f = (sign << 31) | 0x7F800000u | (mant << 13);
+    } else {
+        f = (sign << 31) | ((exp + 127 - 15) << 23) | (mant << 13);
+    }
     float result; memcpy(&result, &f, sizeof(result));
     return result;
 }
