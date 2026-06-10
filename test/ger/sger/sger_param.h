@@ -20,26 +20,26 @@
 struct SgerParam : public BlasTestParamBase {
     int m = 0;
     int n = 0;
-    BlasDataFill alpha = BlasDataFill::RANDOM;
+    BlasFillMode alpha = parseFill("RANDOM");
     float alphaValue = 1.0f;
-    BlasDataFill x = BlasDataFill::INDEX;
+    BlasFillMode x = parseFill("INDEX");
     int incx = 1;
-    BlasDataFill y = BlasDataFill::INDEX;
+    BlasFillMode y = parseFill("INDEX");
     int incy = 1;
-    BlasDataFill A = BlasDataFill::INDEX;
+    BlasFillMode A = parseFill("INDEX");
     int lda = 0;
 
     SgerParam(const csv_map& map) : BlasTestParamBase(map)
     {
         m = parseInt(ReadMap(map, "m", "0"));
         n = parseInt(ReadMap(map, "n", "0"));
-        alpha = parseDataFill(ReadMap(map, "alpha", "RANDOM"));
+        alpha = parseFill(ReadMap(map, "alpha", "RANDOM"));
         alphaValue = parseFloat(ReadMap(map, "alpha_value", "1.0"));
-        x = parseDataFill(ReadMap(map, "x", "RANDOM"));
+        x = parseFill(ReadMap(map, "x", "RANDOM"));
         incx = parseInt(ReadMap(map, "incx", "1"));
-        y = parseDataFill(ReadMap(map, "y", "RANDOM"));
+        y = parseFill(ReadMap(map, "y", "RANDOM"));
         incy = parseInt(ReadMap(map, "incy", "1"));
-        A = parseDataFill(ReadMap(map, "A", "RANDOM"));
+        A = parseFill(ReadMap(map, "A", "RANDOM"));
         lda = parseInt(ReadMap(map, "lda", std::to_string(std::max(1, m))));
     }
 };

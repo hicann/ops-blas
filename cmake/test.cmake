@@ -105,18 +105,25 @@ endfunction()
 function(ops_blas_get_test_target_sources target out_var)
     set(sources "")
     set(root_src ${CMAKE_CURRENT_SOURCE_DIR}/${target}.cpp)
-    if(EXISTS ${root_src})
-        list(APPEND sources ${root_src})
-    endif()
 
+    # Check if any arch directory has a replacement for the root test
+    set(_has_arch_test FALSE)
     foreach(arch_dir ${SOC_ARCH_DIRS})
         set(arch_src ${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}/${target}.cpp)
         if(EXISTS ${arch_src})
             list(APPEND sources ${arch_src})
+            set(_has_arch_test TRUE)
         endif()
         file(GLOB arch_supp_srcs ${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}/${target}_*.cpp)
         list(APPEND sources ${arch_supp_srcs})
     endforeach()
+
+    # Only include root test if no arch-specific replacement exists.
+    # Root tests may use old API conventions (e.g. host pointers) that are
+    # incompatible with arch-specific host implementations (e.g. device pointers).
+    if(NOT _has_arch_test AND EXISTS ${root_src})
+        list(APPEND sources ${root_src})
+    endif()
 
     if(NOT sources)
         message(FATAL_ERROR "No test sources found for target '${target}' in ${CMAKE_CURRENT_SOURCE_DIR}")

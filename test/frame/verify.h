@@ -158,7 +158,13 @@ private:
         // absStride removed — use signed idx with stride directly
         printHead(golden, count, stride, "Golden", caseId);
 
-        constexpr double kEpsilon = 1e-7;
+        // Use FP32 small-value threshold (2^-14) as epsilon to prevent
+        // near-zero golden values from inflating relative error (MERE/MARE).
+        // When |golden| >> 2^-14, epsilon has negligible effect.
+        // When |golden| << 2^-14, epsilon caps the denominator so that
+        // relErr ≈ |diff| / 2^-14, effectively an absolute error guard.
+        // Reference: ops-precision-standard, FP32 Small Value Threshold = 2^-14.
+        constexpr double kEpsilon = 0.00006103515625;  // 2^-14
         double outlierLimit = multiplier * threshold;
         double sumRelErr = 0.0;
         double maxRelErr = 0.0;

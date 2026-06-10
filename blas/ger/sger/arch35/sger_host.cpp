@@ -63,9 +63,9 @@ static SgerTilingData CalSgerTilingData(uint32_t useNumBlocks, int m, int n, int
     uint32_t colsPerBlock = CeilDiv<uint32_t>(static_cast<uint32_t>(n), useNumBlocks);
     tilingData.numThreads = std::min(CeilAlign<uint32_t>(colsPerBlock, SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
     tilingData.colsPerBlock = colsPerBlock;
-    tilingData.m = static_cast<uint64_t>(m);
-    tilingData.n = static_cast<uint64_t>(n);
-    tilingData.lda = static_cast<uint64_t>(lda);
+    tilingData.m = static_cast<uint32_t>(m);
+    tilingData.n = static_cast<uint32_t>(n);
+    tilingData.lda = static_cast<uint32_t>(lda);
     tilingData.alpha = alpha;
     tilingData.incx = incx;
     tilingData.incy = incy;

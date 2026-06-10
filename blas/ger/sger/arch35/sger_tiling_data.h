@@ -16,9 +16,9 @@
 inline constexpr uint64_t UB_X_FLOATS = 16384;
 
 struct SgerTilingData {
-    uint64_t m;             // rows of matrix A
-    uint64_t n;             // columns of matrix A
-    uint64_t lda;           // leading dimension of A (column-major: lda >= max(1, m))
+    uint32_t m;             // rows of matrix A
+    uint32_t n;             // columns of matrix A
+    uint32_t lda;           // leading dimension of A (column-major: lda >= max(1, m))
     uint32_t numThreads;    // threads per block
     uint32_t colsPerBlock;  // columns per block (for UB-x path)
     float    alpha;         // scalar alpha

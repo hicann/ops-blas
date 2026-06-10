@@ -35,35 +35,37 @@ TEST_P(SgerArch35Test, CsvDriven) {
     // Generate host data for all array parameters
     const int64_t absIncX = (p.incx >= 0) ? p.incx : -p.incx;
     const int64_t absIncY = (p.incy >= 0) ? p.incy : -p.incy;
-    std::vector<float> xHost = makeBlasArray(p.m * absIncX, p.x, p.description);
-    std::vector<float> yHost = makeBlasArray(p.n * absIncY, p.y, p.description);
-    std::vector<float> aHost = makeBlasArray(p.lda * p.n, p.A, p.description);
+    std::vector<float> xHost = makeBlasArray(p.m * absIncX, p.x, p.randomSeed);
+    std::vector<float> yHost = makeBlasArray(p.n * absIncY, p.y, p.randomSeed);
+    std::vector<float> aHost = makeBlasArray(p.lda * p.n, p.A, p.randomSeed);
 
     // Set up alpha (scalar pointer)
     float alphaHost = p.alphaValue;
-    const float* alphaPtr = (p.alpha == BlasDataFill::NULLPTR) ? nullptr : &alphaHost;
+    const float* alphaPtr = (p.alpha.method == BlasFillMode::M_NULLPTR) ? nullptr : &alphaHost;
 
     // Map array pointers: empty vector means nullptr for error-path testing
     const float* xPtr = xHost.empty() ? nullptr : xHost.data();
     float* yPtr = yHost.empty() ? nullptr : yHost.data();
     float* aPtr = aHost.empty() ? nullptr : aHost.data();
 
-    // Step 1: Execute on NPU
+    // Step 1: Save original A for golden computation (before kernel modifies aHost)
+    std::vector<float> golden = aHost;
+
+    // Step 2: Execute on NPU
     aclblasStatus_t ret = aclblasSger_npu(
         SgerArch35Test::handle_,
         p.m, p.n, alphaPtr, xPtr, p.incx, yPtr, p.incy, aPtr, p.lda);
 
-    // Step 2: Check return code
+    // Step 3: Check return code
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS) return;
 
-    // Step 3: Compute golden on CPU
-    std::vector<float> golden = aHost; // copy original A
+    // Step 4: Compute golden on CPU (golden = original_A + alpha * x * y^T)
     aclblasSger_cpu(
         SgerArch35Test::handle_,
         p.m, p.n, alphaPtr, xPtr, p.incx, yPtr, p.incy, golden.data(), p.lda);
 
-    // Step 4: Verify precision
+    // Step 5: Verify precision
     VerifyConfig cfg;
     if (p.alphaValue == 0.0f) {
         // alpha=0: A should remain unchanged (bit-exact)

@@ -19,7 +19,7 @@
 // Each thread handles multiple columns via grid-stride loop;
 // inner loop iterates over all rows of a column (sequential access in column-major).
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgerGm(
-    uint64_t m, uint64_t n, uint64_t lda, float alpha, int incx, int incy, __gm__ const float* xGm,
+    uint32_t m, uint32_t n, uint32_t lda, float alpha, int incx, int incy, __gm__ const float* xGm,
     __gm__ const float* yGm, __gm__ float* aGm)
 {
     for (uint64_t col = blockIdx.x * blockDim.x + threadIdx.x; col < n; col += gridDim.x * blockDim.x) {
@@ -45,8 +45,8 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgerGm(
 // Precondition: incx == 1 (guaranteed by the dispatcher).
 // Each thread handles columns in [colStart, colEnd) with block-internal stride.
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgerUbX(
-    uint64_t m, uint64_t n, uint64_t lda, float alpha, int incy, __gm__ const float* xGm, __gm__ const float* yGm,
-    __gm__ float* aGm, uint64_t colStart, uint64_t colEnd)
+    uint32_t m, uint32_t n, uint32_t lda, float alpha, int incy, __gm__ const float* xGm, __gm__ const float* yGm,
+    __gm__ float* aGm, uint32_t colStart, uint32_t colEnd)
 {
     __ubuf__ float xUb[UB_X_FLOATS];
 
