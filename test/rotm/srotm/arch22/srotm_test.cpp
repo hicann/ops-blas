@@ -39,8 +39,7 @@ TEST_P(SrotmArch22Test, CsvDriven) {
 
     aclblasStatus_t ret = aclblasSrotm_npu(
         SrotmArch22Test::handle_,
-        resultX.data(), resultY.data(), sparam.data(),
-        p.n, p.incx, p.incy);
+        p.n, resultX.data(), p.incx, resultY.data(), p.incy, sparam.data());
 
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS) {
         EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
@@ -50,8 +49,7 @@ TEST_P(SrotmArch22Test, CsvDriven) {
 
     aclblasSrotm_cpu(
         SrotmArch22Test::handle_,
-        goldenX.data(), goldenY.data(), sparam.data(),
-        p.n, p.incx, p.incy);
+        p.n, goldenX.data(), p.incx, goldenY.data(), p.incy, sparam.data());
 
     VerifyConfig cfg;
     cfg.mode = PrecisionMode::MERE_MARE;

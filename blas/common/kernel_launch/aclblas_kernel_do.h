@@ -182,3 +182,5 @@ struct SgelsBatchedTilingData;
 void sgels_decompose_kernel_do(
     GM_ADDR aArray, GM_ADDR cArray, GM_ADDR workspace, GM_ADDR devInfo,
     const SgelsBatchedTilingData &tiling, uint32_t numBlocks, void *stream);
+void srotm_kernel_do_arch35(
+    GM_ADDR x, GM_ADDR y, const SrotmTilingData& tilingData, uint32_t numBlocks, void *stream);

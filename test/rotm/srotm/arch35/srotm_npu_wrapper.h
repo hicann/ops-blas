@@ -8,32 +8,26 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SROTM_NPU_WRAPPER_H
-#define SROTM_NPU_WRAPPER_H
+#ifndef SROTM_NPU_H
+#define SROTM_NPU_H
 
 #include <cstdint>
-#include <memory>
-#include <vector>
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
 inline aclblasStatus_t aclblasSrotm_npu(
-    aclblasHandle_t handle,
-    int64_t n, float* x, int64_t incx,
-    float* y, int64_t incy, const float* sparam)
+    aclblasHandle_t handle, int n,
+    float* x, int incx, float* y, int incy, const float* param)
 {
     if (handle == nullptr || n <= 0) {
-        return aclblasSrotm(handle, n, x, incx, y, incy, sparam);
+        return aclblasSrotm(handle, n, x, incx, y, incy, param);
     }
 
-    auto vecBytes = [](int64_t cnt, int64_t step) {
-        int64_t absStep = (step < 0) ? -step : step;
-        return (cnt > 0) ? static_cast<size_t>((cnt - 1) * absStep + 1) * sizeof(float) : sizeof(float);
-    };
-
-    const size_t xBytes = vecBytes(n, incx);
-    const size_t yBytes = vecBytes(n, incy);
+    const int absIncx = std::abs(incx);
+    const int absIncy = std::abs(incy);
+    const size_t xBytes = static_cast<size_t>((n - 1) * absIncx + 1) * sizeof(float);
+    const size_t yBytes = static_cast<size_t>((n - 1) * absIncy + 1) * sizeof(float);
 
     void* dX = nullptr;
     void* dY = nullptr;
@@ -45,31 +39,30 @@ inline aclblasStatus_t aclblasSrotm_npu(
         aclRet = aclrtMemcpy(dX, xBytes, x, xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
         if (aclRet != ACL_SUCCESS) { aclrtFree(dX); return ACLBLAS_STATUS_INTERNAL_ERROR; }
     }
-
     if (y != nullptr) {
         aclRet = aclrtMalloc(&dY, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
         if (aclRet != ACL_SUCCESS) { if (dX) aclrtFree(dX); return ACLBLAS_STATUS_ALLOC_FAILED; }
         aclRet = aclrtMemcpy(dY, yBytes, y, yBytes, ACL_MEMCPY_HOST_TO_DEVICE);
-        if (aclRet != ACL_SUCCESS) { if (dX) aclrtFree(dX); aclrtFree(dY); return ACLBLAS_STATUS_INTERNAL_ERROR; }
+        if (aclRet != ACL_SUCCESS) { aclrtFree(dX); aclrtFree(dY); return ACLBLAS_STATUS_INTERNAL_ERROR; }
     }
 
-    aclblasStatus_t ret = aclblasSrotm(handle,
-        n, static_cast<float*>(dX), incx,
-        static_cast<float*>(dY), incy, sparam);
+    aclblasStatus_t ret = aclblasSrotm(
+        handle, n,
+        static_cast<float*>(dX), incx,
+        static_cast<float*>(dY), incy, param);
 
-    aclrtSynchronizeDevice();
-
-    if (x != nullptr) {
-        aclrtMemcpy(x, xBytes, dX, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
-    }
-    if (y != nullptr) {
-        aclrtMemcpy(y, yBytes, dY, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    if (ret == ACLBLAS_STATUS_SUCCESS) {
+        if (x != nullptr && dX != nullptr) {
+            aclrtMemcpy(x, xBytes, dX, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        }
+        if (y != nullptr && dY != nullptr) {
+            aclrtMemcpy(y, yBytes, dY, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        }
     }
 
     if (dX) aclrtFree(dX);
     if (dY) aclrtFree(dY);
-
     return ret;
 }
 
-#endif // SROTM_NPU_WRAPPER_H
+#endif // SROTM_NPU_H

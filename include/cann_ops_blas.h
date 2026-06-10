@@ -299,8 +299,7 @@ aclblasStatus_t aclblasStrttp(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* A, int lda, float* AP);
 
 aclblasStatus_t aclblasSrotm(
-    aclblasHandle handle, float* x, float* y, const float* sparam, const int64_t n, const int64_t incx,
-    const int64_t incy);
+    aclblasHandle_t handle, int n, float *x, int incx, float *y, int incy, const float *param);
 
 aclblasStatus_t aclblasSgemv(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A, int lda,

@@ -127,8 +127,7 @@ static aclblasStatus_t LaunchSrotmKernel(
 }
 
 aclblasStatus_t aclblasSrotm(
-    aclblasHandle handle, float *x, float *y, const float *sparam, const int64_t n, const int64_t incx,
-    const int64_t incy)
+    aclblasHandle_t handle, int n, float *x, int incx, float *y, int incy, const float *sparam)
 {
     aclblasStatus_t status = CheckSrotmParams(handle, x, y, sparam, n, incx, incy);
     if (status != ACLBLAS_STATUS_SUCCESS) {

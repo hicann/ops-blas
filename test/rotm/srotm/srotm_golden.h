@@ -20,8 +20,8 @@
 
 inline aclblasStatus_t aclblasSrotm_cpu(
     aclblasHandle_t handle,
-    float* x, float* y, const float* sparam,
-    int64_t n, int64_t incx, int64_t incy)
+    int64_t n, float* x, int64_t incx,
+    float* y, int64_t incy, const float* sparam)
 {
     if (handle == nullptr) return ACLBLAS_STATUS_NOT_INITIALIZED;
     if (x == nullptr || y == nullptr || sparam == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
