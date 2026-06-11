@@ -10,7 +10,8 @@
 
 /*!
  * \file integral_constant.h
- * \brief Minimal integral-constant aliases used by device-side template code.
+ * \brief AscendC memory constant backfills for host-side kernel compilation.
+ *
  */
 
 #pragma once
@@ -21,17 +22,9 @@
 #endif
 
 namespace AscendC {
-namespace Std {
-template <typename...>
-struct always_false : public false_type {
-};
-
-template <typename... Tp>
-constexpr bool always_false_v = always_false<Tp...>::value;
-} // namespace Std
+#if ASC_DEVKIT_MAJOR >= 9
+#if !defined(__NPU_ARCH__)
+constexpr uint32_t TOTAL_L0C_SIZE = 256 * 1024;
+#endif
+#endif
 } // namespace AscendC
-
-template <int32_t t>
-using Int = AscendC::Std::integral_constant<int32_t, t>;
-
-using _0 = Int<0>;

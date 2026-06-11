@@ -23,8 +23,6 @@
 #endif
 #include "lib/matmul_intf.h"
 
-#include "integral_constant.h"
-
 constexpr static uint16_t TWO_ALIGN = 2;
 constexpr static uint64_t DOUBLE_BUFFER_COUNT = 2;
 constexpr static int64_t L1_SIZE = 512 * 1024;
@@ -35,13 +33,6 @@ constexpr static uint16_t ZERO_FLAG = 0;
 constexpr static uint16_t FIRST_FLAG = 1;
 constexpr static int64_t B16_C0_SIZE = 16;
 constexpr static int64_t B32_C0_SIZE = 8;
-
-template <typename...>
-struct always_false : public AscendC::Std::false_type {
-};
-
-template <typename... Tp>
-constexpr bool always_false_v = always_false<Tp...>::value;
 
 template <typename T>
 __aicore__ inline constexpr bool IsFp4()

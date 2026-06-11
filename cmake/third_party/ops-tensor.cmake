@@ -12,7 +12,7 @@ if(NOT DEFINED CANN_3RD_LIB_PATH)
   set(CANN_3RD_LIB_PATH "${CMAKE_BINARY_DIR}/third_party")
 endif()
 
-set(OPTENSOR_TAG_ID f580309dd56be050fd0d3d6489e37d994608e4a0)
+set(OPTENSOR_TAG_ID 565458d2e4072952339f02037667bcd7e3cee421)
 
 if(EXISTS "${CANN_3RD_LIB_PATH}/ops-tensor")
   get_filename_component(OPTENSOR_SOURCE_PATH ${CANN_3RD_LIB_PATH}/ops-tensor REALPATH)
@@ -32,7 +32,7 @@ else()
 
   FetchContent_Declare(
     ops-tensor
-    GIT_REPOSITORY https://gitcode.com/wangzitao_leo/ops-tensor.git
+    GIT_REPOSITORY https://gitcode.com/cann/ops-tensor.git
     GIT_TAG ${OPTENSOR_TAG_ID}
     GIT_PROGRESS TRUE
     SOURCE_DIR ${CANN_3RD_LIB_PATH}/ops-tensor)
@@ -50,3 +50,12 @@ if(NOT EXISTS "${OPTENSOR_INCLUDE_DIR}/tensor_api" AND NOT EXISTS "${OPTENSOR_IN
       "ops-tensor headers not found: expected tensor_api/ or blaze/ under ${OPTENSOR_INCLUDE_DIR}. "
       "Set sibling clone at ../ops-tensor or ensure FetchContent succeeded.")
 endif()
+
+# Apply local compatibility patches to the fetched ops-tensor headers:
+include("${CMAKE_CURRENT_LIST_DIR}/../patches/ops-tensor/patch.cmake")
+# CANN exposes GetTaskRatio(), the legacy typo GetTaskRation() only available
+# as an impl alias when __NPU_ARCH__ is set.
+ops_blas_patch_ops_tensor_get_task_ratio("${OPTENSOR_SOURCE_PATH}")
+# bisheng AICore compiler rejects class members whose types are deduced
+# from AscendC::Te::MakeMemPtr/MakeTensor, the patch uses stack-local tensors instead.
+ops_blas_patch_ops_tensor_block_mmad_mx("${OPTENSOR_SOURCE_PATH}")

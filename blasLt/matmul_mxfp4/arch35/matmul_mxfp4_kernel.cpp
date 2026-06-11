@@ -17,6 +17,8 @@
 
 #include <cstdint>
 
+#include "adv_api/matmul/matmul.h"
+#include "integral_constant.h"
 #include "blaze/block/block_mmad_mx.h"
 #include "blaze/block/block_scheduler_qbmm.h"
 #include "blaze/epilogue/block_epilogue_empty.h"
