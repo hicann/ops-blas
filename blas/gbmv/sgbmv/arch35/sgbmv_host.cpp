@@ -140,7 +140,9 @@ aclblasStatus_t aclblasSgbmv(
         aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     sgbmv_kernel_do(
-        (GM_ADDR) const_cast<float*>(A), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice,
+        reinterpret_cast<uint8_t*>(const_cast<float*>(A)),
+        reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice,
         useNumBlocks, h->stream);
 
     aclRet = aclrtSynchronizeStream(h->stream);

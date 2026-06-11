@@ -87,7 +87,7 @@ aclblasStatus_t aclblasSsyr(
         aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     ssyr_kernel_do(
-        reinterpret_cast<GM_ADDR>(const_cast<float*>(x)), reinterpret_cast<GM_ADDR>(A), workSpaceDevice, tilingDevice,
+        reinterpret_cast<uint8_t*>(const_cast<float*>(x)), reinterpret_cast<uint8_t*>(A), workSpaceDevice, tilingDevice,
         vecCoreNum, useStream);
 
     aclRet = aclrtSynchronizeStream(useStream);

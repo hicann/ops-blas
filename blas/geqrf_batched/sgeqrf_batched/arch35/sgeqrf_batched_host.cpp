@@ -105,8 +105,8 @@ static aclblasStatus_t LaunchGeqrfBatchedKernel(
     }
 
     sgeqrf_batched_kernel_do(
-        reinterpret_cast<GM_ADDR>(const_cast<float**>(Aarray)),
-        reinterpret_cast<GM_ADDR>(const_cast<float**>(TauArray)), static_cast<GM_ADDR>(tilingDevice),
+        reinterpret_cast<uint8_t*>(const_cast<float**>(Aarray)),
+        reinterpret_cast<uint8_t*>(const_cast<float**>(TauArray)), static_cast<uint8_t*>(tilingDevice),
         tiling.usedCoreNum, stream);
 
     aclError syncRet = aclrtSynchronizeStream(stream);

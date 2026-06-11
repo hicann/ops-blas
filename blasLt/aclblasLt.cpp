@@ -27,7 +27,7 @@
 #include "matmul_mxfp4_host.h"
 #include "matrix_transform_acl_impl.h"
 
-#define GM_ADDR uint8_t*
+#include <cstdint>
 
 namespace {
 
@@ -1341,9 +1341,9 @@ aclblasStatus_t aclblasLtMatmul(
             m, n, k, transA, transB, static_cast<uint32_t>(ALayout->ld), static_cast<uint32_t>(BLayout->ld), numBlocks,
             fp32Tiling);
         matmul_fp32_kernel_do(
-            static_cast<GM_ADDR>(const_cast<void*>(A)),
-            static_cast<GM_ADDR>(const_cast<void*>(B)),
-            static_cast<GM_ADDR>(dRawAddr),
+            static_cast<uint8_t*>(const_cast<void*>(A)),
+            static_cast<uint8_t*>(const_cast<void*>(B)),
+            static_cast<uint8_t*>(dRawAddr),
             fp32Tiling, numBlocks, stream);
     } else if (IsMxfp8Type(dtypeA) && IsMxfp8Type(dtypeB)) {
         void* scaleA = const_cast<void*>(desc->scaleA);
@@ -1354,11 +1354,11 @@ aclblasStatus_t aclblasLtMatmul(
         QuantMatmulTilingData mxfp8Tiling;
         matmul_mxfp8_get_tiling(m, n, k, transA, transB, numBlocks, mxfp8Tiling);
         matmul_mxfp8_kernel_do(
-            static_cast<GM_ADDR>(const_cast<void*>(A)),
-            static_cast<GM_ADDR>(const_cast<void*>(B)),
-            static_cast<GM_ADDR>(scaleA),
-            static_cast<GM_ADDR>(scaleB),
-            static_cast<GM_ADDR>(dRawAddr),
+            static_cast<uint8_t*>(const_cast<void*>(A)),
+            static_cast<uint8_t*>(const_cast<void*>(B)),
+            static_cast<uint8_t*>(scaleA),
+            static_cast<uint8_t*>(scaleB),
+            static_cast<uint8_t*>(dRawAddr),
             mxfp8Tiling, transA, transB, stream);
     } else if (IsMxfp4Type(dtypeA) && IsMxfp4Type(dtypeB)) {
         void* scaleA = const_cast<void*>(desc->scaleA);
@@ -1369,11 +1369,11 @@ aclblasStatus_t aclblasLtMatmul(
         QuantMatmulTilingData mxfp4Tiling;
         matmul_mxfp4_get_tiling(m, n, k, transA, transB, numBlocks, mxfp4Tiling);
         ltmatmul_mxfp4_kernel_do(
-            static_cast<GM_ADDR>(const_cast<void*>(A)),
-            static_cast<GM_ADDR>(const_cast<void*>(B)),
-            static_cast<GM_ADDR>(scaleA),
-            static_cast<GM_ADDR>(scaleB),
-            static_cast<GM_ADDR>(dRawAddr),
+            static_cast<uint8_t*>(const_cast<void*>(A)),
+            static_cast<uint8_t*>(const_cast<void*>(B)),
+            static_cast<uint8_t*>(scaleA),
+            static_cast<uint8_t*>(scaleB),
+            static_cast<uint8_t*>(dRawAddr),
             mxfp4Tiling, dtypeA, dtypeB, dtypeD, transA, transB, stream);
     } else {
         return ACLBLAS_STATUS_NOT_SUPPORTED;

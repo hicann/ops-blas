@@ -75,9 +75,9 @@ aclblasStatus_t aclblasSsyr2(aclblasHandle handle,
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    ssyr2_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(x)),
-                    reinterpret_cast<GM_ADDR>(const_cast<float*>(y)),
-                    reinterpret_cast<GM_ADDR>(A),
+    ssyr2_kernel_do(reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+                    reinterpret_cast<uint8_t*>(const_cast<float*>(y)),
+                    reinterpret_cast<uint8_t*>(A),
                     workSpaceDevice, tilingDevice, vecCoreNum, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(

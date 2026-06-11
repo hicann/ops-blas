@@ -156,7 +156,9 @@ aclblasStatus_t aclblasSgemv(
 
     // Launch kernel
     sgemv_kernel_do(
-        (GM_ADDR) const_cast<float*>(a), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice,
+        reinterpret_cast<uint8_t*>(const_cast<float*>(a)),
+        reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice,
         useNumBlocks, h->stream);
 
     // Synchronize and cleanup
@@ -165,8 +167,7 @@ aclblasStatus_t aclblasSgemv(
         aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgemv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
         aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    aclError freeRet = aclrtFree(tilingDevice);
-    (void)freeRet;
+    (void)aclrtFree(tilingDevice);
     tilingDevice = nullptr;
 
     return ACLBLAS_STATUS_SUCCESS;

@@ -95,7 +95,9 @@ static aclblasStatus_t LaunchSgerKernel(
         "aclblasSger", "launching kernel: blocks=%u, cores=%u, path=%s", useNumBlocks, aivCoreNum,
         (incx == 1 && static_cast<uint64_t>(m) <= UB_X_FLOATS) ? "UB-x" : "GM");
     sger_arch35_kernel_do(
-        (GM_ADDR) const_cast<float*>(x), (GM_ADDR) const_cast<float*>(y), (GM_ADDR)A, tiling, useNumBlocks, h->stream);
+        reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(const_cast<float*>(y)),
+        reinterpret_cast<uint8_t*>(A), tiling, useNumBlocks, h->stream);
     return ACLBLAS_STATUS_SUCCESS;
 }
 

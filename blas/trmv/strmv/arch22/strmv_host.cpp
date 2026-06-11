@@ -124,7 +124,10 @@ aclblasStatus_t aclblasStrmv(
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     strmv_kernel_do(
-        (GM_ADDR)const_cast<float*>(A), (GM_ADDR)x, uploDevice, (GM_ADDR)x, wkspDevice, workSpaceDevice, tilingDevice,
+        reinterpret_cast<uint8_t*>(const_cast<float*>(A)),
+        reinterpret_cast<uint8_t*>(x), uploDevice,
+        reinterpret_cast<uint8_t*>(x), wkspDevice,
+        workSpaceDevice, tilingDevice,
         numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(

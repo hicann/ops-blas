@@ -111,8 +111,8 @@ aclblasStatus_t aclblasSdot(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    sdot_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(x)), reinterpret_cast<GM_ADDR>(const_cast<float*>(y)),
-                   reinterpret_cast<GM_ADDR>(result), workspaceDevice, tilingDevice, numBlocks, useStream);
+    sdot_kernel_do(reinterpret_cast<uint8_t*>(const_cast<float*>(x)), reinterpret_cast<uint8_t*>(const_cast<float*>(y)),
+                   reinterpret_cast<uint8_t*>(result), workspaceDevice, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);

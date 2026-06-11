@@ -129,8 +129,8 @@ aclblasStatus_t aclblasSgetrfBatched(
     OP_LOGI("aclblasSgetrfBatched", "launching kernel: blocks=%u, cores=%u", usedCoreNum, coreNum);
 
     sgetrf_batched_kernel_do(
-        reinterpret_cast<GM_ADDR>(const_cast<float**>(Aarray)), reinterpret_cast<GM_ADDR>(PivotArray),
-        reinterpret_cast<GM_ADDR>(infoArray), tiling, usedCoreNum, h->stream);
+        reinterpret_cast<uint8_t*>(const_cast<float**>(Aarray)), reinterpret_cast<uint8_t*>(PivotArray),
+        reinterpret_cast<uint8_t*>(infoArray), tiling, usedCoreNum, h->stream);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

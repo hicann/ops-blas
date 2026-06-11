@@ -102,7 +102,9 @@ aclblasStatus_t aclblasSsyr2(
     OP_LOGI("aclblasSsyr2", "launching kernel: blocks=%u, cores=%u", useNumBlocks, aivCoreNum);
 
     syr2_kernel_do(
-        (GM_ADDR) const_cast<float*>(x), (GM_ADDR) const_cast<float*>(y), (GM_ADDR)A, tiling, useNumBlocks, h->stream);
+        reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(const_cast<float*>(y)),
+        reinterpret_cast<uint8_t*>(A), tiling, useNumBlocks, h->stream);
 
     aclError aclRet = aclrtSynchronizeStream(h->stream);
     CHECK_RET(

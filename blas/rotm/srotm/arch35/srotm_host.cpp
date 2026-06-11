@@ -96,7 +96,7 @@ aclblasStatus_t aclblasSrotm(
     SrotmTilingData tilingData;
     BuildTilingData(n, incx, incy, param, numBlocks, tilingData);
 
-    srotm_kernel_do_arch35(reinterpret_cast<GM_ADDR>(x), reinterpret_cast<GM_ADDR>(y),
+    srotm_kernel_do_arch35(reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y),
                     tilingData, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(aclRet == ACL_SUCCESS,

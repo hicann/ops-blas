@@ -163,7 +163,7 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
         "aclblasSscal", "tiling: n=%d incx=%d numBlocks=%u alpha=%.6f", n, incx, numBlocks,
         static_cast<double>(*alpha));
 
-    sscal_kernel_do(reinterpret_cast<GM_ADDR>(x), nullptr, tiling, numBlocks, h->stream);
+    sscal_kernel_do(reinterpret_cast<uint8_t*>(x), nullptr, tiling, numBlocks, h->stream);
 
     aclError aclRet = aclrtSynchronizeStream(h->stream);
     if (aclRet != ACL_SUCCESS) {

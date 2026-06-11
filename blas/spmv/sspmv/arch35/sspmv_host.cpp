@@ -126,7 +126,9 @@ aclblasStatus_t aclblasSspmv(
         aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
     // 10. launch kernel
     sspmv_kernel_do(
-        (GM_ADDR) const_cast<float*>(ap), (GM_ADDR) const_cast<float*>(x), (GM_ADDR)y, nullptr, tilingDevice,
+        reinterpret_cast<uint8_t*>(const_cast<float*>(ap)),
+        reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice,
         useNumBlocks, useStream);
     // 11. synchronize stream
     aclRet = aclrtSynchronizeStream(useStream);

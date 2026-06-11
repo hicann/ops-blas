@@ -144,8 +144,8 @@ static aclblasStatus_t LaunchGelsKernel(
         tiling.numThreads);
 
     sgels_decompose_kernel_do(
-        reinterpret_cast<GM_ADDR>(const_cast<float**>(aArray)), reinterpret_cast<GM_ADDR>(const_cast<float**>(cArray)),
-        reinterpret_cast<GM_ADDR>(workspace), reinterpret_cast<GM_ADDR>(devInfo), tiling, tiling.usedCoreNum, stream);
+        reinterpret_cast<uint8_t*>(const_cast<float**>(aArray)), reinterpret_cast<uint8_t*>(const_cast<float**>(cArray)),
+        reinterpret_cast<uint8_t*>(workspace), reinterpret_cast<uint8_t*>(devInfo), tiling, tiling.usedCoreNum, stream);
 
     aclRet = aclrtSynchronizeStream(stream);
     aclrtFree(workspace);

@@ -84,7 +84,9 @@ aclblasStatus_t aclblasStrsv(
         tiling.trans, tiling.diag, tiling.incx, tiling.lda, tiling.numThreads);
     OP_LOGI("aclblasStrsv", "launching kernel");
 
-    strsv_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(A)), reinterpret_cast<GM_ADDR>(x), tiling, h->stream);
+    strsv_kernel_do(
+        reinterpret_cast<uint8_t*>(const_cast<float*>(A)),
+        reinterpret_cast<uint8_t*>(x), tiling, h->stream);
 
     aclError aclRet = aclrtSynchronizeStream(h->stream);
     CHECK_RET(

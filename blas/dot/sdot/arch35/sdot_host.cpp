@@ -129,8 +129,8 @@ static aclblasStatus_t LaunchSdotKernel(
     OP_LOGI("aclblasSdot", "launching kernel with %u cores", tiling.useCoreNum);
 
     sdot_kernel_do(
-        reinterpret_cast<GM_ADDR>(const_cast<float*>(x)), reinterpret_cast<GM_ADDR>(const_cast<float*>(y)),
-        reinterpret_cast<GM_ADDR>(result), workspaceDevice, tilingDevice, tiling.useCoreNum, stream);
+        reinterpret_cast<uint8_t*>(const_cast<float*>(x)), reinterpret_cast<uint8_t*>(const_cast<float*>(y)),
+        reinterpret_cast<uint8_t*>(result), workspaceDevice, tilingDevice, tiling.useCoreNum, stream);
 
     aclRet = aclrtSynchronizeStream(stream);
     if (aclRet != ACL_SUCCESS) {

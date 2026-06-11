@@ -15,10 +15,8 @@
 #include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
 
-#define GM_ADDR uint8_t*
-
 void strsv_kernel_do(
-    GM_ADDR A, GM_ADDR x, GM_ADDR tilingGm, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag,
+    uint8_t* A, uint8_t* x, uint8_t* tilingGm, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag,
     int n, int lda, uint32_t numBlocks, void* stream);
 
 constexpr uint32_t MAX_CORE_NUM = 40;

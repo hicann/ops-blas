@@ -26,9 +26,10 @@
 #include "common/kernel_launch/aclblas_kernel_do.h"
 
 void stpmv_arch35_kernel_do(
-    GM_ADDR aP, GM_ADDR x, GM_ADDR y, const StpmvTilingData& tiling, uint32_t numBlocks, void* stream);
+    uint8_t* aP, uint8_t* x, uint8_t* y, const StpmvTilingData& tiling, uint32_t numBlocks, void* stream);
 
-void stpmv_arch35_scatter_do(GM_ADDR dst, GM_ADDR src, const StpmvTilingData& tiling, uint32_t numBlocks, void* stream);
+void stpmv_arch35_scatter_do(
+    uint8_t* dst, uint8_t* src, const StpmvTilingData& tiling, uint32_t numBlocks, void* stream);
 
 static aclblasStatus_t ValidateStpmvParams(
     aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, const float* AP, float* x, int incx)
@@ -93,7 +94,7 @@ static aclblasStatus_t ExecuteKernel(
     const float* AP, float* x, uint8_t* workspace, const StpmvTilingData& tiling, uint32_t numBlocks, void* stream)
 {
     stpmv_arch35_kernel_do(
-        reinterpret_cast<GM_ADDR>(const_cast<float*>(AP)), reinterpret_cast<GM_ADDR>(x), workspace, tiling, numBlocks,
+        reinterpret_cast<uint8_t*>(const_cast<float*>(AP)), reinterpret_cast<uint8_t*>(x), workspace, tiling, numBlocks,
         stream);
 
     aclError aclRet = aclrtSynchronizeStream(stream);
@@ -113,7 +114,7 @@ static aclblasStatus_t WriteBackResult(
             aclRet == ACL_SUCCESS, OP_LOGE("aclblasStpmv", "aclrtMemcpy D2D (workspace->x) failed, ret=%d", aclRet);
             return ACLBLAS_STATUS_INTERNAL_ERROR);
     } else {
-        stpmv_arch35_scatter_do(reinterpret_cast<GM_ADDR>(x), workspace, tiling, numBlocks, stream);
+        stpmv_arch35_scatter_do(reinterpret_cast<uint8_t*>(x), workspace, tiling, numBlocks, stream);
         aclError aclRet = aclrtSynchronizeStream(stream);
         CHECK_RET(
             aclRet == ACL_SUCCESS, OP_LOGE("aclblasStpmv", "scatter sync failed, ret=%d", aclRet);

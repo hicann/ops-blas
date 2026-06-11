@@ -147,9 +147,9 @@ static aclblasStatus_t SasumExecuteKernel(const float* x, float* result, int inc
     }
 
     OP_LOGI("aclblasSasum", "launching kernel: blocks=%u", numBlocks);
-    sasum_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(x)),
-                    reinterpret_cast<GM_ADDR>(result),
-                    reinterpret_cast<GM_ADDR>(workspaceDevice),
+    sasum_kernel_do(reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+                    reinterpret_cast<uint8_t*>(result),
+                    reinterpret_cast<uint8_t*>(workspaceDevice),
                     tiling, numBlocks, stream);
 
     aclError aclRet = aclrtSynchronizeStream(stream);

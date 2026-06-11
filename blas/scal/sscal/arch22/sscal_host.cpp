@@ -124,7 +124,7 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    sscal_kernel_do((GM_ADDR)x, nullptr, tilingDevice, numBlocks, useStream);
+    sscal_kernel_do(reinterpret_cast<uint8_t*>(x), nullptr, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);

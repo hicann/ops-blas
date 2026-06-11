@@ -117,7 +117,7 @@ aclblasStatus_t aclblasSswap(aclblasHandle_t handle, int n, float* x, int incx, 
     }
 
     sswap_kernel_do(
-        reinterpret_cast<GM_ADDR>(x), reinterpret_cast<GM_ADDR>(y), nullptr, tilingDevice, numBlocks, useStream);
+        reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice, numBlocks, useStream);
 
     aclrtFree(tilingDevice);
 

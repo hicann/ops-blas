@@ -98,7 +98,9 @@ aclblasStatus_t aclblasSsyr(
         tiling.lda, tiling.uplo, tiling.incx, tiling.numThreads, tiling.rowsPerBlock, useNumBlocks);
     OP_LOGI("aclblasSsyr", "launching kernel: blocks=%u, cores=%u", useNumBlocks, aivCoreNum);
 
-    syr_kernel_do((GM_ADDR) const_cast<float*>(x), (GM_ADDR)A, tiling, useNumBlocks, stream);
+    syr_kernel_do(
+        reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(A), tiling, useNumBlocks, stream);
 
     aclError aclRet = aclrtSynchronizeStream(stream);
     CHECK_RET(

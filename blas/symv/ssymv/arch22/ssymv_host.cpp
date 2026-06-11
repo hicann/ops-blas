@@ -19,10 +19,9 @@
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
 
-#define GM_ADDR uint8_t*
-
 extern void symv_kernel_do(
-    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR z, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream);
+    uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* z, uint8_t* workSpace, uint8_t* tilingGm,
+    uint32_t numBlocks, void* stream);
 
 constexpr uint32_t SYMV_MAX_CORE_NUM = 50;
 constexpr uint32_t SYMV_TILE_SIZE = 128;
