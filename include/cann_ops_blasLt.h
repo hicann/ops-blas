@@ -49,6 +49,15 @@ typedef struct {
 typedef aclblasLtMatmulDescOpaque_t* aclblasLtMatmulDesc_t;
 
 /*! \ingroup types_module
+ *  \brief Descriptor of the matrix transform operation.
+ */
+typedef struct {
+  uint64_t data[8];
+} aclblasLtMatrixTransformDescOpaque_t;
+
+typedef aclblasLtMatrixTransformDescOpaque_t* aclblasLtMatrixTransformDesc_t;
+
+/*! \ingroup types_module
  *  \brief Descriptor of the matmul preference.
  */
 typedef struct {
@@ -88,6 +97,9 @@ typedef struct _aclblasLtMatmulHeuristicResult_t {
 typedef enum aclblasLtOrder {
   ACLBLASLT_ORDER_COL = 0, /**< Column major */
   ACLBLASLT_ORDER_ROW = 1, /**< Row major */
+  ACLBLASLT_ORDER_COL32 = 2,        /**< 32-column composite tiles, column major within each tile. */
+  ACLBLASLT_ORDER_COL4_4R2_8C = 3,  /**< 32-column 8-row composite quantization tiles. */
+  ACLBLASLT_ORDER_COL32_2R_4R4 = 4, /**< 32-column 32-row composite quantization tiles. */
 } aclblasLtOrder_t;
 
 /*! \ingroup types_module
@@ -169,6 +181,16 @@ typedef enum aclblasLtMatmulDescAttribute {
   ACLBLASLT_MATMUL_DESC_EPILOGUE_ACT_ARG1_EXT = 103,              /**<Second extra argument for the activation function. Data type: ``float``. */
   ACLBLASLT_MATMUL_DESC_MAX,
 } aclblasLtMatmulDescAttribute_t;
+
+/*! \ingroup types_module
+ *  \brief Matrix transform descriptor attributes.
+ */
+typedef enum aclblasLtMatrixTransformDescAttribute {
+  ACLBLASLT_MATRIX_TRANSFORM_DESC_SCALE_TYPE = 0,   /**<Scale (compute) data type. Set at create time. Data type: ``int32_t`` based on ``aclDataType``. */
+  ACLBLASLT_MATRIX_TRANSFORM_DESC_POINTER_MODE = 1, /**<Pointer mode for alpha / beta. Default host. Data type: ``int32_t``. */
+  ACLBLASLT_MATRIX_TRANSFORM_DESC_TRANSA = 2,       /**<Transform operation on matrix A. Default ``ACLBLAS_OP_N``. See ``aclblasOperation_t``. Data type: ``int32_t``. */
+  ACLBLASLT_MATRIX_TRANSFORM_DESC_TRANSB = 3,       /**<Transform operation on matrix B. Default ``ACLBLAS_OP_N``. See ``aclblasOperation_t``. Data type: ``int32_t``. */
+} aclblasLtMatrixTransformDescAttribute_t;
 
 /*! \ingroup types_module
  *  \brief Matmul preference attributes.
@@ -628,6 +650,85 @@ aclblasStatus_t aclblasLtMatmul(aclblasLtHandle_t lightHandle,
                                 void* workspace,
                                 size_t workspaceSizeInBytes,
                                 aclrtStream stream);
+
+/*! \ingroup matrix_transform_module
+ *  \brief Create a matrix transform descriptor.
+ *  \param transformDesc Pointer to the descriptor to be created.
+ *  \param scaleType Compute (scale) data type. See ``aclDataType``.
+ *  \retval ACLBLAS_STATUS_SUCCESS On success.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If transformDesc is NULL.
+ *  \retval ACLBLAS_STATUS_ALLOC_FAILED If the descriptor allocation fails.
+ */
+aclblasStatus_t aclblasLtMatrixTransformDescCreate(aclblasLtMatrixTransformDesc_t* transformDesc,
+                                                   aclDataType scaleType);
+
+/*! \ingroup matrix_transform_module
+ *  \brief Destroy a matrix transform descriptor.
+ *  \param transformDesc Descriptor to be destroyed.
+ *  \retval ACLBLAS_STATUS_SUCCESS On success.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If transformDesc is NULL.
+ */
+aclblasStatus_t aclblasLtMatrixTransformDescDestroy(const aclblasLtMatrixTransformDesc_t transformDesc);
+
+/*! \ingroup matrix_transform_module
+ *  \brief Set an attribute of a matrix transform descriptor.
+ *  \param transformDesc Descriptor to modify.
+ *  \param attr Attribute to set. See ``aclblasLtMatrixTransformDescAttribute_t``.
+ *  \param buf Source buffer holding the attribute value.
+ *  \param sizeInBytes Size of the source buffer in bytes.
+ *  \retval ACLBLAS_STATUS_SUCCESS On success.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If the parameters are NULL or the size mismatches.
+ */
+aclblasStatus_t aclblasLtMatrixTransformDescSetAttribute(aclblasLtMatrixTransformDesc_t transformDesc,
+                                                         aclblasLtMatrixTransformDescAttribute_t attr,
+                                                         const void* buf,
+                                                         size_t sizeInBytes);
+
+/*! \ingroup matrix_transform_module
+ *  \brief Query an attribute of a matrix transform descriptor.
+ *  \param transformDesc Descriptor to query.
+ *  \param attr Attribute to query. See ``aclblasLtMatrixTransformDescAttribute_t``.
+ *  \param buf Destination buffer for the attribute value.
+ *  \param sizeInBytes Size of the destination buffer in bytes.
+ *  \param sizeWritten On return, the number of bytes written (or required).
+ *  \retval ACLBLAS_STATUS_SUCCESS On success.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If the parameters are NULL or the buffer is too small.
+ */
+aclblasStatus_t aclblasLtMatrixTransformDescGetAttribute(aclblasLtMatrixTransformDesc_t transformDesc,
+                                                         aclblasLtMatrixTransformDescAttribute_t attr,
+                                                         void* buf,
+                                                         size_t sizeInBytes,
+                                                         size_t* sizeWritten);
+
+/*! \ingroup matrix_transform_module
+ *  \brief Compute C = alpha * op(A) + beta * op(B) with layout / type transform.
+ *  \param lightHandle aclBLASLt context handle.
+ *  \param transformDesc Matrix transform descriptor.
+ *  \param alpha Host pointer to the A scaling factor (interpreted per scaleType).
+ *  \param A Device pointer to matrix A.
+ *  \param Adesc Layout descriptor of A.
+ *  \param beta Host pointer to the B scaling factor (interpreted per scaleType).
+ *  \param B Device pointer to matrix B (may be NULL when beta is zero).
+ *  \param Bdesc Layout descriptor of B (may be NULL when beta is zero).
+ *  \param C Device pointer to the output matrix.
+ *  \param Cdesc Layout descriptor of C.
+ *  \param stream Execution stream.
+ *  \retval ACLBLAS_STATUS_SUCCESS On success.
+ *  \retval ACLBLAS_STATUS_NOT_INITIALIZED If the handle is NULL.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If the parameters are NULL or in conflict.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If the dtype / order / op combination is unsupported.
+ */
+aclblasStatus_t aclblasLtMatrixTransform(aclblasLtHandle_t lightHandle,
+                                         aclblasLtMatrixTransformDesc_t transformDesc,
+                                         const void* alpha,
+                                         const void* A,
+                                         aclblasLtMatrixLayout_t Adesc,
+                                         const void* beta,
+                                         const void* B,
+                                         aclblasLtMatrixLayout_t Bdesc,
+                                         void* C,
+                                         aclblasLtMatrixLayout_t Cdesc,
+                                         aclrtStream stream);
 
 #ifdef __cplusplus
 }

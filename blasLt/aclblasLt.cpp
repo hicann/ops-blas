@@ -25,6 +25,7 @@
 #include "matmul_get_tiling.h"
 #include "matmul_kernel.h"
 #include "matmul_mxfp4_host.h"
+#include "matrix_transform_acl_impl.h"
 
 #define GM_ADDR uint8_t*
 
@@ -411,6 +412,34 @@ static bool BuildGemmShape(
     *n = nB;
     *k = kA;
     return true;
+}
+
+// Pack a transform descriptor impl back into its capsule and zero-pad the remainder.
+aclblasStatus_t MatPackTransformImpl(void* capsule, size_t capsuleBytes, const void* impl, size_t implBytes)
+{
+    aclblasStatus_t copyStatus = CheckedMemcpyS(capsule, capsuleBytes, impl, implBytes);
+    if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
+        return copyStatus;
+    }
+    if (capsuleBytes > implBytes) {
+        copyStatus = CheckedMemsetS(
+            reinterpret_cast<char*>(capsule) + implBytes, capsuleBytes - implBytes, capsuleBytes - implBytes);
+    }
+    return copyStatus;
+}
+
+// Pack the transform-relevant fields of a matrix layout capsule into the plain parameter struct
+// consumed by the transform operator unit.
+MatTransformLayout MatPackTransformLayout(const aclblasLtMatrixLayoutImpl* layout)
+{
+    MatTransformLayout packed;
+    packed.type = layout->type;
+    packed.rows = layout->rows;
+    packed.cols = layout->cols;
+    packed.ld = layout->ld;
+    packed.order = layout->order;
+    packed.batchCount = layout->batchCount;
+    return packed;
 }
 
 } // namespace
@@ -1383,6 +1412,182 @@ aclblasStatus_t aclblasLtMatmul(
     }
 
     return ACLBLAS_STATUS_SUCCESS;
+}
+
+aclblasStatus_t aclblasLtMatrixTransformDescCreate(
+    aclblasLtMatrixTransformDesc_t* transformDesc, aclDataType scaleType)
+{
+    if (transformDesc == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    *transformDesc = nullptr;
+
+    auto* capsule = new (std::nothrow) aclblasLtMatrixTransformDescOpaque_t();
+    if (capsule == nullptr) {
+        return ACLBLAS_STATUS_ALLOC_FAILED;
+    }
+
+    aclblasLtMatrixTransformDescImpl impl;
+    impl.magic = ACLBLASLT_TRANSFORM_DESC_MAGIC;
+    impl.scaleType = scaleType;
+
+    aclblasStatus_t copyStatus = MatPackTransformImpl(capsule, sizeof(*capsule), &impl, sizeof(impl));
+    if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
+        delete capsule;
+        return copyStatus;
+    }
+
+    *transformDesc = capsule;
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+aclblasStatus_t aclblasLtMatrixTransformDescDestroy(const aclblasLtMatrixTransformDesc_t transformDesc)
+{
+    if (transformDesc == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    auto* capsule = reinterpret_cast<aclblasLtMatrixTransformDescOpaque_t*>(transformDesc);
+    delete capsule;
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+aclblasStatus_t aclblasLtMatrixTransformDescSetAttribute(
+    aclblasLtMatrixTransformDesc_t transformDesc, aclblasLtMatrixTransformDescAttribute_t attr, const void* buf,
+    size_t sizeInBytes)
+{
+    if (transformDesc == nullptr || buf == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    aclblasLtMatrixTransformDescImpl impl;
+    aclblasStatus_t copyStatus = CheckedMemcpyS(&impl, sizeof(impl), transformDesc, sizeof(impl));
+    if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
+        return copyStatus;
+    }
+    if (impl.magic != ACLBLASLT_TRANSFORM_DESC_MAGIC) {
+        return ACLBLAS_STATUS_INVALID_VALUE;  // corrupted / foreign descriptor
+    }
+    if (sizeInBytes != sizeof(int32_t)) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    int32_t v = 0;
+    copyStatus = CheckedMemcpyS(&v, sizeof(v), buf, sizeof(int32_t));
+    if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
+        return copyStatus;
+    }
+
+    switch (attr) {
+        case ACLBLASLT_MATRIX_TRANSFORM_DESC_SCALE_TYPE:
+            impl.scaleType = static_cast<aclDataType>(v);
+            break;
+        case ACLBLASLT_MATRIX_TRANSFORM_DESC_POINTER_MODE:
+            impl.pointerMode = v;
+            break;
+        case ACLBLASLT_MATRIX_TRANSFORM_DESC_TRANSA:
+            impl.transA = static_cast<aclblasOperation_t>(v);
+            break;
+        case ACLBLASLT_MATRIX_TRANSFORM_DESC_TRANSB:
+            impl.transB = static_cast<aclblasOperation_t>(v);
+            break;
+        default:
+            return ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+
+    return MatPackTransformImpl(transformDesc, sizeof(*transformDesc), &impl, sizeof(impl));
+}
+
+aclblasStatus_t aclblasLtMatrixTransformDescGetAttribute(
+    aclblasLtMatrixTransformDesc_t transformDesc, aclblasLtMatrixTransformDescAttribute_t attr, void* buf,
+    size_t sizeInBytes, size_t* sizeWritten)
+{
+    if (transformDesc == nullptr || buf == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    aclblasLtMatrixTransformDescImpl impl;
+    aclblasStatus_t copyStatus = CheckedMemcpyS(&impl, sizeof(impl), transformDesc, sizeof(impl));
+    if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
+        return copyStatus;
+    }
+    if (impl.magic != ACLBLASLT_TRANSFORM_DESC_MAGIC) {
+        return ACLBLAS_STATUS_INVALID_VALUE;  // corrupted / foreign descriptor
+    }
+
+    const void* srcPtr = nullptr;
+    switch (attr) {
+        case ACLBLASLT_MATRIX_TRANSFORM_DESC_SCALE_TYPE:
+            srcPtr = &impl.scaleType;
+            break;
+        case ACLBLASLT_MATRIX_TRANSFORM_DESC_POINTER_MODE:
+            srcPtr = &impl.pointerMode;
+            break;
+        case ACLBLASLT_MATRIX_TRANSFORM_DESC_TRANSA:
+            srcPtr = &impl.transA;
+            break;
+        case ACLBLASLT_MATRIX_TRANSFORM_DESC_TRANSB:
+            srcPtr = &impl.transB;
+            break;
+        default:
+            return ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+
+    const size_t requiredSize = sizeof(int32_t);
+    if (sizeInBytes < requiredSize) {
+        if (sizeWritten != nullptr) {
+            *sizeWritten = requiredSize;
+        }
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    copyStatus = CheckedMemcpyS(buf, sizeInBytes, srcPtr, requiredSize);
+    if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
+        return copyStatus;
+    }
+    if (sizeWritten != nullptr) {
+        *sizeWritten = requiredSize;
+    }
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+aclblasStatus_t aclblasLtMatrixTransform(
+    aclblasLtHandle_t lightHandle, aclblasLtMatrixTransformDesc_t transformDesc, const void* alpha, const void* A,
+    aclblasLtMatrixLayout_t Adesc, const void* beta, const void* B, aclblasLtMatrixLayout_t Bdesc, void* C,
+    aclblasLtMatrixLayout_t Cdesc, aclrtStream stream)
+{
+    if (lightHandle == nullptr) {
+        return ACLBLAS_STATUS_NOT_INITIALIZED;
+    }
+    if (transformDesc == nullptr || Adesc == nullptr || Cdesc == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (alpha == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    auto* desc = reinterpret_cast<aclblasLtMatrixTransformDescImpl*>(transformDesc);
+    auto* ALayout = reinterpret_cast<aclblasLtMatrixLayoutImpl*>(Adesc);
+    auto* CLayout = reinterpret_cast<aclblasLtMatrixLayoutImpl*>(Cdesc);
+    if (desc->magic != ACLBLASLT_TRANSFORM_DESC_MAGIC || ALayout->magic != ACLBLASLT_LAYOUT_MAGIC ||
+        CLayout->magic != ACLBLASLT_LAYOUT_MAGIC) {
+        return ACLBLAS_STATUS_INVALID_VALUE;  // corrupted / foreign descriptor or layout
+    }
+
+    auto* handleImpl = reinterpret_cast<aclblasLtHandle*>(lightHandle);
+
+    const uint64_t rows = CLayout->rows;
+    const uint64_t cols = CLayout->cols;
+    if (rows == 0U || cols == 0U) {
+        return ACLBLAS_STATUS_SUCCESS;  // empty matrix, no-op (checked before B presence)
+    }
+
+    const MatTransformLayout aPacked = MatPackTransformLayout(ALayout);
+    const MatTransformLayout cPacked = MatPackTransformLayout(CLayout);
+    auto* BLayout = reinterpret_cast<aclblasLtMatrixLayoutImpl*>(Bdesc);
+    const MatTransformLayout bPacked = (BLayout != nullptr) ? MatPackTransformLayout(BLayout) : MatTransformLayout{};
+    const bool bLayoutValid = (BLayout != nullptr) && BLayout->magic == ACLBLASLT_LAYOUT_MAGIC;
+
+    return MatTransformLaunch(
+        handleImpl->deviceId, desc, alpha, A, &aPacked, beta, B, (BLayout != nullptr) ? &bPacked : nullptr,
+        bLayoutValid, C, &cPacked, rows, cols, stream);
 }
 
 } // extern "C"

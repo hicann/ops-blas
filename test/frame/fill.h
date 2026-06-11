@@ -481,4 +481,113 @@ inline std::vector<float> makeBlasMatrix(int m, int n, int lda, const std::strin
     return makeBlasMatrix(m, n, lda, BlasFillMode(fillStr), seed);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Layer 4: 低精度 / 整型专用填充 (FP8 / FP4 / INT 量化 ST 专用, 不经 BlasFillMode 策略)
+//   这些函数产出落在目标 dtype 表示格上的值, 供 bit-exact / 量化往返 ST 直接调用。
+// ─────────────────────────────────────────────────────────────────────────────
+
+// integer-valued array (stored as float) in [lo, hi] — for INT8/INT32 bit-exact paths.
+// Used by descriptor-style transform/quant ST that compare with EXACT precision.
+inline std::vector<float> makeBlasIntArray(int64_t size, int lo, int hi, uint32_t seed = 0)
+{
+    if (size <= 0)
+        return {};
+    std::vector<float> data(static_cast<size_t>(size));
+    std::mt19937 rng(seed ? seed : 42);
+    if (lo > hi)
+        std::swap(lo, hi);
+    std::uniform_int_distribution<int> dist(lo, hi);
+    for (auto& v : data)
+        v = static_cast<float>(dist(rng));
+    return data;
+}
+
+// integer extreme-value array (stored as float): cycles through the dtype's saturation extremes
+// and a few interior values. Used by INT8/INT32 bit-exact ST that probe clamp/saturate edges
+// (e.g. ±127 / int32 bounds). lo/hi are the saturation extremes for the target dtype.
+inline std::vector<float> makeBlasIntExtreme(int64_t size, int lo, int hi)
+{
+    if (size <= 0)
+        return {};
+    const int pattern[] = {lo, hi, 0, hi - 1, lo + 1, 1, -1};
+    std::vector<float> data(static_cast<size_t>(size));
+    for (size_t i = 0; i < data.size(); i++)
+        data[i] = static_cast<float>(pattern[i % 7]);
+    return data;
+}
+
+// ── FP8 quantization-level fill (E4M3FN / E5M2 RINT check). ──
+// Cycles through representable FP8 magnitudes plus inter-level midpoints (which exercise
+// round-to-nearest-even). Values are kept inside each variant's finite range so the golden
+// round-trip and device CAST_RINT agree on the landed level. `e5m2=false` → E4M3FN level set.
+// Used by the FP8 quantization special-value cases (test plan S-06 / FP8 RINT check).
+inline std::vector<float> makeBlasFp8Levels(int64_t size, bool e5m2, uint32_t seed = 0)
+{
+    if (size <= 0)
+        return {};
+    // exact representable magnitudes (subset spanning small/normal range) + inter-level midpoints.
+    static const float kE4m3Levels[] = {
+        0.0f, 0.015625f, 0.0625f, 0.09375f, 0.125f, 0.25f, 0.375f, 0.5f,
+        0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f,
+        // midpoints (round-to-nearest-even probes):
+        0.1875f, 0.4375f, 0.625f, 1.125f, 2.5f, 5.0f, 7.0f};
+    static const float kE5m2Levels[] = {
+        0.0f, 0.0625f, 0.125f, 0.1875f, 0.25f, 0.375f, 0.5f, 0.75f,
+        1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f, 12.0f, 16.0f,
+        // midpoints:
+        0.3125f, 0.4375f, 0.875f, 1.75f, 2.5f, 5.0f, 10.0f};
+    const float* levels = e5m2 ? kE5m2Levels : kE4m3Levels;
+    const size_t n = e5m2 ? (sizeof(kE5m2Levels) / sizeof(float)) : (sizeof(kE4m3Levels) / sizeof(float));
+    std::vector<float> data(static_cast<size_t>(size));
+    std::mt19937 rng(seed ? seed : 42);
+    std::uniform_int_distribution<int> signBit(0, 1);
+    for (size_t i = 0; i < data.size(); i++) {
+        float v = levels[i % n];
+        data[i] = (signBit(rng) && v != 0.0f) ? -v : v;
+    }
+    return data;
+}
+
+// ── FP4 E2M1 quantization-level fill (RINT check). ──
+// E2M1 has only 8 representable magnitudes {0,0.5,1,1.5,2,3,4,6}; this cycles those plus the
+// inter-level midpoints {0.25,0.75,1.25,1.75,2.5,3.5,5.0} that probe round-to-nearest-even.
+// Used by the FP4 quantization special-value case (test plan S-07 / FP4 RINT check).
+inline std::vector<float> makeBlasFp4Levels(int64_t size, uint32_t seed = 0)
+{
+    if (size <= 0)
+        return {};
+    static const float levels[] = {
+        0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,        // exact E2M1 magnitudes
+        0.25f, 0.75f, 1.25f, 1.75f, 2.5f, 3.5f, 5.0f};         // inter-level midpoints
+    const size_t n = sizeof(levels) / sizeof(float);
+    std::vector<float> data(static_cast<size_t>(size));
+    std::mt19937 rng(seed ? seed : 42);
+    std::uniform_int_distribution<int> signBit(0, 1);
+    for (size_t i = 0; i < data.size(); i++) {
+        float v = levels[i % n];
+        data[i] = (signBit(rng) && v != 0.0f) ? -v : v;
+    }
+    return data;
+}
+
+// ── FP4 E2M1 general random fill (lands on representable lattice for low quantization noise). ──
+// Random magnitudes drawn from the E2M1 representable set with random sign, so non-special-value
+// FP4 cases do not accumulate large quantization error that could mask layout/permutation bugs.
+inline std::vector<float> makeBlasFp4Random(int64_t size, uint32_t seed = 0)
+{
+    if (size <= 0)
+        return {};
+    static const float levels[] = {0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f};
+    const size_t n = sizeof(levels) / sizeof(float);
+    std::vector<float> data(static_cast<size_t>(size));
+    std::mt19937 rng(seed ? seed : 42);
+    std::uniform_int_distribution<int> idx(0, static_cast<int>(n) - 1);
+    std::uniform_int_distribution<int> signBit(0, 1);
+    for (auto& v : data) {
+        float m = levels[idx(rng)];
+        v = (signBit(rng) && m != 0.0f) ? -m : m;
+    }
+    return data;
+}
+
 #endif // FILL_H
