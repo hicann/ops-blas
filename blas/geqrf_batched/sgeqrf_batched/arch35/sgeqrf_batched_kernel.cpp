@@ -127,13 +127,8 @@ __simt_callee__ __aicore__ inline void ComputeTauAndNormalize(
     float tau;
     float alpha;
     if (sigma == 0.0f) {
-        if (x1 < 0.0f) {
-            tau = 2.0f;
-            alpha = -x1;
-        } else {
-            tau = 0.0f;
-            alpha = x1;
-        }
+        tau = 0.0f;
+        alpha = x1;
     } else {
         float normX = sqrtf(sigma + x1 * x1);
         alpha = (x1 >= 0.0f) ? -normX : normX;

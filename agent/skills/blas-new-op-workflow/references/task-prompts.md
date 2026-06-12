@@ -257,8 +257,8 @@ scene: test-development
 验收标准:
    - CSV 用例覆盖测试设计文档中的所有场景
    - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
-   - golden.h / npu_wrapper.h 实现正确
-   - golden.h 必须与标准 BLAS 库输出一致（安装 OpenBLAS/MKL 验证），使用列主序
+    - golden.h / npu_wrapper.h 实现正确
+     - golden.h 直接调用 CBLAS/LAPACK 函数（通过 cblas_compat.h），保留参数校验，使用列主序
    - 填充函数只使用 test/frame/fill.h 中已有的公共函数，禁止在测试文件中定义临时填充函数；若需新增，必须补充到 fill.h
    - CMake 使用 ops_blas_add_gtest_tests
    - 编译通过

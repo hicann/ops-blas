@@ -133,6 +133,7 @@ function(ops_blas_get_test_target_sources target out_var)
 endfunction()
 
 function(_ops_blas_register_test_target target link_lib)
+    _ops_blas_ensure_refblas_found()
     ops_blas_get_test_target_sources(${target} _test_srcs)
     add_executable(${target} ${_test_srcs})
 
@@ -143,14 +144,18 @@ function(_ops_blas_register_test_target target link_lib)
     target_include_directories(${target} PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/test/frame
+        ${CMAKE_SOURCE_DIR}/test/utils
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/blas/common/helper
         $ENV{LINUX_INCLUDE_PATH}
+        ${REFBLAS_INCLUDE_DIR}
     )
     target_compile_features(${target} PRIVATE cxx_std_17)
     target_link_libraries(${target} PRIVATE
         ${link_lib}
         $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
+        ${REFBLAS_LIB}
+        ${REFLAPACK_LIB}
     )
 
     _ops_blas_copy_test_config_files(${target})
@@ -161,6 +166,31 @@ function(_ops_blas_ensure_gtest_found)
     if(NOT GTEST_LIB OR NOT GTEST_INCLUDE_DIR)
         find_path(GTEST_INCLUDE_DIR gtest/gtest.h PATHS /usr/local/include /usr/include)
         find_library(GTEST_LIB gtest PATHS /usr/local/lib /usr/lib)
+    endif()
+endfunction()
+
+# Locate reference BLAS (CBLAS) and LAPACK once per configure.
+function(_ops_blas_ensure_refblas_found)
+    if(NOT REFBLAS_LIB)
+        find_path(REFBLAS_INCLUDE_DIR cblas.h
+            PATHS /usr/local/include /usr/include /usr/include/x86_64-linux-gnu
+                  ${HOMEBREW_PREFIX}/include)
+        find_library(REFBLAS_LIB NAMES blas
+            PATHS /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu
+                  ${HOMEBREW_PREFIX}/lib
+            PATH_SUFFIXES blas)
+        find_library(REFLAPACK_LIB NAMES lapack
+            PATHS /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu
+                  ${HOMEBREW_PREFIX}/lib
+            PATH_SUFFIXES lapack)
+        if(NOT REFBLAS_INCLUDE_DIR OR NOT REFBLAS_LIB)
+            message(FATAL_ERROR "Reference BLAS (cblas.h / libblas) not found. "
+                "Install via: apt-get install libblas-dev")
+        endif()
+        if(NOT REFLAPACK_LIB)
+            message(WARNING "Reference LAPACK (liblapack) not found. "
+                "LAPACK-based golden tests will fail to link.")
+        endif()
     endif()
 endfunction()
 
@@ -196,6 +226,7 @@ endfunction()
 # Register GTest-based CSV/JSON ST target (custom main; links gtest only, not gtest_main).
 function(_ops_blas_register_gtest_target target link_lib)
     _ops_blas_ensure_gtest_found()
+    _ops_blas_ensure_refblas_found()
     ops_blas_get_test_target_sources(${target} _test_srcs)
     list(APPEND _test_srcs ${CMAKE_SOURCE_DIR}/test/frame/test_main.cpp)
     add_executable(${target} ${_test_srcs})
@@ -214,16 +245,20 @@ function(_ops_blas_register_gtest_target target link_lib)
     target_include_directories(${target} PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/test/frame
+        ${CMAKE_SOURCE_DIR}/test/utils
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${_extra_includes}
         $ENV{LINUX_INCLUDE_PATH}
         ${GTEST_INCLUDE_DIR}
+        ${REFBLAS_INCLUDE_DIR}
     )
     target_compile_features(${target} PRIVATE cxx_std_17)
     target_link_libraries(${target} PRIVATE
         ${link_lib}
         $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
         ${GTEST_LIB}
+        ${REFBLAS_LIB}
+        ${REFLAPACK_LIB}
         pthread
     )
 

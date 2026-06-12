@@ -17,6 +17,7 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 
 inline aclblasStatus_t validateSgemvCpuParams(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, int lda, int incx,
@@ -45,41 +46,7 @@ inline aclblasStatus_t aclblasSgemv_cpu(
     if (m == 0 || n == 0)
         return ACLBLAS_STATUS_SUCCESS;
 
-    const bool isTransN = (trans == ACLBLAS_OP_N);
-    const int xCount = isTransN ? n : m;
-    const int yCount = isTransN ? m : n;
-    const int absIncx = std::abs(incx);
-    const int absIncy = std::abs(incy);
-
-    // y = beta * y
-    for (int i = 0; i < yCount; i++) {
-        int yIdx = (incy > 0) ? (i * incy) : ((yCount - 1 - i) * absIncy);
-        y[yIdx] *= (*beta);
-    }
-
-    if (isTransN) {
-        // y = alpha * A * x + y
-        for (int i = 0; i < m; i++) {
-            double sum = 0.0;
-            for (int j = 0; j < n; j++) {
-                int xIdx = (incx > 0) ? (j * incx) : ((xCount - 1 - j) * absIncx);
-                sum += static_cast<double>(a[i + static_cast<int64_t>(j) * lda]) * static_cast<double>(x[xIdx]);
-            }
-            int yIdx = (incy > 0) ? (i * incy) : ((yCount - 1 - i) * absIncy);
-            y[yIdx] = static_cast<float>(static_cast<double>(*alpha) * sum + static_cast<double>(y[yIdx]));
-        }
-    } else {
-        // y = alpha * A^T * x + y  (or A^H, same for real)
-        for (int j = 0; j < n; j++) {
-            double sum = 0.0;
-            for (int i = 0; i < m; i++) {
-                int xIdx = (incx > 0) ? (i * incx) : ((xCount - 1 - i) * absIncx);
-                sum += static_cast<double>(a[i + static_cast<int64_t>(j) * lda]) * static_cast<double>(x[xIdx]);
-            }
-            int yIdx = (incy > 0) ? (j * incy) : ((yCount - 1 - j) * absIncy);
-            y[yIdx] = static_cast<float>(static_cast<double>(*alpha) * sum + static_cast<double>(y[yIdx]));
-        }
-    }
+    cblas_sgemv(CblasColMajor, ToCblasOp(trans), m, n, *alpha, a, lda, x, incx, *beta, y, incy);
     return ACLBLAS_STATUS_SUCCESS;
 }
 

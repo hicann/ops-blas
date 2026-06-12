@@ -15,36 +15,245 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <string>
-#include <vector>
 
 #include "types.h"
 
-class Verifier {
+class PrecisionStrategy {
 public:
-    static bool verifyVector(const float* output, const float* golden,
-                              size_t count, int64_t stride,
-                              const VerifyConfig& cfg, const std::string& caseId) {
-        switch (cfg.mode) {
-            case PrecisionMode::ABS:       return verifyAbs(output, golden, count, stride, cfg.absTol, caseId);
-            case PrecisionMode::REL:
-                return verifyRel(output, golden, count, stride, cfg.relTol, cfg.epsilonForRel, caseId);
-            case PrecisionMode::COMBINED:
-                return verifyCombined(output, golden, count, stride, cfg.absTol, cfg.relTol, caseId);
-            case PrecisionMode::MERE_MARE:
-                return verifyMereMare(output, golden, count, stride, cfg.mereThreshold,
-                                      cfg.mareMultiplier, caseId);
-            case PrecisionMode::EXACT:     return verifyExact(output, golden, count, stride, caseId);
-            case PrecisionMode::INTEGER:   return verifyIntegerVec(output, golden, count, stride, caseId);
-            default:                       return verifyAbs(output, golden, count, stride, cfg.absTol, caseId);
+    virtual ~PrecisionStrategy() = default;
+
+    bool verify(const float* output, const float* golden, size_t count, int64_t stride, const std::string& caseId)
+    {
+        printHead(output, count, stride, "Output", caseId);
+        printHead(golden, count, stride, "Golden", caseId);
+
+        size_t skippedCount = 0;
+        for (size_t i = 0; i < count; i++) {
+            float outVal = output[static_cast<int64_t>(i) * stride];
+            float goldVal = golden[static_cast<int64_t>(i) * stride];
+            if (shouldSkip(outVal, goldVal)) {
+                skippedCount++;
+                continue;
+            }
+            processElement(outVal, goldVal);
         }
+
+        return reportResult(count, skippedCount, caseId);
     }
 
-    static bool verifyScalar(float output, float golden,
-                              const VerifyConfig& cfg, const std::string& caseId) {
+protected:
+    virtual bool shouldSkip(float outVal, float goldVal)
+    {
+        if (outVal == goldVal)
+            return true;
+        if (std::isnan(outVal) && std::isnan(goldVal))
+            return true;
+        return false;
+    }
+
+    virtual void processElement(float outVal, float goldVal) = 0;
+    virtual bool reportResult(size_t count, size_t skippedCount, const std::string& caseId) = 0;
+
+    static void printHead(
+        const float* data, size_t count, int64_t stride, const std::string& label, const std::string& caseId)
+    {
+        std::cout << std::fixed << std::setprecision(6);
+        constexpr size_t kMaxPrint = 10;
+        std::cout << "[" << caseId << "] " << label << ": ";
+        for (size_t i = 0; i < count && i < kMaxPrint; i++) {
+            std::cout << data[static_cast<int64_t>(i) * stride] << " ";
+        }
+        if (count > kMaxPrint)
+            std::cout << "...";
+        std::cout << std::endl;
+    }
+};
+
+class AbsStrategy : public PrecisionStrategy {
+public:
+    explicit AbsStrategy(double absTol) : absTol_(absTol) {}
+
+protected:
+    void processElement(float outVal, float goldVal) override
+    {
+        if (std::abs(outVal - goldVal) > absTol_)
+            failCount_++;
+    }
+
+    bool reportResult(size_t count, size_t /*skippedCount*/, const std::string& caseId) override
+    {
+        bool pass = (failCount_ == 0);
+        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << " (absTol=" << absTol_ << ", "
+                  << failCount_ << "/" << count << " failures)" << std::endl;
+        return pass;
+    }
+
+private:
+    double absTol_;
+    size_t failCount_ = 0;
+};
+
+class RelStrategy : public PrecisionStrategy {
+public:
+    RelStrategy(double relTol, double eps) : relTol_(relTol), eps_(eps) {}
+
+protected:
+    void processElement(float outVal, float goldVal) override
+    {
+        double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + eps_);
+        if (relErr > maxRelErr_)
+            maxRelErr_ = relErr;
+    }
+
+    bool reportResult(size_t /*count*/, size_t /*skippedCount*/, const std::string& caseId) override
+    {
+        bool pass = (maxRelErr_ < relTol_);
+        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << " (maxRelErr=" << maxRelErr_
+                  << ", relTol=" << relTol_ << ")" << std::endl;
+        return pass;
+    }
+
+private:
+    double relTol_;
+    double eps_;
+    double maxRelErr_ = 0.0;
+};
+
+class CombinedStrategy : public PrecisionStrategy {
+public:
+    CombinedStrategy(double absTol, double relTol) : absTol_(absTol), relTol_(relTol) {}
+
+protected:
+    void processElement(float outVal, float goldVal) override
+    {
+        double diff = std::abs(outVal - goldVal);
+        double scale = std::abs(goldVal) + 1e-7;
+        if (diff > absTol_ && diff > relTol_ * scale)
+            failCount_++;
+    }
+
+    bool reportResult(size_t count, size_t /*skippedCount*/, const std::string& caseId) override
+    {
+        bool pass = (failCount_ == 0);
+        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << " (absTol=" << absTol_
+                  << ", relTol=" << relTol_ << ", " << failCount_ << "/" << count << " failures)" << std::endl;
+        return pass;
+    }
+
+private:
+    double absTol_;
+    double relTol_;
+    size_t failCount_ = 0;
+};
+
+class MereMareStrategy : public PrecisionStrategy {
+public:
+    MereMareStrategy(double threshold, double multiplier)
+        : threshold_(threshold), multiplier_(multiplier), outlierLimit_(multiplier * threshold)
+    {}
+
+protected:
+    bool shouldSkip(float outVal, float goldVal) override
+    {
+        if (PrecisionStrategy::shouldSkip(outVal, goldVal))
+            return true;
+        if (std::isinf(outVal) || std::isinf(goldVal))
+            return true;
+        return false;
+    }
+
+    void processElement(float outVal, float goldVal) override
+    {
+        double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + kEpsilon);
+        sumRelErr_ += relErr;
+        if (relErr > maxRelErr_)
+            maxRelErr_ = relErr;
+        if (relErr > outlierLimit_)
+            outlierCount_++;
+    }
+
+    bool reportResult(size_t count, size_t skippedCount, const std::string& caseId) override
+    {
+        size_t validCount = count - skippedCount;
+        double mere = (validCount > 0) ? sumRelErr_ / static_cast<double>(validCount) : 0.0;
+
+        std::cout << "[" << caseId << "] MERE=" << mere << " MARE=" << maxRelErr_ << " (threshold=" << threshold_
+                  << ", outlier_limit=" << outlierLimit_;
+        if (skippedCount > 0)
+            std::cout << ", skipped " << skippedCount << " elements (exact/nan/inf)";
+        std::cout << ")" << std::endl;
+
+        bool pass = (mere < threshold_) && (maxRelErr_ < outlierLimit_);
+        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << " (MERE < threshold && MARE < "
+                  << multiplier_ << "*threshold, " << outlierCount_ << " outliers out of " << count << " elements)"
+                  << std::endl;
+        return pass;
+    }
+
+private:
+    static constexpr double kEpsilon = 0.00006103515625; // 2^-14
+    double threshold_;
+    double multiplier_;
+    double outlierLimit_;
+    double sumRelErr_ = 0.0;
+    double maxRelErr_ = 0.0;
+    size_t outlierCount_ = 0;
+};
+
+class ExactStrategy : public PrecisionStrategy {
+protected:
+    void processElement(float /*outVal*/, float /*goldVal*/) override { failCount_++; }
+
+    bool reportResult(size_t count, size_t /*skippedCount*/, const std::string& caseId) override
+    {
+        bool pass = (failCount_ == 0);
+        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << " (exact match, " << failCount_ << "/"
+                  << count << " mismatches)" << std::endl;
+        return pass;
+    }
+
+private:
+    size_t failCount_ = 0;
+};
+
+class IntegerStrategy : public PrecisionStrategy {
+protected:
+    bool shouldSkip(float /*outVal*/, float /*goldVal*/) override { return false; }
+
+    void processElement(float outVal, float goldVal) override
+    {
+        if (static_cast<int64_t>(outVal) != static_cast<int64_t>(goldVal))
+            failCount_++;
+    }
+
+    bool reportResult(size_t count, size_t /*skippedCount*/, const std::string& caseId) override
+    {
+        bool pass = (failCount_ == 0);
+        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << " (integer match, " << failCount_ << "/"
+                  << count << " mismatches)" << std::endl;
+        return pass;
+    }
+
+private:
+    size_t failCount_ = 0;
+};
+
+class Verifier {
+public:
+    static bool verifyVector(
+        const float* output, const float* golden, size_t count, int64_t stride, const VerifyConfig& cfg,
+        const std::string& caseId)
+    {
+        auto strategy = createStrategy(cfg);
+        return strategy->verify(output, golden, count, stride, caseId);
+    }
+
+    static bool verifyScalar(float output, float golden, const VerifyConfig& cfg, const std::string& caseId)
+    {
         std::cout << "[" << caseId << "] Output: " << output << std::endl;
         std::cout << "[" << caseId << "] Golden: " << golden << std::endl;
-
 
         if (output == golden) {
             std::cout << "[" << caseId << "] PASSED (exact match)" << std::endl;
@@ -67,12 +276,13 @@ public:
                 break;
         }
 
-        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED")
-                  << " (diff=" << std::abs(output - golden) << ")" << std::endl;
+        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << " (diff=" << std::abs(output - golden)
+                  << ")" << std::endl;
         return pass;
     }
 
-    static bool verifyInteger(int64_t output, int64_t golden, const std::string& caseId) {
+    static bool verifyInteger(int64_t output, int64_t golden, const std::string& caseId)
+    {
         std::cout << "[" << caseId << "] Output: " << output << std::endl;
         std::cout << "[" << caseId << "] Golden: " << golden << std::endl;
         bool pass = (output == golden);
@@ -81,175 +291,24 @@ public:
     }
 
 private:
-    static void printHead(const float* data, size_t count, int64_t stride,
-                          const std::string& label, const std::string& caseId) {
-        std::cout << std::fixed << std::setprecision(6);
-        constexpr size_t kMaxPrint = 10;
-        std::cout << "[" << caseId << "] " << label << ": ";
-        for (size_t i = 0; i < count && i < kMaxPrint; i++) {
-            int64_t idx = static_cast<int64_t>(i) * stride;
-            std::cout << data[idx] << " ";
+    static std::unique_ptr<PrecisionStrategy> createStrategy(const VerifyConfig& cfg)
+    {
+        switch (cfg.mode) {
+            case PrecisionMode::ABS:
+                return std::make_unique<AbsStrategy>(cfg.absTol);
+            case PrecisionMode::REL:
+                return std::make_unique<RelStrategy>(cfg.relTol, cfg.epsilonForRel);
+            case PrecisionMode::COMBINED:
+                return std::make_unique<CombinedStrategy>(cfg.absTol, cfg.relTol);
+            case PrecisionMode::MERE_MARE:
+                return std::make_unique<MereMareStrategy>(cfg.mereThreshold, cfg.mareMultiplier);
+            case PrecisionMode::EXACT:
+                return std::make_unique<ExactStrategy>();
+            case PrecisionMode::INTEGER:
+                return std::make_unique<IntegerStrategy>();
+            default:
+                return std::make_unique<AbsStrategy>(cfg.absTol);
         }
-        if (count > kMaxPrint) std::cout << "...";
-        std::cout << std::endl;
-    }
-
-    static bool verifyAbs(const float* output, const float* golden,
-                          size_t count, int64_t stride, double absTol,
-                          const std::string& caseId) {
-        printHead(output, count, stride, "Output", caseId);
-        // absStride removed — use signed idx with stride directly
-        printHead(golden, count, stride, "Golden", caseId);
-
-        size_t failCount = 0;
-        for (size_t i = 0; i < count; i++) {
-            float outVal = output[static_cast<int64_t>(i) * stride];
-            float goldVal = golden[static_cast<int64_t>(i) * stride];
-            if (std::isnan(outVal) && std::isnan(goldVal)) continue;
-            float diff = std::abs(outVal - goldVal);
-            if (diff > absTol) failCount++;
-        }
-
-        bool pass = (failCount == 0);
-        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED")
-                  << " (absTol=" << absTol << ", " << failCount << "/" << count << " failures)" << std::endl;
-        return pass;
-    }
-
-    static bool verifyRel(const float* output, const float* golden,
-                          size_t count, int64_t stride,
-                          double relTol, double eps,
-                          const std::string& caseId) {
-        printHead(output, count, stride, "Output", caseId);
-        // absStride removed — use signed idx with stride directly
-        printHead(golden, count, stride, "Golden", caseId);
-
-        double maxRelErr = 0.0;
-        for (size_t i = 0; i < count; i++) {
-            float outVal = output[static_cast<int64_t>(i) * stride];
-            float goldVal = golden[static_cast<int64_t>(i) * stride];
-            if (std::isnan(outVal) && std::isnan(goldVal)) continue;
-            double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + eps);
-            if (relErr > maxRelErr) maxRelErr = relErr;
-        }
-
-        bool pass = (maxRelErr < relTol);
-        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED")
-                  << " (maxRelErr=" << maxRelErr << ", relTol=" << relTol << ")" << std::endl;
-        return pass;
-    }
-
-    static bool verifyCombined(const float* output, const float* golden,
-                                size_t count, int64_t stride,
-                                double absTol, double relTol,
-                                const std::string& caseId) {
-        printHead(output, count, stride, "Output", caseId);
-        // absStride removed — use signed idx with stride directly
-        printHead(golden, count, stride, "Golden", caseId);
-
-        size_t failCount = 0;
-        for (size_t i = 0; i < count; i++) {
-            float outVal = output[static_cast<int64_t>(i) * stride];
-            float goldVal = golden[static_cast<int64_t>(i) * stride];
-            if (std::isnan(outVal) && std::isnan(goldVal)) continue;
-            double diff = std::abs(outVal - goldVal);
-            double scale = std::abs(goldVal) + 1e-7;
-            if (diff > absTol && diff > relTol * scale) failCount++;
-        }
-
-        bool pass = (failCount == 0);
-        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED")
-                  << " (absTol=" << absTol << ", relTol=" << relTol << ", "
-                  << failCount << "/" << count << " failures)" << std::endl;
-        return pass;
-    }
-
-    static bool verifyMereMare(const float* output, const float* golden,
-                                size_t count, int64_t stride,
-                                double threshold, double multiplier,
-                                const std::string& caseId) {
-        printHead(output, count, stride, "Output", caseId);
-        // absStride removed — use signed idx with stride directly
-        printHead(golden, count, stride, "Golden", caseId);
-
-        // Use FP32 small-value threshold (2^-14) as epsilon to prevent
-        // near-zero golden values from inflating relative error (MERE/MARE).
-        // When |golden| >> 2^-14, epsilon has negligible effect.
-        // When |golden| << 2^-14, epsilon caps the denominator so that
-        // relErr ≈ |diff| / 2^-14, effectively an absolute error guard.
-        // Reference: ops-precision-standard, FP32 Small Value Threshold = 2^-14.
-        constexpr double kEpsilon = 0.00006103515625;  // 2^-14
-        double outlierLimit = multiplier * threshold;
-        double sumRelErr = 0.0;
-        double maxRelErr = 0.0;
-        size_t outlierCount = 0;
-
-        for (size_t i = 0; i < count; i++) {
-            float outVal = output[static_cast<int64_t>(i) * stride];
-            float goldVal = golden[static_cast<int64_t>(i) * stride];
-            if (outVal == goldVal) continue;
-            if (std::isnan(outVal) && std::isnan(goldVal)) continue;
-            double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + kEpsilon);
-            sumRelErr += relErr;
-            if (relErr > maxRelErr) maxRelErr = relErr;
-            if (relErr > outlierLimit) outlierCount++;
-        }
-
-        double mere = (count > 0) ? sumRelErr / static_cast<double>(count) : 0.0;
-
-        std::cout << "[" << caseId << "] MERE=" << mere << " MARE=" << maxRelErr
-                  << " (threshold=" << threshold << ", outlier_limit=" << outlierLimit << ")" << std::endl;
-
-        bool pass = (mere < threshold) && (maxRelErr < outlierLimit);
-        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED")
-                  << " (MERE < threshold && MARE < " << multiplier << "*threshold, "
-                  << outlierCount << " outliers out of " << count << " elements)" << std::endl;
-        return pass;
-    }
-
-    static bool verifyExact(const float* output, const float* golden,
-                             size_t count, int64_t stride,
-                             const std::string& caseId) {
-        printHead(output, count, stride, "Output", caseId);
-        // absStride removed — use signed idx with stride directly
-        printHead(golden, count, stride, "Golden", caseId);
-
-        size_t failCount = 0;
-        for (size_t i = 0; i < count; i++) {
-            const float outVal = output[static_cast<int64_t>(i) * stride];
-            const float goldVal = golden[static_cast<int64_t>(i) * stride];
-            if (std::isnan(outVal) && std::isnan(goldVal)) {
-                continue;
-            }
-            if (outVal != goldVal) {
-                failCount++;
-            }
-        }
-
-        bool pass = (failCount == 0);
-        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED")
-                  << " (exact match, " << failCount << "/" << count << " mismatches)" << std::endl;
-        return pass;
-    }
-
-    static bool verifyIntegerVec(const float* output, const float* golden,
-                                  size_t count, int64_t stride,
-                                  const std::string& caseId) {
-        printHead(output, count, stride, "Output", caseId);
-        // absStride removed — use signed idx with stride directly
-        printHead(golden, count, stride, "Golden", caseId);
-
-        size_t failCount = 0;
-        for (size_t i = 0; i < count; i++) {
-            int64_t outVal = static_cast<int64_t>(output[static_cast<int64_t>(i) * stride]);
-            int64_t goldVal = static_cast<int64_t>(golden[static_cast<int64_t>(i) * stride]);
-            if (outVal != goldVal) failCount++;
-        }
-
-        bool pass = (failCount == 0);
-        std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED")
-                  << " (integer match, " << failCount << "/" << count << " mismatches)" << std::endl;
-        return pass;
     }
 };
 

@@ -40,6 +40,14 @@ test/{op}/
 | `data.h` | `DataGenerator`（旧式算子兼容用） |
 | `device.h` | `DeviceBuffer`、`allocAndCopyToDevice`、`adjustStridedBase`（旧式算子兼容用） |
 
+### BLAS/LAPACK 参考库（`test/utils/`）
+
+| 头文件 | 职责 |
+|--------|------|
+| `cblas_compat.h` | `aclblas` 枚举到 CBLAS/LAPACK 枚举的映射函数（`ToCblasOp`/`ToCblasUplo`/`ToCblasDiag`），Fortran BLAS/LAPACK 函数声明（`srotm_`/`stpttr_`/`strttp_`/`sgeqrf_`/`sgetrf_`） |
+
+**依赖**：CMake 自动链接 `libblas`（OpenBLAS）和 `liblapack`，golden 文件可直接调用 `cblas_*` 和 Fortran BLAS/LAPACK 函数。
+
 ---
 
 ## 前置条件
@@ -145,19 +153,58 @@ struct StpttrParam : public BlasTestParamBase {
 
 文件： `test/{op}/{op}_golden.h`
 
-签名与 BLAS API **完全一致**，返回 `aclblasStatus_t`，包含完整参数校验和纯 CPU 计算逻辑。
+签名与 BLAS API **完全一致**，返回 `aclblasStatus_t`。**保留参数校验**（与 NPU 算子保持一致），校验通过后调用参考库函数。
+
+#### CBLAS 算子示例（Level-1/2/3）
 
 ```cpp
+#include "cblas_compat.h"
+
+inline aclblasStatus_t aclblasSgemv_cpu(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n,
+    const float* alpha, const float* a, int lda,
+    const float* x, int incx, const float* beta, float* y, int incy)
+{
+    if (handle == nullptr) return ACLBLAS_STATUS_NOT_INITIALIZED;
+    if (trans != ACLBLAS_OP_N && trans != ACLBLAS_OP_T && trans != ACLBLAS_OP_C)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (m < 0 || n < 0 || lda < std::max(1, m)) return ACLBLAS_STATUS_INVALID_VALUE;
+    if (incx == 0 || incy == 0) return ACLBLAS_STATUS_INVALID_VALUE;
+    if (alpha == nullptr || beta == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
+    if (m == 0 || n == 0) return ACLBLAS_STATUS_SUCCESS;
+
+    cblas_sgemv(CblasColMajor, ToCblasOp(trans), m, n, *alpha, a, lda, x, incx, *beta, y, incy);
+    return ACLBLAS_STATUS_SUCCESS;
+}
+```
+
+#### LAPACK 算子示例（geqrf/getrf/tpttr/trttp）
+
+```cpp
+#include "cblas_compat.h"
+
 inline aclblasStatus_t aclblasStpttr_cpu(
     aclblasHandle_t handle, aclblasFillMode_t uplo,
     int n, const float* ap, float* a, int lda)
 {
     if (handle == nullptr) return ACLBLAS_STATUS_NOT_INITIALIZED;
     if (n < 0 || lda < std::max(1, n)) return ACLBLAS_STATUS_INVALID_VALUE;
-    // ... CPU 拆包逻辑 ...
+    if (uplo != ACLBLAS_LOWER && uplo != ACLBLAS_UPPER) return ACLBLAS_STATUS_INVALID_VALUE;
+    if (ap == nullptr || a == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
+    if (n == 0) return ACLBLAS_STATUS_SUCCESS;
+
+    char uploChar = (uplo == ACLBLAS_UPPER) ? 'U' : 'L';
+    int info = 0;
+    stpttr_(&uploChar, &n, ap, a, &lda, &info, 1);
     return ACLBLAS_STATUS_SUCCESS;
 }
 ```
+
+**关键约定**：
+- 使用 `cblas_compat.h` 提供的 `ToCblasOp`/`ToCblasUplo`/`ToCblasDiag` 转换枚举
+- Fortran 函数声明已在 `cblas_compat.h` 中，直接调用即可
+- 保留参数校验，与 NPU 算子保持一致（CBLAS 对空指针会崩溃，必须校验）
+- 使用 `CblasColMajor`（列主序），与 BLAS 标准一致
 
 ### 3.2 npu.h（device wrapper）
 
@@ -282,13 +329,3 @@ bash build.sh --ops=stpttr --run --device=1   # 指定卡1
 | 数组填充不匹配 | 检查 `BlasFillMode` 字符串是否正确，三角矩阵用 `makeBlasTriangular`，带状用 `makeBlasBanded` |
 | 精度 fail | 看 Verifier 日志中的 MERE/MARE 或 exact mismatch 计数 |
 | `gtest_main` 链接冲突 | 框架统一使用 `test/frame/test_main.cpp`，勿自行写 `main()` |
-
----
-
-## 已验证算子
-
-| 算子 | 指针 | 精度 | CSV 行数 | SOC |
-|------|------|------|----------|-----|
-| gbmv | device (A/x/y) | MERE_MARE | 51 | ascend950 |
-| stpttr | device (AP/A) | EXACT | 55 | ascend950 |
-| strttp | device (A/AP) | EXACT | 55 | ascend950 |

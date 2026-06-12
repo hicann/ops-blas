@@ -17,36 +17,31 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 
-// reference implementation — same signature as aclblasStrttp
+extern "C" {
+void strttp_(const char* uplo, const int* n, const float* a, const int* lda, float* ap, int* info);
+}
+
 inline aclblasStatus_t aclblasStrttp_cpu(
-    aclblasHandle_t handle,
-    aclblasFillMode_t uplo,
-    int n,
-    const float* a,
-    int lda,
-    float* ap)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* a, int lda, float* ap)
 {
-    if (handle == nullptr) return ACLBLAS_STATUS_NOT_INITIALIZED;
-    if (n < 0 || lda < std::max(1, n)) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (uplo != ACLBLAS_LOWER && uplo != ACLBLAS_UPPER) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (a == nullptr || ap == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (n == 0) return ACLBLAS_STATUS_SUCCESS;
+    if (handle == nullptr)
+        return ACLBLAS_STATUS_NOT_INITIALIZED;
+    if (n < 0 || lda < std::max(1, n))
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (uplo != ACLBLAS_LOWER && uplo != ACLBLAS_UPPER)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (a == nullptr || ap == nullptr)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (n == 0)
+        return ACLBLAS_STATUS_SUCCESS;
 
-    size_t idx = 0;
-    if (uplo == ACLBLAS_LOWER) {
-        for (int j = 0; j < n; j++) {
-            for (int i = j; i < n; i++) {
-                ap[idx++] = a[j * lda + i];
-            }
-        }
-    } else {
-        for (int j = 0; j < n; j++) {
-            for (int i = 0; i <= j; i++) {
-                ap[idx++] = a[j * lda + i];
-            }
-        }
-    }
+    char uplo_char = ToLapackUplo(uplo);
+    int info = 0;
+    strttp_(&uplo_char, &n, a, &lda, ap, &info);
+    if (info != 0)
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
     return ACLBLAS_STATUS_SUCCESS;
 }
 

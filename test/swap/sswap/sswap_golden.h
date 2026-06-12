@@ -16,9 +16,8 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 
-// Reference implementation — same signature as aclblasSswap.
-// Parameter validation priority: handle → n<=0 → x/y null → inc==0 → inc<0
 inline aclblasStatus_t aclblasSswap_cpu(aclblasHandle_t handle, int n, float* x, int incx, float* y, int incy)
 {
     if (handle == nullptr)
@@ -32,9 +31,7 @@ inline aclblasStatus_t aclblasSswap_cpu(aclblasHandle_t handle, int n, float* x,
     if (incx < 0 || incy < 0)
         return ACLBLAS_STATUS_INVALID_VALUE;
 
-    for (int i = 0; i < n; i++) {
-        std::swap(x[i * incx], y[i * incy]);
-    }
+    cblas_sswap(n, x, incx, y, incy);
     return ACLBLAS_STATUS_SUCCESS;
 }
 

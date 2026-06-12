@@ -68,13 +68,19 @@ TEST_P(StpmvArch35Test, CsvDriven)
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS)
         return;
 
-    // Step 5: Verify results (bitwise exact match)
+    // Step 5: Verify results
     // Both NPU and golden write results in-place with incx stride.
     // Extract logical elements from both buffers using BLAS stride rules:
     //   incx >= 0: logical element i at physical position i * |incx|
     //   incx <  0: logical element i at physical position (n-1-i) * |incx|
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::EXACT;
+    if (p.mereThreshold > 0.0) {
+        cfg.mode = PrecisionMode::MERE_MARE;
+        cfg.mereThreshold = p.mereThreshold;
+        cfg.mareMultiplier = p.mareMultiplier;
+    } else {
+        cfg.mode = PrecisionMode::EXACT;
+    }
     {
         const int absIncx = std::abs(p.incx);
         std::vector<float> xResult(static_cast<size_t>(p.n));

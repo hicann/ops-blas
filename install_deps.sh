@@ -410,6 +410,45 @@ install_patch() {
     fi
 }
 
+install_blas_lapack() {
+    echo -e "\n==== Checking BLAS/LAPACK ===="
+
+    local need_install="false"
+
+    if [[ ! -f "/usr/include/cblas.h" ]] && [[ ! -f "/usr/local/include/cblas.h" ]] && [[ -z "${HOMEBREW_PREFIX:-}" || ! -f "${HOMEBREW_PREFIX}/include/cblas.h" ]]; then
+        echo "cblas.h not found"
+        need_install="true"
+    else
+        echo "BLAS (cblas.h) found"
+    fi
+
+    if [[ "$need_install" == "false" ]]; then
+        echo "BLAS/LAPACK all installed"
+        return
+    fi
+
+    echo "Installing BLAS/LAPACK..."
+    case "$OS" in
+        debian)
+            run_command sudo $PKG_MANAGER update
+            run_command sudo $PKG_MANAGER install -y libblas-dev liblapack-dev
+            ;;
+        rhel|euler)
+            run_command sudo $PKG_MANAGER install -y blas-devel lapack-devel
+            ;;
+        macos)
+            run_command brew install openblas lapack
+            ;;
+    esac
+
+    if [[ -f "/usr/include/cblas.h" ]] || [[ -f "/usr/local/include/cblas.h" ]] || [[ -n "${HOMEBREW_PREFIX:-}" && -f "${HOMEBREW_PREFIX}/include/cblas.h" ]]; then
+        echo "BLAS/LAPACK installed successfully"
+    else
+        echo "BLAS/LAPACK installation failed, please install manually"
+        exit 1
+    fi
+}
+
 install_googletest() {
     echo -e "\n==== Checking googletest ===="
     local req_ver="1.11.0"
@@ -517,12 +556,16 @@ check_dependencies_silent() {
         check_deps "pigz" "pigz" "${req_versions["pigz"]}"
     fi
 
+    if [[ ! -f "/usr/include/cblas.h" ]] && [[ ! -f "/usr/local/include/cblas.h" ]] && [[ -z "${HOMEBREW_PREFIX:-}" || ! -f "${HOMEBREW_PREFIX}/include/cblas.h" ]]; then
+        missing_deps+=("BLAS (cblas.h)")
+    fi
+
     if [[ ${#missing_deps[@]} -eq 0 ]]; then
         return 0
     else
         echo -e "\n Missing dependencies:"
         for dep in "${missing_deps[@]}"; do
-            local req_ver="${req_versions[$dep]}"
+            local req_ver="${req_versions[$dep]:-}"
             if [[ -n "$req_ver" ]]; then
                 echo " - $dep (required: >= $req_ver)"
             else
@@ -550,6 +593,7 @@ main() {
     install_pigz
     install_dos2unix
     install_patch
+    install_blas_lapack
     install_googletest
 
     echo -e "===================================================="

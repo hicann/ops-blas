@@ -16,23 +16,27 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
+
+extern "C" {
+void stpttr_(const char* uplo, const int* n, const float* ap, float* a, const int* lda, int* info);
+}
 
 constexpr float kStpttrSentinel = -999.0f;
 
-// reference implementation — same signature as aclblasStpttr
 inline aclblasStatus_t aclblasStpttr_cpu(
-    aclblasHandle_t handle,
-    aclblasFillMode_t uplo,
-    int n,
-    const float* ap,
-    float* a,
-    int lda)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* ap, float* a, int lda)
 {
-    if (handle == nullptr) return ACLBLAS_STATUS_NOT_INITIALIZED;
-    if (n < 0 || lda < std::max(1, n)) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (uplo != ACLBLAS_LOWER && uplo != ACLBLAS_UPPER) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (ap == nullptr || a == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (n == 0) return ACLBLAS_STATUS_SUCCESS;
+    if (handle == nullptr)
+        return ACLBLAS_STATUS_NOT_INITIALIZED;
+    if (n < 0 || lda < std::max(1, n))
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (uplo != ACLBLAS_LOWER && uplo != ACLBLAS_UPPER)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (ap == nullptr || a == nullptr)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (n == 0)
+        return ACLBLAS_STATUS_SUCCESS;
 
     for (int j = 0; j < n; j++) {
         for (int i = 0; i < lda; i++) {
@@ -40,20 +44,11 @@ inline aclblasStatus_t aclblasStpttr_cpu(
         }
     }
 
-    int idx = 0;
-    if (uplo == ACLBLAS_LOWER) {
-        for (int j = 0; j < n; j++) {
-            for (int i = j; i < n; i++) {
-                a[j * lda + i] = ap[idx++];
-            }
-        }
-    } else {
-        for (int j = 0; j < n; j++) {
-            for (int i = 0; i <= j; i++) {
-                a[j * lda + i] = ap[idx++];
-            }
-        }
-    }
+    char uplo_char = ToLapackUplo(uplo);
+    int info = 0;
+    stpttr_(&uplo_char, &n, ap, a, &lda, &info);
+    if (info != 0)
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
     return ACLBLAS_STATUS_SUCCESS;
 }
 

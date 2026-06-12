@@ -22,6 +22,8 @@ struct StpmvParam : public BlasTestParamBase {
     BlasFillMode ap = parseFill("INDEX");
     BlasFillMode x = parseFill("INDEX");
     int incx = 1;
+    double mereThreshold = 0.0;
+    double mareMultiplier = 0.0;
 
     StpmvParam(const csv_map& map) : BlasTestParamBase(map)
     {
@@ -32,6 +34,8 @@ struct StpmvParam : public BlasTestParamBase {
         ap = parseFill(ReadMap(map, "aPacked", "INDEX"));
         x = parseFill(ReadMap(map, "x", "INDEX"));
         incx = parseInt(ReadMap(map, "incx", "1"));
+        mereThreshold = parseDouble(ReadMap(map, "mere_threshold", "0"));
+        mareMultiplier = parseDouble(ReadMap(map, "mare_multiplier", "0"));
     }
 };
 
