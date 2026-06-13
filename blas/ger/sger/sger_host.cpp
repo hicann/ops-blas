@@ -21,8 +21,10 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "../../common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
+
+void sger_kernel_do(uint8_t* A, uint8_t* x, uint8_t* y, uint8_t* alpha, uint8_t* tilingGm,
+                   uint32_t numBlocks, void *stream);
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;

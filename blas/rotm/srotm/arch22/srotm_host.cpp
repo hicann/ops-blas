@@ -14,10 +14,13 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
 #include "srotm_tiling_data.h"
+
+struct SrotmTilingData;
+
+void srotm_kernel_do(const SrotmTilingData &tiling, uint32_t numBlocks, void *stream);
 
 constexpr uint32_t MAX_CORE_NUM = 50;
 constexpr uint32_t MIN_ELEMENTS_PER_CORE = 2048;

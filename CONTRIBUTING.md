@@ -60,7 +60,7 @@ PR上库要求：
   - 代码是否编译通过（`bash build.sh --ops=${operator} --soc=${soc_version}`）
   - 测试是否全部通过（`bash build.sh --ops=${operator} --soc=${soc_version} --run`）
   - Markdown文档语法是否符合规范
-- 接口声明：新增算子需在 `include/cann_ops_blas.h` 中添加API声明，并在 `blas/common/kernel_launch/aclblas_kernel_do.h` 中添加kernel launch函数声明。
+- 接口声明：新增算子需在 `include/cann_ops_blas.h` 中添加API声明。
 - 贡献目录：按sig成员意见提交至 `blas/${family}/${operator}/` 目录下，可参考已有算子文件放置规则。
 - PR提交：通过`git`命令提交目标分支PR，检查PR标题是否清晰、PR描述是否规范（指明更改内容和原因、是否关联对应Issue）、是否签署CLA。
 

@@ -23,7 +23,6 @@
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
 #include "common/helper/kernel_constant.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 
 void stpmv_arch35_kernel_do(
     uint8_t* aP, uint8_t* x, uint8_t* y, const StpmvTilingData& tiling, uint32_t numBlocks, void* stream);

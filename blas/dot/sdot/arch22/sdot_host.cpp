@@ -20,9 +20,11 @@
 #include <algorithm>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
+
+void sdot_kernel_do(uint8_t* x, uint8_t* y, uint8_t* result, uint8_t* workSpace, uint8_t* tilingGm,
+                    uint32_t numBlocks, void *stream);
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 

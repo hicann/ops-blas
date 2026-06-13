@@ -18,9 +18,11 @@
 #include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "ssymv_tiling_data.h"
+
+void ssymv_kernel_do(uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* workSpace, uint8_t* tilingGm,
+                      uint32_t numBlocks, void *stream);
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \

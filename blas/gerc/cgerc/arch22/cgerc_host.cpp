@@ -20,8 +20,10 @@
 #include <algorithm>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
+
+void cgerc_kernel_do(uint8_t* d_x, uint8_t* d_y, uint8_t* d_offset, uint8_t* d_A, uint8_t* work_space,
+                     uint8_t* tiling_gm, uint32_t num_blocks, void *stream);
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \

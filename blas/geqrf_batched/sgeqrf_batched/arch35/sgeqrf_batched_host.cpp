@@ -15,9 +15,11 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "sgeqrf_batched_tiling_data.h"
+
+void sgeqrf_batched_kernel_do(uint8_t* aarray, uint8_t* tauArray, uint8_t* tilingGm,
+                             uint32_t numBlocks, void *stream);
 
 static const char* const TAG = "aclblasSgeqrfBatched";
 

@@ -24,10 +24,15 @@
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "sgels_batched_tiling_data.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
 #include "tiling/platform/platform_ascendc.h"
+
+struct SgelsBatchedTilingData;
+
+void sgels_decompose_kernel_do(
+    uint8_t* aArray, uint8_t* cArray, uint8_t* workspace, uint8_t* devInfo,
+    const SgelsBatchedTilingData &tiling, uint32_t numBlocks, void *stream);
 
 static const char* const TAG = "aclblasSgelsBatched";
 static constexpr uint32_t SIMT_OPTIMAL_THREADS = 128;

@@ -15,10 +15,14 @@
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "syr2_tiling_data.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
+
+struct Syr2TilingData;
+
+void syr2_kernel_do(uint8_t* x, uint8_t* y, uint8_t* A, const Syr2TilingData &tiling,
+                     uint32_t numBlocks, void *stream);
 
 static aclblasStatus_t ValidateSyr2Params(
     aclblasFillMode uplo, int n, int lda, int incx, int incy, const float* alpha, const float* x, const float* y,

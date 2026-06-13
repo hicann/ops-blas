@@ -21,11 +21,17 @@
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
 #include "common/helper/kernel_constant.h"
 #include "sscal_tiling_data.h"
+
+// arch35-style: tiling passed by value
+void sscal_kernel_do(uint8_t* x, uint8_t* workSpace, const SscalTilingData& tiling,
+                     uint32_t numBlocks, void *stream);
+// arch22-style: tiling passed as GM pointer (for backward compatibility)
+void sscal_kernel_do(uint8_t* x, uint8_t* workSpace, uint8_t* tilingGm,
+                     uint32_t numBlocks, void *stream);
 
 static uint32_t GetVectorCoreCount()
 {

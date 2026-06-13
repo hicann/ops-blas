@@ -15,9 +15,11 @@
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "strttp_tiling_data.h"
+
+void strttp_kernel_do(uint8_t* a, uint8_t* ap, uint8_t* tilingGm,
+                      uint32_t numBlocks, void *stream);
 
 // ---------------------------------------------------------------------------
 // Parameter validation — returns non-success if invalid

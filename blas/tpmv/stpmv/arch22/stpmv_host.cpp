@@ -20,8 +20,10 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
+
+void tpmv_kernel_do(uint8_t* aPacked, uint8_t* x, uint8_t* y, uint8_t* workSpace, uint8_t* tilingGm,
+                    uint32_t numBlocks, void *stream);
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;

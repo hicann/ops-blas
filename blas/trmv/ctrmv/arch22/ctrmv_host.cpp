@@ -20,8 +20,11 @@
 #include <algorithm>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
+
+void ctrmv_kernel_do(uint8_t* gm_A, uint8_t* gm_X, uint8_t* gm_uplo,
+                     uint8_t* gm_wksp, uint8_t* tilingGm,
+                     uint32_t numBlocks, void *stream);
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \

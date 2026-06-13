@@ -19,12 +19,14 @@
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
 #include "common/helper/kernel_constant.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "{{op}}_tiling_data.h"
+
+void {{op}}_kernel_do(/* TEMPLATE: 参数与 kernel entry / _do 签名一致 */);
+
 
 // 获取 AIV Core 数量（通过 PlatformAscendCManager，比 aclrtGetDeviceInfo 更可靠）
 static uint32_t GetAivCoreCount()

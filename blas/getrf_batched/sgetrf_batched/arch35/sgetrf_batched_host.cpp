@@ -21,8 +21,13 @@
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "sgetrf_batched_tiling_data.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
+
+struct SgetrfBatchedTilingData;
+
+void sgetrf_batched_kernel_do(
+    uint8_t* aarray, uint8_t* pivotArray, uint8_t* infoArray,
+    const SgetrfBatchedTilingData &tiling, uint32_t numBlocks, void *stream);
 
 static uint32_t GetVectorCoreCount()
 {

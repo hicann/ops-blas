@@ -21,9 +21,12 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "gemv_batched_tiling_data.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
+
+void gemv_batched_kernel_do(uint8_t* A, uint8_t* x, uint8_t* y,
+                            uint8_t* workSpace, uint8_t* tilingGm,
+                            uint32_t numBlocks, void *stream);
 
 constexpr uint32_t WORKSPACE_SIZE = 16 * 1024 * 1024;
 

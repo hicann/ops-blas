@@ -20,9 +20,12 @@
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "strsv_tiling_data.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
+
+struct StrsvTilingData;
+
+void strsv_kernel_do(uint8_t* gmAddrA, uint8_t* gmAddrX, const StrsvTilingData &tiling, void *stream);
 
 static constexpr uint32_t SIMT_OPTIMAL_THREADS = 128;
 

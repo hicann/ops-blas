@@ -23,7 +23,10 @@
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
+
+struct StpsvTilingData;
+
+void stpsv_kernel_do(const StpsvTilingData &tiling, void *stream);
 
 static constexpr uint32_t SIMT_THRESHOLD = 128;
 

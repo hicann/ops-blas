@@ -37,7 +37,7 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
    - 每次流程步骤推进后，主 Agent 必须立即更新 LOG.md（当前步骤、进度状态、开发记录），不得延迟或累积到后续步骤
    - `.agent/` 目录下的所有文件均为临时文件，已被 `.gitignore` 屏蔽。禁止在任何阶段执行 `git add .agent/` 或将该目录下的文件加入版本控制。若发现误加，必须立即 `git reset` 撤销
 
-5. **检视前 diff 预检** — 调用 reviewer（3.1 / 4.2）前，主 Agent 必须先执行 `git diff --stat cann/master...HEAD`，将完整输出包含在 reviewer 的 prompt 中。若 diff 中出现非本算子文件（允许的文件白名单：blas/{family}/{operator_name}/、test/{family}/{operator_name}/、include/cann_ops_blas.h、blas/common/kernel_launch/aclblas_kernel_do.h、test/frame/fill.h、test/frame/csv_loader.h），主 Agent 必须在调用 reviewer 前先让 developer 还原无关变更。
+5. **检视前 diff 预检** — 调用 reviewer（3.1 / 4.2）前，主 Agent 必须先执行 `git diff --stat cann/master...HEAD`，将完整输出包含在 reviewer 的 prompt 中。若 diff 中出现非本算子文件（允许的文件白名单：blas/{family}/{operator_name}/、test/{family}/{operator_name}/、include/cann_ops_blas.h、test/frame/fill.h、test/frame/csv_loader.h），主 Agent 必须在调用 reviewer 前先让 developer 还原无关变更。
 
 ---
 

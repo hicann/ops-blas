@@ -316,7 +316,7 @@ subagent: reviewer
   - .agent/dev-docs/{operator_name}/3.1-代码检视报告.md
 验收标准:
    - 变更范围检查（强制，第一步）：reviewer 必须自行执行 `git diff --stat cann/master...HEAD` 进行独立验证（不依赖主 Agent 传递的 diff 输出），逐文件确认：
-     （1）共享文件（aclblas_kernel_do.h、cann_ops_blas.h、fill.h、csv_loader.h）的修改仅包含本算子的新增内容，不得包含对已有代码的格式化、重排、删除；
+     （1）共享文件（cann_ops_blas.h、fill.h、csv_loader.h）的修改仅包含本算子的新增内容，不得包含对已有代码的格式化、重排、删除；
      （2）不存在与本算子无关的文件变更。
      发现无关变更必须标记为 HIGH 问题并要求还原。
    - OAT 合规复核：对照 developer 的 OAT checklist，抽查关键函数的圈复杂度/深度/行数是否达标，发现遗漏或超标标记为 HIGH 问题
@@ -394,7 +394,7 @@ subagent: reviewer
   - .agent/dev-docs/{operator_name}/4.2-代码检视报告.md
 验收标准:
    - 变更范围检查（强制，第一步）：reviewer 必须自行执行 `git diff --stat cann/master...HEAD` 进行独立验证（不依赖主 Agent 传递的 diff 输出），逐文件确认：
-     （1）共享文件（aclblas_kernel_do.h、cann_ops_blas.h、fill.h、csv_loader.h）的修改仅包含本算子的新增内容，不得包含对已有代码的格式化、重排、删除；
+     （1）共享文件（cann_ops_blas.h、fill.h、csv_loader.h）的修改仅包含本算子的新增内容，不得包含对已有代码的格式化、重排、删除；
      （2）不存在与本算子无关的文件变更。
      发现无关变更必须标记为 HIGH 问题并要求还原。
    - OAT 合规复核：对照 developer 的 OAT checklist，抽查关键函数的圈复杂度/深度/行数是否达标，发现遗漏或超标标记为 HIGH 问题

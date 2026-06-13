@@ -20,7 +20,6 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "common/helper/aclblas_handle_internal.h"
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;

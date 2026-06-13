@@ -22,8 +22,10 @@
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
-#include "common/kernel_launch/aclblas_kernel_do.h"
 #include "srotm_tiling_data.h"
+
+void srotm_kernel_do_arch35(
+    uint8_t* x, uint8_t* y, const SrotmTilingData& tilingData, uint32_t numBlocks, void *stream);
 
 static void BuildTilingData(int n, int incx, int incy, const float *param,
                             uint32_t numBlocks, SrotmTilingData &tilingData)
