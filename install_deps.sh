@@ -410,16 +410,40 @@ install_patch() {
     fi
 }
 
+find_cblas_header() {
+    local paths=(
+        "/usr/include/cblas.h"
+        "/usr/local/include/cblas.h"
+    )
+    if [[ -n "${HOMEBREW_PREFIX:-}" ]]; then
+        paths+=("${HOMEBREW_PREFIX}/include/cblas.h")
+    fi
+    if [[ "$(uname -s)" == "Linux" ]] && command -v dpkg-architecture &> /dev/null; then
+        local multiarch
+        multiarch=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || true)
+        if [[ -n "$multiarch" ]]; then
+            paths+=("/usr/include/${multiarch}/cblas.h")
+        fi
+    fi
+    for p in "${paths[@]}"; do
+        if [[ -f "$p" ]]; then
+            echo "$p"
+            return 0
+        fi
+    done
+    return 1
+}
+
 install_blas_lapack() {
     echo -e "\n==== Checking BLAS/LAPACK ===="
 
     local need_install="false"
 
-    if [[ ! -f "/usr/include/cblas.h" ]] && [[ ! -f "/usr/local/include/cblas.h" ]] && [[ -z "${HOMEBREW_PREFIX:-}" || ! -f "${HOMEBREW_PREFIX}/include/cblas.h" ]]; then
+    if find_cblas_header > /dev/null; then
+        echo "BLAS (cblas.h) found at $(find_cblas_header)"
+    else
         echo "cblas.h not found"
         need_install="true"
-    else
-        echo "BLAS (cblas.h) found"
     fi
 
     if [[ "$need_install" == "false" ]]; then
@@ -441,7 +465,7 @@ install_blas_lapack() {
             ;;
     esac
 
-    if [[ -f "/usr/include/cblas.h" ]] || [[ -f "/usr/local/include/cblas.h" ]] || [[ -n "${HOMEBREW_PREFIX:-}" && -f "${HOMEBREW_PREFIX}/include/cblas.h" ]]; then
+    if find_cblas_header > /dev/null; then
         echo "BLAS/LAPACK installed successfully"
     else
         echo "BLAS/LAPACK installation failed, please install manually"
@@ -556,7 +580,7 @@ check_dependencies_silent() {
         check_deps "pigz" "pigz" "${req_versions["pigz"]}"
     fi
 
-    if [[ ! -f "/usr/include/cblas.h" ]] && [[ ! -f "/usr/local/include/cblas.h" ]] && [[ -z "${HOMEBREW_PREFIX:-}" || ! -f "${HOMEBREW_PREFIX}/include/cblas.h" ]]; then
+    if ! find_cblas_header > /dev/null; then
         missing_deps+=("BLAS (cblas.h)")
     fi
 
