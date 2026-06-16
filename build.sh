@@ -325,6 +325,13 @@ if [ "${RUN_TEST}" == "ON" ]; then
                 fi
             done
         fi
+        # Binary may be under a directory without the leading type character
+        if [ ! -f "${TEST_BIN}" ]; then
+            family="${op:1}"
+            if [ -f "${BUILD_DIR}/test/${family}/${op}_test" ]; then
+                TEST_BIN="${BUILD_DIR}/test/${family}/${op}_test"
+            fi
+        fi
 
         # 当前 SOC 不支持该算子时，直接标记为 skip，避免误报 fail/error
         if [ -n "${SKIP_REASON_MAP[${op}]+x}" ]; then

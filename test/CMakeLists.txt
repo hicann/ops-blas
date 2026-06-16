@@ -24,6 +24,14 @@ if(BUILD_TEST)
             endforeach()
         endif()
 
+        # Flat directory without type prefix
+        if("${TEST_DIR}" STREQUAL "" AND TEST_NAME MATCHES "^[a-zA-Z]")
+            string(SUBSTRING "${TEST_NAME}" 1 -1 _stripped)
+            if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${_stripped})
+                set(TEST_DIR "${_stripped}")
+            endif()
+        endif()
+
         if("${TEST_DIR}" STREQUAL "")
             message(FATAL_ERROR
                 "Test directory 'test/${TEST_NAME}' does not exist (checked flat and family layouts). "
