@@ -341,6 +341,10 @@ aclblasStatus_t aclblasSgelsBatched(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, int nrhs, float* const Aarray[], int lda,
     float* const Carray[], int ldc, int* devInfo, int batchSize);
 
+aclblasStatus_t aclblasSgetriBatched(
+    aclblasHandle_t handle, int n, const float* const Aarray[], int lda, const int* PivotArray, float* const Carray[],
+    int ldc, int* infoArray, int batchSize);
+
 #ifdef __cplusplus
 }
 #endif

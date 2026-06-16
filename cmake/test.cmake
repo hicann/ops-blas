@@ -247,6 +247,7 @@ function(_ops_blas_register_gtest_target target link_lib)
         ${CMAKE_SOURCE_DIR}/test/frame
         ${CMAKE_SOURCE_DIR}/test/utils
         ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_SOURCE_DIR}/blas/common/helper
         ${_extra_includes}
         $ENV{LINUX_INCLUDE_PATH}
         ${GTEST_INCLUDE_DIR}
