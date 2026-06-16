@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef KERNEL_CONSTANT_H
-#define KERNEL_CONSTANT_H
+#pragma once
 
 #include <cstdint>
 
@@ -19,4 +18,3 @@ constexpr uint32_t UB_SIZE = 248 * 1024;
 constexpr uint32_t SIMT_MIN_THREAD_NUM = 128;
 constexpr uint32_t SIMT_MAX_THREAD_NUM = 2048;
 
-#endif  // KERNEL_CONSTANT_H

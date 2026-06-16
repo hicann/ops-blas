@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSCAL_TILING_DATA_H
-#define SSCAL_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 #include "common/helper/kernel_constant.h"
@@ -34,4 +33,3 @@ struct SscalTilingData {
 void sscal_kernel_do(uint8_t* x, uint8_t* workSpace, const SscalTilingData& tiling,
                      uint32_t numBlocks, void *stream);
 
-#endif // SSCAL_TILING_DATA_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef LTMATMUL_PARAM_H
-#define LTMATMUL_PARAM_H
+#pragma once
 
 #include <string>
 #include <algorithm>
@@ -162,4 +161,3 @@ struct LtMatmulParam : public BlasTestParamBase {
     }
 };
 
-#endif // LTMATMUL_PARAM_H

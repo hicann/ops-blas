@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SROTM_PARAM_H
-#define SROTM_PARAM_H
+#pragma once
 
 #include <array>
 #include <cstdint>
@@ -38,4 +37,3 @@ struct SrotmParam : public BlasTestParamBase {
     }
 };
 
-#endif // SROTM_PARAM_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GBMV_CPU_H
-#define GBMV_CPU_H
+#pragma once
 
 #include <algorithm>
 #include <cstdint>
@@ -88,4 +87,3 @@ inline aclblasStatus_t aclblasSgbmv_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // GBMV_CPU_H

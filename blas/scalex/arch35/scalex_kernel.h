@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SCALEX_KERNEL_H
-#define SCALEX_KERNEL_H
+#pragma once
 
 #include <cstdint>
 
@@ -18,4 +17,3 @@
 void scalex_kernel_do(uint8_t* x, void* alpha, const ScalexTilingData& tiling,
                       uint32_t numBlocks, void* stream);
 
-#endif  // SCALEX_KERNEL_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef VERIFY_H
-#define VERIFY_H
+#pragma once
 
 #include <cmath>
 #include <cstdint>
@@ -312,4 +311,3 @@ private:
     }
 };
 
-#endif // VERIFY_H

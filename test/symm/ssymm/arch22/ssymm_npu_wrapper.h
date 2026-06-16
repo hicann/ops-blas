@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSYMM_NPU_WRAPPER_H
-#define SSYMM_NPU_WRAPPER_H
+#pragma once
 
 #include <algorithm>
 #include <cstdint>
@@ -38,4 +37,3 @@ inline aclblasStatus_t aclblasSsymm_npu(
     return aclblasSsymm(handle, side, uplo, m, n, alpha, A, lda, B, ldb, beta, C, ldc);
 }
 
-#endif // SSYMM_NPU_WRAPPER_H

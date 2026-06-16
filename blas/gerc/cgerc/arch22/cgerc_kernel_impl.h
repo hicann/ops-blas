@@ -8,6 +8,8 @@
 * See LICENSE in the root of the software repository for the full text of the License.
 */
 
+#pragma once
+
 #include "kernel_operator.h"
 #include "common/helper/kernel_utils.h"
 #include "common/iterator/iterator.h"

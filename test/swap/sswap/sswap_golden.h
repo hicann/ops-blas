@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSWAP_GOLDEN_H
-#define SSWAP_GOLDEN_H
+#pragma once
 
 #include <algorithm>
 #include <cstdint>
@@ -35,4 +34,3 @@ inline aclblasStatus_t aclblasSswap_cpu(aclblasHandle_t handle, int n, float* x,
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // SSWAP_GOLDEN_H

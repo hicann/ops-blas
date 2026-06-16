@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSWAP_PARAM_H
-#define SSWAP_PARAM_H
+#pragma once
 
 #include <cstdint>
 #include <string>
@@ -35,4 +34,3 @@ struct SswapParam : public BlasTestParamBase {
     }
 };
 
-#endif // SSWAP_PARAM_H

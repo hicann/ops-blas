@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GETRI_BATCHED_NPU_H
-#define GETRI_BATCHED_NPU_H
+#pragma once
 
 #include <cstdint>
 #include <cstring>
@@ -242,4 +241,3 @@ inline aclblasStatus_t aclblasSgetriBatched_npu(
     return ret;
 }
 
-#endif // GETRI_BATCHED_NPU_H

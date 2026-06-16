@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef STPTTR_TILING_DATA_H
-#define STPTTR_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -20,4 +19,3 @@ struct TpttrTilingData {
     uint32_t useCoreNum;
 };
 
-#endif  // STPTTR_TILING_DATA_H

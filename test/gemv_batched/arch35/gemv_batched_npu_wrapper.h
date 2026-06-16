@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of License.
  */
 
-#ifndef GEMV_BATCHED_NPU_WRAPPER_H
-#define GEMV_BATCHED_NPU_WRAPPER_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -170,4 +169,3 @@ inline aclblasStatus_t aclblasGemvBatchedTSS_npu(
     return ret;
 }
 
-#endif // GEMV_BATCHED_NPU_WRAPPER_H

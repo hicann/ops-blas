@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef OPS_BLAS_TEST_UTILS_CBLAS_COMPAT_H
-#define OPS_BLAS_TEST_UTILS_CBLAS_COMPAT_H
+#pragma once
 
 #include <cassert>
 
@@ -71,4 +70,3 @@ inline CBLAS_DIAG ToCblasDiag(aclblasDiagType_t diag)
     }
 }
 
-#endif // OPS_BLAS_TEST_UTILS_CBLAS_COMPAT_H

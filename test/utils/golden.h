@@ -1,5 +1,4 @@
-#ifndef OPS_BLAS_TEST_UTILS_GOLDEN_H
-#define OPS_BLAS_TEST_UTILS_GOLDEN_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -92,4 +91,3 @@ inline void parseArguments(int argc, char* argv[], int& m, int& k, int& n)
   }
 }
 
-#endif // OPS_BLAS_TEST_UTILS_GOLDEN_H

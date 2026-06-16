@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SCALEX_TILING_DATA_H
-#define SCALEX_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -31,4 +30,3 @@ struct ScalexTilingData {
     uint32_t xType;  // aclDataType value
 };
 
-#endif  // SCALEX_TILING_DATA_H

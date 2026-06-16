@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef TBMV_NPU_H
-#define TBMV_NPU_H
+#pragma once
 
 #include <cstdint>
 #include <cstdlib>
@@ -67,4 +66,3 @@ inline aclblasStatus_t aclblasStbmv_npu(
     return ret;
 }
 
-#endif // TBMV_NPU_H

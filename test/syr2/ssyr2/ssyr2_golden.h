@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSYR2_GOLDEN_H
-#define SSYR2_GOLDEN_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -48,4 +47,3 @@ inline void aclblasSsyr2_cpu(
     }
 }
 
-#endif // SSYR2_GOLDEN_H

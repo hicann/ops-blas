@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSYR2_PARAM_H
-#define SSYR2_PARAM_H
+#pragma once
 
 #include <algorithm>
 #include <string>
@@ -43,4 +42,3 @@ struct Ssyr2Param : public BlasTestParamBase {
     }
 };
 
-#endif // SSYR2_PARAM_H

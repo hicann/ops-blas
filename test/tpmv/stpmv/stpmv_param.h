@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef STPMV_PARAM_H
-#define STPMV_PARAM_H
+#pragma once
 
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
@@ -39,4 +38,3 @@ struct StpmvParam : public BlasTestParamBase {
     }
 };
 
-#endif // STPMV_PARAM_H

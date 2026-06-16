@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GETRI_BATCHED_GOLDEN_H
-#define GETRI_BATCHED_GOLDEN_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -141,4 +140,3 @@ inline void aclblasSgetrfBatched_cpu_for_getri(
     }
 }
 
-#endif // GETRI_BATCHED_GOLDEN_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CGEMV_BATCHED_PLAN_H
-#define CGEMV_BATCHED_PLAN_H
+#pragma once
 
 static constexpr uint8_t BUFFER_NUM = 2;
 static constexpr uint32_t TMPBUF_NUM = 3;
@@ -97,4 +96,3 @@ uint32_t *CreateCgemvBatchedMask(uint32_t m, uint32_t dtype, uint32_t trans)
     return maskData;
 }
 
-#endif

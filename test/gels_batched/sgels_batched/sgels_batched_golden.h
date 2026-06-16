@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GELS_BATCHED_GOLDEN_H
-#define GELS_BATCHED_GOLDEN_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -274,4 +273,3 @@ inline aclblasStatus_t aclblasSgelsBatched_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // GELS_BATCHED_GOLDEN_H

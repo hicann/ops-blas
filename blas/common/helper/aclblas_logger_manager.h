@@ -13,8 +13,7 @@
  * \brief ops-blas log配置管理模块（不对外暴露）。
  */
 
-#ifndef ACLBLAS_LOGGER_MANAGER_H_
-#define ACLBLAS_LOGGER_MANAGER_H_
+#pragma once
 
 #include <acl/acl.h>
 #include <cstddef>
@@ -39,4 +38,3 @@ aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallbac
 
 }
 
-#endif // ACLBLAS_LOGGER_MANAGER_H_

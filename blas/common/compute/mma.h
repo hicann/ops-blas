@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef INCLUDE_MMA_H
-#define INCLUDE_MMA_H
+#pragma once
 
 #include "../arch/hardware.h"
 #include "kernel_tensor.h"
@@ -71,4 +70,3 @@ struct mmad<ArchTag, ElementA, ElementB, AccDTypeC, false> {
     };
 };
 
-#endif

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef __ASCBLASCGEMV_UTILS_H__
-#define __ASCBLASCGEMV_UTILS_H__
+#pragma once
 
 #ifdef __CCE_KT_TEST__
 #undef __aicore__
@@ -200,4 +199,3 @@ __aicore__ __inline__ __attribute__((always_inline)) void mulSComplex(
 }
 #endif
 
-#endif

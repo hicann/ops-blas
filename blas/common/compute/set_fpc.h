@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef INCLUDE_SET_FPC_H
-#define INCLUDE_SET_FPC_H
+#pragma once
 
 #include "../arch/hardware.h"
 #include "kernel_tensor.h"
@@ -34,4 +33,4 @@ struct SetQuantPreAddr<ArchType::ASCEND_V220, DataType> {
         AscendC::SetFixPipeConfigImpl(quantPreTensor);
     };
 };
-#endif
+

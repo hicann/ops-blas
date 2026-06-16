@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SGER_PARAM_H
-#define SGER_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -44,4 +43,3 @@ struct SgerParam : public BlasTestParamBase {
     }
 };
 
-#endif // SGER_PARAM_H

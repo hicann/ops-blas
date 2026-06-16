@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SDOT_CPU_H
-#define SDOT_CPU_H
+#pragma once
 
 #include <cstdint>
 #include <vector>
@@ -33,4 +32,3 @@ inline float aclblasSdot_cpu(int n, const float* x, int incx, const float* y, in
     return static_cast<float>(sum);
 }
 
-#endif // SDOT_CPU_H

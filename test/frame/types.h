@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef TYPES_H
-#define TYPES_H
+#pragma once
 
 #include <cstdint>
 
@@ -31,4 +30,3 @@ struct VerifyConfig {
     double epsilonForRel = 1e-7;
 };
 
-#endif // TYPES_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef FILL_H
-#define FILL_H
+#pragma once
 
 #include <algorithm>
 #include <cfloat>
@@ -590,4 +589,3 @@ inline std::vector<float> makeBlasFp4Random(int64_t size, uint32_t seed = 0)
     return data;
 }
 
-#endif // FILL_H

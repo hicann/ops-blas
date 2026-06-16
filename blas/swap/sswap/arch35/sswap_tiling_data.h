@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSWAP_TILING_DATA_H
-#define SSWAP_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -23,4 +22,3 @@ struct SswapTilingData {
 // elements per 32-byte block for FP32 (= 8)
 constexpr uint32_t ELEMENTS_PER_BLOCK = 32 / sizeof(float);
 
-#endif // SSWAP_TILING_DATA_H

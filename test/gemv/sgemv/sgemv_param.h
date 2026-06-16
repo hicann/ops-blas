@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GEMV_SGEMV_PARAM_H
-#define GEMV_SGEMV_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -50,4 +49,3 @@ struct SgemvParam : public BlasTestParamBase {
     }
 };
 
-#endif // GEMV_SGEMV_PARAM_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef INCLUDE_HARDWARE_H
-#define INCLUDE_HARDWARE_H
+#pragma once
 
 enum class ArchType { ASCEND_V220, ASCEND_V200, ASCEND_M200 };
 
@@ -32,4 +31,3 @@ struct HardwareInfo {
     static uint32_t const fbBlockSize = 128;
 };
 
-#endif

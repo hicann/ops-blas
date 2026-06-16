@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SASUM_NPU_H
-#define SASUM_NPU_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -20,6 +19,7 @@
 #include "cann_ops_blas.h"
 #include "device.h"
 
+// sasum npu wrapper: allocate device buffer and copy host data (nullable)
 inline std::unique_ptr<DeviceBuffer> tryAllocAndCopy(const void* hostPtr, size_t bytes)
 {
     if (hostPtr == nullptr)
@@ -64,4 +64,3 @@ inline aclblasStatus_t aclblasSasum_npu(
     return ret;
 }
 
-#endif // SASUM_NPU_H

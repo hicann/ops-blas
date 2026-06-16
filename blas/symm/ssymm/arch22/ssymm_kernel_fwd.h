@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#ifndef BLAS_SYMM_SSYMM_KERNEL_FWD_H_
-#define BLAS_SYMM_SSYMM_KERNEL_FWD_H_
+#pragma once
 
 #include <cstdint>
 #include "cann_ops_blas_common.h"
@@ -40,4 +39,3 @@ void ssymm_left_cube_do(GM_ADDR aSym, GM_ADDR workspace, GM_ADDR b, GM_ADDR scra
 
 void ssymm_left_cube_postprocess_do(GM_ADDR scratch, GM_ADDR c, GM_ADDR configGm, void *stream);
 
-#endif  // BLAS_SYMM_SSYMM_KERNEL_FWD_H_

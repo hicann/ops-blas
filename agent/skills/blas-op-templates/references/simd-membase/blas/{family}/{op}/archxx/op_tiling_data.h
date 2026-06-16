@@ -12,8 +12,7 @@
 // - host 侧计算后通过 GM 传递给 kernel
 // - 字段完全由算子的 Tiling 策略决定
 
-#ifndef {{OP}}_TILING_DATA_H
-#define {{OP}}_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -33,4 +32,3 @@ struct {{Op}}TilingData {
 // 建议：使用算子实际的数据类型，而非硬编码 float
 constexpr uint32_t ELEMENTS_PER_BLOCK = 32 / sizeof(/* dtype */float);
 
-#endif // {{OP}}_TILING_DATA_H

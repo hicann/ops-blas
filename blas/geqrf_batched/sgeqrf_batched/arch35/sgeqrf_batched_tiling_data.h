@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef ACLBLAS_SGEQRF_BATCHED_TILING_DATA_H
-#define ACLBLAS_SGEQRF_BATCHED_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -26,4 +25,3 @@ struct GeqrfBatchedTilingData {
 };
 #pragma pack(pop)
 
-#endif // ACLBLAS_SGEQRF_BATCHED_TILING_DATA_H

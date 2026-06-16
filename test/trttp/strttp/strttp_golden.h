@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef STRTTP_CPU_H
-#define STRTTP_CPU_H
+#pragma once
 
 #include <algorithm>
 #include <cstdint>
@@ -45,4 +44,3 @@ inline aclblasStatus_t aclblasStrttp_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // STRTTP_CPU_H

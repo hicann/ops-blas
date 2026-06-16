@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CGEMV_BATCHED_KERNEL_IMPL_H
-#define CGEMV_BATCHED_KERNEL_IMPL_H
+#pragma once
 
 #include <cstdint>
 #include "kernel_operator.h"
@@ -640,4 +639,3 @@ __aicore__ inline void CgemvBatchedAIV<T, TRANS_T>::Process()
 }
 }  // namespace CgemvBatched
 
-#endif  // CGEMV_BATCHED_AIV_H

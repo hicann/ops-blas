@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SASUM_TILING_DATA_H
-#define SASUM_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 #include "common/helper/kernel_constant.h"
@@ -27,4 +26,3 @@ struct SasumTilingData {
     uint32_t nthreads;
 };
 
-#endif  // SASUM_TILING_DATA_H

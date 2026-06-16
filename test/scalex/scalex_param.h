@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SCALEX_PARAM_H
-#define SCALEX_PARAM_H
+#pragma once
 
 #include <cstdint>
 #include <string>
@@ -60,4 +59,3 @@ struct ScalexParam : public BlasTestParamBase {
     }
 };
 
-#endif // SCALEX_PARAM_H

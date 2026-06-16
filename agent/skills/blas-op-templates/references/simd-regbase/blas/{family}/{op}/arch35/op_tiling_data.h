@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef {{OP}}_TILING_DATA_H
-#define {{OP}}_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -40,4 +39,3 @@ struct {{Op}}TilingData {
 
 #pragma pack(pop)
 
-#endif // {{OP}}_TILING_DATA_H

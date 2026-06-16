@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GETRI_BATCHED_PARAM_H
-#define GETRI_BATCHED_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -98,4 +97,3 @@ struct SgetriBatchedParam : public BlasTestParamBase {
     }
 };
 
-#endif // GETRI_BATCHED_PARAM_H

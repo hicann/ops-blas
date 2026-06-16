@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef TBMV_CPU_H
-#define TBMV_CPU_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -117,4 +116,3 @@ inline aclblasStatus_t aclblasStbmv_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // TBMV_CPU_H

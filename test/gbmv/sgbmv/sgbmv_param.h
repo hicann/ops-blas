@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GBMV_PARAM_H
-#define GBMV_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -50,4 +49,3 @@ struct GbmvParam : public BlasTestParamBase {
     }
 };
 
-#endif // GBMV_PARAM_H

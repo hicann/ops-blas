@@ -13,3 +13,11 @@ repos:
     hooks:
       - id: clang-format
         types_or: [c++, c]
+  - repo: local
+    hooks:
+      - id: check-pragma-once
+        name: Check #pragma once in headers
+        entry: scripts/ci/check_pragma_once.sh
+        language: script
+        types_or: [c, c++]
+        files: '\.(h|hpp)$'

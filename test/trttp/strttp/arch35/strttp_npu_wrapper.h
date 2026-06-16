@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef STRTTP_NPU_H
-#define STRTTP_NPU_H
+#pragma once
 
 #include <cstdint>
 
@@ -63,4 +62,3 @@ inline aclblasStatus_t aclblasStrttp_npu(
     return ret;
 }
 
-#endif // STRTTP_NPU_H

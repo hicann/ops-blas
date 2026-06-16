@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSYMM_PARAM_H
-#define SSYMM_PARAM_H
+#pragma once
 
 #include <string>
 #include "acl/acl.h"
@@ -51,4 +50,3 @@ struct SsymmParam : public BlasTestParamBase {
     }
 };
 
-#endif // SSYMM_PARAM_H

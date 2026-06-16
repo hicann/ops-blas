@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef LTMATMUL_CPU_H
-#define LTMATMUL_CPU_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -322,4 +321,3 @@ inline aclblasStatus_t aclblasLtMatmul_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // LTMATMUL_CPU_H

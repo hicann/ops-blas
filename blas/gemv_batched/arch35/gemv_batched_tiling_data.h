@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GEMV_BATCHED_TILING_DATA_H
-#define GEMV_BATCHED_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -50,4 +49,3 @@ struct GemvBatchedTilingData {
 };
 #pragma pack(pop)
 
-#endif  // GEMV_BATCHED_TILING_DATA_H

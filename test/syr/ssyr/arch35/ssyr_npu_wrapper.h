@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSYR_NPU_H
-#define SSYR_NPU_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -92,4 +91,3 @@ inline aclblasStatus_t aclblasSsyr_npu(
     return ret;
 }
 
-#endif // SSYR_NPU_H

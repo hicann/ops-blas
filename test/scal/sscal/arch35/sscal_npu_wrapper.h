@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSCAL_NPU_H
-#define SSCAL_NPU_H
+#pragma once
 
 #include <cstdint>
 #include <algorithm>
@@ -50,4 +49,3 @@ inline aclblasStatus_t aclblasSscal_npu(
     return ret;
 }
 
-#endif // SSCAL_NPU_H

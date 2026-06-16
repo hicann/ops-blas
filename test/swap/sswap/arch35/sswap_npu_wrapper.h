@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSWAP_NPU_H
-#define SSWAP_NPU_H
+#pragma once
 
 #include <cstdint>
 
@@ -76,4 +75,3 @@ inline aclblasStatus_t aclblasSswap_npu(aclblasHandle_t handle, int n, float* x,
     return ret;
 }
 
-#endif // SSWAP_NPU_H

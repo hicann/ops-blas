@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SROTM_TILING_DATA_H
-#define SROTM_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -26,4 +25,3 @@ struct SrotmTilingData {
     float beta2;
 };
 
-#endif  // SROTM_TILING_DATA_H

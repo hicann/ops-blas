@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef STPMV_GOLDEN_H
-#define STPMV_GOLDEN_H
+#pragma once
 
 #include <cstdint>
 #include <cstdlib>
@@ -44,4 +43,3 @@ inline aclblasStatus_t aclblasStpmv_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // STPMV_GOLDEN_H

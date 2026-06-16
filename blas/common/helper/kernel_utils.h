@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef KERNEL_UTILS_H
-#define KERNEL_UTILS_H
+#pragma once
 
 /* ========== Tiling utilities ========== */
 
@@ -413,4 +412,3 @@ __aicore__ __inline__ void matrix_ubuf2gm(
 
 #endif  // KERNEL_UTILS_LITE
 
-#endif  // KERNEL_UTILS_H

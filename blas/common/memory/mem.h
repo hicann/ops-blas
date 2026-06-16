@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef INCLUDE_MEM_H
-#define INCLUDE_MEM_H
+#pragma once
 
 #include "../arch/hardware.h"
 #include "kernel_event.h"
@@ -79,4 +78,4 @@ public:
 public:
     AscendC::LocalTensor<uint8_t> tensor[(uint32_t)BufferType::ASCEND_MAX];
 };
-#endif
+

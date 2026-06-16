@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SCALEX_NPU_WRAPPER_H
-#define SCALEX_NPU_WRAPPER_H
+#pragma once
 
 #include <cstdint>
 #include <cstdlib>
@@ -173,4 +172,3 @@ inline aclblasStatus_t aclblasScalex_npu(
     return ret;
 }
 
-#endif // SCALEX_NPU_WRAPPER_H

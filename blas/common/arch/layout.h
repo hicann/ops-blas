@@ -8,9 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef INCLUDE_LAYOUT_H
-#define INCLUDE_LAYOUT_H
+#pragma once
 
 enum class DataFormat { ND = 0, NZ, ZN, ZZ, NN, VECTOR };
 
-#endif

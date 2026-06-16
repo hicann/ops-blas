@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef BLAS_TEST_H
-#define BLAS_TEST_H
+#pragma once
 
 #include <gtest/gtest.h>
 #include "acl/acl.h"
@@ -108,4 +107,3 @@ aclblasHandle_t BlasTest<ParamType>::handle_ = nullptr;
 template <typename ParamType>
 aclrtStream BlasTest<ParamType>::stream_ = nullptr;
 
-#endif // BLAS_TEST_H

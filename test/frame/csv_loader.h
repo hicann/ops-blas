@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CSV_LOADER_H
-#define CSV_LOADER_H
+#pragma once
 
 #include <fstream>
 #include <iostream>
@@ -318,4 +317,3 @@ inline aclblasComputeType_t parseComputeType(const std::string& s)
     return parseEnum(s, t, ACLBLAS_COMPUTE_32F);
 }
 
-#endif // CSV_LOADER_H

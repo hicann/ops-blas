@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef LT_MATRIX_TRANSFORM_GOLDEN_H
-#define LT_MATRIX_TRANSFORM_GOLDEN_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -519,4 +518,3 @@ inline aclblasStatus_t aclblasLtMatrixTransform_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif  // LT_MATRIX_TRANSFORM_GOLDEN_H

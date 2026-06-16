@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SDOT_PARAM_H
-#define SDOT_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -32,4 +31,3 @@ struct SdotParam : public BlasTestParamBase {
     }
 };
 
-#endif // SDOT_PARAM_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GEMV_BATCHED_PARAM_H
-#define GEMV_BATCHED_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -55,4 +54,3 @@ struct GemvBatchedParam : public BlasTestParamBase {
     }
 };
 
-#endif // GEMV_BATCHED_PARAM_H

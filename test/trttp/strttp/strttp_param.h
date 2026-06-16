@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef STRTTP_PARAM_H
-#define STRTTP_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -34,4 +33,3 @@ struct StrttpParam : public BlasTestParamBase {
     }
 };
 
-#endif // STRTTP_PARAM_H

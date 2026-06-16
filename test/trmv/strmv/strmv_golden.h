@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef TRMV_CPU_H
-#define TRMV_CPU_H
+#pragma once
 
 #include <cmath>
 #include <cstdint>
@@ -83,4 +82,3 @@ inline aclblasStatus_t aclblasStrmv_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // TRMV_CPU_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef LT_MATRIX_TRANSFORM_PARAM_H
-#define LT_MATRIX_TRANSFORM_PARAM_H
+#pragma once
 
 #include <algorithm>
 #include <string>
@@ -189,4 +188,3 @@ struct LtMatrixTransformParam : public BlasTestParamBase {
     }
 };
 
-#endif  // LT_MATRIX_TRANSFORM_PARAM_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSCAL_GOLDEN_H
-#define SSCAL_GOLDEN_H
+#pragma once
 
 #include <cstdint>
 #include <cmath>
@@ -39,4 +38,3 @@ inline aclblasStatus_t aclblasSscal_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // SSCAL_GOLDEN_H

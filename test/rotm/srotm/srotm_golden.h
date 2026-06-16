@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SROTM_GOLDEN_H
-#define SROTM_GOLDEN_H
+#pragma once
 
 #include <array>
 #include <cstdint>
@@ -62,4 +61,3 @@ inline aclblasStatus_t aclblasSrotm_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // SROTM_GOLDEN_H

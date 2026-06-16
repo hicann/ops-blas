@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef TRSV_PARAM_H
-#define TRSV_PARAM_H
+#pragma once
 
 #include <cstdint>
 #include <string>
@@ -41,4 +40,3 @@ struct TrsvParam : public BlasTestParamBase {
     }
 };
 
-#endif // TRSV_PARAM_H

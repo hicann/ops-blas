@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SYR_TILING_DATA_H
-#define SYR_TILING_DATA_H
+#pragma once
 
 #include <cstdint>
 
@@ -23,4 +22,3 @@ struct SyrTilingData {
     int64_t incx;
 };
 
-#endif // SYR_TILING_DATA_H

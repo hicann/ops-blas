@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SROTM_NPU_WRAPPER_H
-#define SROTM_NPU_WRAPPER_H
+#pragma once
 
 #include <cstdint>
 #include <memory>
@@ -72,4 +71,3 @@ inline aclblasStatus_t aclblasSrotm_npu(
     return ret;
 }
 
-#endif // SROTM_NPU_WRAPPER_H

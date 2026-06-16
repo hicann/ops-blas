@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSYMM_COMMON_HOST_H
-#define SSYMM_COMMON_HOST_H
+#pragma once
 
 #include <cstdio>
 #include <cstdlib>
@@ -146,4 +145,3 @@ inline void DumpSsymmExecutionBackend(aclblasSideMode_t side,
         static_cast<int>(side), static_cast<int>(uplo), static_cast<int>(backendKind));
 }
 
-#endif // SSYMM_COMMON_HOST_H

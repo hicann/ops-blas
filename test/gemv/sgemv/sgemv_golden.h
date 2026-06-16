@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GEMV_SGEMV_GOLDEN_H
-#define GEMV_SGEMV_GOLDEN_H
+#pragma once
 
 #include <algorithm>
 #include <cmath>
@@ -50,4 +49,3 @@ inline aclblasStatus_t aclblasSgemv_cpu(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-#endif // GEMV_SGEMV_GOLDEN_H

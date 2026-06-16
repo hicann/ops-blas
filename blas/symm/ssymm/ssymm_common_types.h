@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSYMM_COMMON_TYPES_H
-#define SSYMM_COMMON_TYPES_H
+#pragma once
 
 #include <cstdint>
 
@@ -88,4 +87,3 @@ struct SsymmTilingData {
     uint32_t rowRemainder;  // 剩余行数（前 remainder 个核多分配 1 行）
 };
 
-#endif // SSYMM_COMMON_TYPES_H

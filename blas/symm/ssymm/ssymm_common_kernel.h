@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SSYMM_COMMON_KERNEL_H
-#define SSYMM_COMMON_KERNEL_H
+#pragma once
 
 #include <cstddef>
 #include <vector>
@@ -523,4 +522,3 @@ inline RightCubeChunkLocalPolicy BuildRightCubeChunkLocalPolicy(RightCubeUplo up
     return policy;
 }
 
-#endif // SSYMM_COMMON_KERNEL_H

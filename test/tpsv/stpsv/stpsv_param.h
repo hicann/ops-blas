@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef TPSV_PARAM_H
-#define TPSV_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -34,4 +33,3 @@ struct TpsvParam : public BlasTestParamBase {
     }
 };
 
-#endif // TPSV_PARAM_H

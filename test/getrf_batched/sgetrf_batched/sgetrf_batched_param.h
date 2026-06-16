@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SGETRF_BATCHED_PARAM_H
-#define SGETRF_BATCHED_PARAM_H
+#pragma once
 
 #include <string>
 
@@ -84,4 +83,3 @@ struct SgetrfBatchedParam : public BlasTestParamBase {
     }
 };
 
-#endif // SGETRF_BATCHED_PARAM_H

@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef TRSV_NPU_H
-#define TRSV_NPU_H
+#pragma once
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
@@ -31,4 +30,3 @@ inline aclblasStatus_t aclblasStrsv_npu(
     return aclblasStrsv(handle, uplo, trans, diag, n, A, lda, x, incx);
 }
 
-#endif // TRSV_NPU_H

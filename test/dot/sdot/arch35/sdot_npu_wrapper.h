@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef SDOT_NPU_H
-#define SDOT_NPU_H
+#pragma once
 
 #include <cstdint>
 
@@ -67,4 +66,3 @@ inline aclblasStatus_t aclblasSdot_npu(
     return ret;
 }
 
-#endif // SDOT_NPU_H

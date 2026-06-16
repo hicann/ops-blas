@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef INCLUDE_ITERTOR_H
-#define INCLUDE_ITERTOR_H
+#pragma once
 
 #define KERNEL_UTILS_LITE
 #include "../helper/kernel_utils.h"
@@ -126,4 +125,4 @@ struct l0c_to_l1 {
 #include "iterators/l1_to_fb_iterator.inc"
 #include "iterators/l1_to_l0_iterator.inc"
 #include "iterators/l1_to_ub_iterator.inc"
-#endif
+

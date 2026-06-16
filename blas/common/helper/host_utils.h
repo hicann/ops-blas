@@ -13,8 +13,7 @@
  * \brief Host-side utilities.
  */
 
-#ifndef HOST_UTILS_H
-#define HOST_UTILS_H
+#pragma once
 
 #include <cstdint>
 #include <cstdio>
@@ -66,4 +65,3 @@ static inline R CeilAlign(T1 val, T2 align)
     return CeilDiv<R>(val, align) * static_cast<R>(align);
 }
 
-#endif  // HOST_UTILS_H

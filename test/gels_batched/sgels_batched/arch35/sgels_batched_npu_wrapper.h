@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef GELS_BATCHED_NPU_H
-#define GELS_BATCHED_NPU_H
+#pragma once
 
 #include <algorithm>
 #include <cstdint>
@@ -200,4 +199,3 @@ inline aclblasStatus_t aclblasSgelsBatched_npu_error(
     return aclblasSgelsBatched(handle, trans, m, n, nrhs, Aarray, lda, Carray, ldc, devInfo, batchSize);
 }
 
-#endif // GELS_BATCHED_NPU_H

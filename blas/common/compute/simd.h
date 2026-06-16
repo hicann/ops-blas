@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef INCLUDE_SIMD_H
-#define INCLUDE_SIMD_H
+#pragma once
 
 #include "../arch/hardware.h"
 #include "kernel_operator.h"
@@ -421,4 +420,4 @@ __aicore__ inline void cgadd_v(AscendC::LocalTensor<DType> dst,
 {
     AscendC::BlockReduceSum<DType, false>(dst, src, repeat, 0, dstRepStride, srcBlkStride, srcRepStride);
 }
-#endif
+

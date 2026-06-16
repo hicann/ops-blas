@@ -1,5 +1,4 @@
-#ifndef OPS_BLAS_TEST_UTILS_ERROR_CHECK_H
-#define OPS_BLAS_TEST_UTILS_ERROR_CHECK_H
+#pragma once
 
 #include <cstdlib>
 #include <cstdio>
@@ -38,4 +37,3 @@
     }                                                                                   \
   }
 
-#endif // OPS_BLAS_TEST_UTILS_ERROR_CHECK_H
