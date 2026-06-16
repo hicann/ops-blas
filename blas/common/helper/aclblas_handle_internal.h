@@ -10,7 +10,7 @@
 
 /*!
  * \file aclblas_handle_internal.h
- * \brief ops-blas handle 内部结构与版本宏定义（不对外暴露）。
+ * \brief Internal ops-blas handle structure (not exposed to users).
  */
 
 #pragma once
@@ -20,39 +20,61 @@
 
 #include "cann_ops_blas_common.h"
 
-/* ========== 版本信息（仅内部使用） ========== */
-#define ACLBLAS_VERSION_MAJOR 1
-#define ACLBLAS_VERSION_MINOR 0
-#define ACLBLAS_VERSION_PATCH 0
-#define ACLBLAS_VERSION_STRING "1.0.0"
+/** @brief Default initial workspace size: 4 MiB. */
+constexpr size_t ACLBLAS_DEFAULT_WORKSPACE_SIZE = 4U * 1024U * 1024U;
 
 /**
- * @brief 将版本号 (major, minor, patch) 编码为整型。
+ * @brief Internal ops-blas handle structure.
  *
- * 编码规则：MAJOR * 10000 + MINOR * 100 + PATCH，
- * 例如 1.0.0 -> 10000、1.2.3 -> 10203。
- */
-#define ACLBLAS_MAKE_VERSION(major, minor, patch) \
-    ((major) * 10000 + (minor) * 100 + (patch))
-
-#define ACLBLAS_VERSION \
-    ACLBLAS_MAKE_VERSION(ACLBLAS_VERSION_MAJOR, ACLBLAS_VERSION_MINOR, ACLBLAS_VERSION_PATCH)
-
-/**
- * @brief ops-blas handle 内部结构体
+ * Maintains default workspace (allocated/freed by the library) and user workspace
+ * (allocated/freed by the user). The use_user_workspace flag selects which one is active.
  *
- * 仅包含 kernel 执行所需的最小化字段：
- *   - stream：当前 stream，用于 kernel 异步执行
- *   - workspace / workspaceSize：内部 workspace，供算子临时存储
- *
- * 该结构体定义仅在实现文件中可见，对外部用户完全不可见。
- * 对外接口使用 void* / void** 作为 handle 类型。
+ * This structure is visible only inside implementation files. Public APIs use void* / void**
+ * as the handle type.
  */
 struct _aclblas_handle {
     /* ========== Stream ========== */
-    aclrtStream stream = nullptr;     ///< 当前 stream，用于 kernel 执行
+    aclrtStream stream = nullptr;
 
-    /* ========== 工作内存 ========== */
-    void *workspace = nullptr;        ///< 内部 workspace（device 内存，由用户负责分配/释放）
-    size_t workspaceSize = 0;         ///< workspace 大小（字节）
+    /* ========== Default workspace (library managed) ========== */
+    void* default_workspace = nullptr;
+    size_t default_workspace_size = 0;
+
+    /* ========== User workspace (user managed) ========== */
+    void* user_workspace = nullptr;
+    size_t user_workspace_size = 0;
+
+    bool use_user_workspace = false;
 };
+
+/**
+ * @brief Returns the pointer of the currently active workspace.
+ */
+inline void* aclblasGetEffectiveWorkspace(const _aclblas_handle* h)
+{
+    if (h == nullptr) {
+        return nullptr;
+    }
+    return h->use_user_workspace ? h->user_workspace : h->default_workspace;
+}
+
+/**
+ * @brief Returns the size in bytes of the currently active workspace.
+ */
+inline size_t aclblasGetEffectiveWorkspaceSize(const _aclblas_handle* h)
+{
+    if (h == nullptr) {
+        return 0;
+    }
+    return h->use_user_workspace ? h->user_workspace_size : h->default_workspace_size;
+}
+
+/**
+ * @brief Switches back to the default workspace without clearing cached user workspace fields.
+ */
+inline void aclblasResetToDefaultWorkspace(_aclblas_handle* h)
+{
+    if (h != nullptr) {
+        h->use_user_workspace = false;
+    }
+}

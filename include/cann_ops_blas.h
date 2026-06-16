@@ -25,105 +25,128 @@ extern "C" {
 #endif
 
 /**
- * @brief 创建 ops-blas handle
+ * @brief Creates an ops-blas handle.
  *
- * 在堆上分配一个 ops-blas handle，并通过 @p handle 输出给调用者。内部结构
- * 对用户不可见，用户通过返回的 void* 使用其他 API。
+ * Allocates a handle on the heap and returns it via @p handle. A 4 MiB default workspace
+ * (device memory, managed by the library) is pre-allocated at creation time. The internal
+ * structure is opaque to callers.
  *
- * @param handle 输出参数，用于接收创建的 handle 指针（void**）。调用前 *handle
- *               必须为 nullptr，否则视为已存在以防止内存泄漏。
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 指针为空
- *         ACLBLAS_STATUS_INVALID_VALUE *handle 非空（防止重复创建导致内存泄漏）
- *         ACLBLAS_STATUS_NOT_INITIALIZED CANN 上下文未初始化
- *         ACLBLAS_STATUS_ALLOC_FAILED 内存分配失败
+ * @param handle Output parameter for the created handle (void**). *handle must be nullptr
+ *               before the call; a non-null value is treated as an existing handle to
+ *               prevent memory leaks.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
+ *         ACLBLAS_STATUS_INVALID_VALUE if *handle is non-null.
+ *         ACLBLAS_STATUS_NOT_INITIALIZED if the CANN context is not initialized.
+ *         ACLBLAS_STATUS_ALLOC_FAILED if memory allocation fails.
  */
 aclblasStatus_t aclblasCreate(aclblasHandle_t* handle);
 
 /**
- * @brief 销毁 ops-blas handle
+ * @brief Destroys an ops-blas handle.
  *
- * 释放由 aclblasCreate 创建的 handle 所占有的全部资源。
+ * Synchronizes the associated stream, frees the library default workspace and handle
+ * resources, and clears user workspace references without freeing user memory.
  *
- * @param handle 要销毁的 handle（void*）
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
+ * @param handle Handle to destroy (void*).
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
+ *         ACLBLAS_STATUS_EXECUTION_FAILED if stream synchronization fails.
  */
 aclblasStatus_t aclblasDestroy(aclblasHandle_t handle);
 
 /**
- * @brief 设置 handle 的 stream
- * @param handle aclblas handle（void*）
- * @param stream 要设置的 stream，nullptr 表示使用默认 stream
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
+ * @brief Sets the stream bound to a handle.
+ *
+ * Switching streams automatically resets to the default workspace.
+ *
+ * @param handle aclblas handle (void*).
+ * @param stream Stream to bind; nullptr selects the default stream.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
  */
 aclblasStatus_t aclblasSetStream(aclblasHandle_t handle, aclrtStream stream);
 
 /**
- * @brief 获取 handle 的 stream
- * @param handle aclblas handle（void*）
- * @param stream 输出参数，返回当前 stream
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
- *         ACLBLAS_STATUS_INVALID_VALUE stream 输出参数为空
+ * @brief Gets the stream bound to a handle.
+ * @param handle aclblas handle (void*).
+ * @param stream Output parameter for the current stream.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
+ *         ACLBLAS_STATUS_INVALID_VALUE if stream is null.
  */
 aclblasStatus_t aclblasGetStream(aclblasHandle_t handle, aclrtStream* stream);
 
 /**
- * @brief 设置 handle 的 workspace
+ * @brief Sets the workspace used by a handle.
  *
- * 供算子内部临时存储使用。允许用户自行管理 workspace 内存；传入
- * (nullptr, 0) 可以清空 handle 中的 workspace 设置。
+ * Borrows user device memory for temporary operator storage; the library does not take
+ * ownership. Supports grow-only updates: the setting is updated only when the new size is
+ * larger than the current user workspace size. Passing nullptr restores the library default
+ * workspace. User workspace must be set again after switching streams.
  *
- * @param handle aclblas handle（void*）
- * @param workspace 用户分配的 device 内存指针
- * @param workspaceSize workspace 大小（字节）
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
- *         ACLBLAS_STATUS_INVALID_VALUE workspace 与 workspaceSize 语义冲突
+ * @param handle aclblas handle (void*).
+ * @param workspace User-allocated device memory; nullptr restores the default workspace.
+ * @param workspaceSize Workspace size in bytes; must be greater than 0 when workspace is non-null.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
+ *         ACLBLAS_STATUS_INVALID_VALUE if workspace is non-null but workspaceSize is 0.
  */
 aclblasStatus_t aclblasSetWorkspace(aclblasHandle_t handle, void* workspace, size_t workspaceSize);
 
 /**
- * @brief 获取 ops-blas 版本号
+ * @brief Gets the currently active workspace of a handle.
  *
- * 版本号编码为 MAJOR * 10000 + MINOR * 100 + PATCH，如 10000 表示 1.0.0。
+ * Returns the default or user workspace pointer and size depending on which one is active.
  *
- * @param handle  handle指针，可为NULL
- * @param version 输出参数，接收版本号
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_INVALID_VALUE 参数无效
+ * @param handle aclblas handle (void*).
+ * @param workspace Output parameter for the active workspace pointer.
+ * @param workspaceSize Output parameter for the active workspace size in bytes.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
+ *         ACLBLAS_STATUS_INVALID_VALUE if an output parameter is null.
+ */
+aclblasStatus_t aclblasGetWorkspace(aclblasHandle_t handle, void** workspace, size_t* workspaceSize);
+
+/**
+ * @brief Gets the ops-blas library version.
+ *
+ * The version is encoded as MAJOR * 10000 + MINOR * 100 + PATCH, e.g. 10000 for 1.0.0.
+ *
+ * @param handle Handle pointer; may be null.
+ * @param version Output parameter for the version number.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_INVALID_VALUE if an argument is invalid.
  */
 aclblasStatus_t aclblasGetVersion(aclblasHandle_t handle, int* version);
 
 /**
- * @brief 配置日志接口
- * @param logFile  日志文件名称，为空不输出
- * @param logToStdOut 是否输出到标准流
- * @param logToKdlls  是否输出到内核
- * @param logLevel 日志级别
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_INVALID_VALUE 参数无效
+ * @brief Configures logging for the ops-blas library.
+ * @param logFile Log file path; no file output when null or empty.
+ * @param logToStdOut Whether to write logs to standard output.
+ * @param logToKdlls Whether to write logs to the kernel log.
+ * @param logLevel Log level.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_INVALID_VALUE if an argument is invalid.
  */
 aclblasStatus_t aclblasLoggerConfigure(
     const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel);
 
 /**
- * @brief 设置日志回调函数
- * @param handle  句柄
- * @param userCallback 日志回调函数
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
+ * @brief Sets the log callback function.
+ * @param handle Handle.
+ * @param userCallback User-defined log callback function.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
  */
 aclblasStatus_t aclblasSetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
 
 /**
- * @brief 获取日志回调函数
- * @param handle  句柄
- * @param userCallback 日志回调函数
- * @return ACLBLAS_STATUS_SUCCESS 成功
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR handle 为空
+ * @brief Gets the log callback function.
+ * @param handle Handle.
+ * @param userCallback Output parameter for the user-defined log callback function.
+ * @return ACLBLAS_STATUS_SUCCESS on success.
+ *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
  */
 aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
 
@@ -139,8 +162,8 @@ aclblasStatus_t aclblasSspmv(
     int incx, const float* beta, float* y, int incy);
 
 aclblasStatus_t aclblasSger(
-    aclblasHandle_t handle, int m, int n, const float* alpha, const float* x, int incx, const float* y,
-    int incy, float* A, int lda);
+    aclblasHandle_t handle, int m, int n, const float* alpha, const float* x, int incx, const float* y, int incy,
+    float* A, int lda);
 
 aclblasStatus_t aclblasStrsv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
@@ -210,34 +233,24 @@ aclblasStatus_t aclblasCgerc(
     const int64_t incx, uint8_t* y, const int64_t incy, uint8_t* A, const int64_t lda);
 
 aclblasStatus_t aclblasSgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n,
-    const float* alpha, const float* A, int lda,
-    const float* x, int incx, const float* beta,
-    float* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A, int lda,
+    const float* x, int incx, const float* beta, float* y, int incy, int batchCount);
 
 aclblasStatus_t aclblasHSHgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n,
-    const float* alpha, const uint16_t* A, int lda,
-    const uint16_t* x, int incx, const float* beta,
-    uint16_t* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const uint16_t* A, int lda,
+    const uint16_t* x, int incx, const float* beta, uint16_t* y, int incy, int batchCount);
 
 aclblasStatus_t aclblasHSSgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n,
-    const float* alpha, const uint16_t* A, int lda,
-    const uint16_t* x, int incx, const float* beta,
-    float* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const uint16_t* A, int lda,
+    const uint16_t* x, int incx, const float* beta, float* y, int incy, int batchCount);
 
 aclblasStatus_t aclblasTSTgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n,
-    const float* alpha, const uint16_t* A, int lda,
-    const uint16_t* x, int incx, const float* beta,
-    uint16_t* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const uint16_t* A, int lda,
+    const uint16_t* x, int incx, const float* beta, uint16_t* y, int incy, int batchCount);
 
 aclblasStatus_t aclblasTSSgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n,
-    const float* alpha, const uint16_t* A, int lda,
-    const uint16_t* x, int incx, const float* beta,
-    float* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const uint16_t* A, int lda,
+    const uint16_t* x, int incx, const float* beta, float* y, int incy, int batchCount);
 
 aclblasStatus_t aclblasCcopy(
     aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy);
@@ -249,8 +262,7 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x
 
 aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
 
-aclblasStatus_t aclblasSscal(
-    aclblasHandle_t handle, int n, const float* alpha, float* x, int incx);
+aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx);
 
 aclblasStatus_t aclblasCsscal(
     aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx);
@@ -313,13 +325,11 @@ aclblasStatus_t aclblasStpttr(
 aclblasStatus_t aclblasStrttp(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* A, int lda, float* AP);
 
-aclblasStatus_t aclblasSrotm(
-    aclblasHandle_t handle, int n, float *x, int incx, float *y, int incy, const float *param);
+aclblasStatus_t aclblasSrotm(aclblasHandle_t handle, int n, float* x, int incx, float* y, int incy, const float* param);
 
 aclblasStatus_t aclblasSgemv(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy);
-
 
 aclblasStatus_t aclblasSgeqrfBatched(
     aclblasHandle_t handle, int m, int n, float* const Aarray[], int lda, float* const TauArray[], int* info,
