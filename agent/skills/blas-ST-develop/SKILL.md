@@ -114,6 +114,8 @@ struct StpttrParam : public BlasTestParamBase {
 
 **BlasFillMode 命名规则**：`METHOD_PATTERN_VAL...`，从某位开始可不填（后续取默认值），不允许跳位。参数化 PATTERN（如 BANDED）先消耗结构参数，剩余 VAL 用于填充值。
 
+**⚠️ RANDOM 值域约束**：使用 `RANDOM` 方法时，**必须**在 BlasFillMode 中显式指定值域（如 `RANDOM_NORM_1E6`），禁止使用裸 `RANDOM`。若无法确定值域，必须发送问卷向用户确认，默认值域为 `RANDOM_NORM_1`。
+
 | 位 | 可选值 | 说明 |
 |----|--------|------|
 | METHOD（必填） | `NULLPTR` / `INDEX` / `RANDOM` / `VALUE` | 值获取方式 |
@@ -143,7 +145,7 @@ struct StpttrParam : public BlasTestParamBase {
 | `VALUE_NORM_NAN` | 非数 |
 | `VALUE_DIAG_1` | 单位矩阵 |
 
-**BlasTestParamBase 公共字段**：`caseName`（用例名）、`description`（语义描述）、`expectResult`（期望返回码）
+**BlasTestParamBase 公共字段**：`caseName`（用例名）、`description`（语义描述）、`expectResult`（期望返回码）、`randomSeed`（随机种子，通过 CSV 列 `random_seed` 传入，默认 `0`，用于 RNG 可复现性）。
 
 ---
 
@@ -235,13 +237,22 @@ inline aclblasStatus_t aclblasStpttr_npu(
 
 文件： `test/{op}/arch35/{op}_test.csv`
 
-列名 = API 参数名，顺序与接口声明一致。枚举值写 `ACLBLAS_` 完整前缀。
+列名 = API 参数名 + 框架公共列，顺序与接口声明一致。枚举值写 `ACLBLAS_` 完整前缀。
+
+**框架公共列**：
+| 列名 | 说明 | 必填 |
+|------|------|------|
+| `case_name` | 用例名（GTest 显示名） | 是 |
+| `description` | 语义描述 | 否 |
+| `expect_result` | 期望返回码（默认 `SUCCESS`） | 否 |
+| `random_seed` | 随机种子（默认 `0`，用于 RNG 可复现性） | 否 |
 
 ```csv
-case_name,description,uplo,n,ap,a,lda,expect_result
-TC_L0_01,handle_null,ACLBLAS_LOWER,5,NULLPTR,NULLPTR,5,ACLBLAS_STATUS_NOT_INITIALIZED
-TC_L0_06,n1_lower,ACLBLAS_LOWER,1,INDEX,VALUE_NORM_N999,1,ACLBLAS_STATUS_SUCCESS
-TC_L1_19,zeros_lower,ACLBLAS_LOWER,8,VALUE_NORM_0,VALUE_NORM_N999,8,ACLBLAS_STATUS_SUCCESS
+case_name,description,uplo,n,ap,a,lda,expect_result,random_seed
+TC_L0_01,handle_null,ACLBLAS_LOWER,5,NULLPTR,NULLPTR,5,ACLBLAS_STATUS_NOT_INITIALIZED,0
+TC_L0_06,n1_lower,ACLBLAS_LOWER,1,INDEX,VALUE_NORM_N999,1,ACLBLAS_STATUS_SUCCESS,0
+TC_L1_19,zeros_lower,ACLBLAS_LOWER,8,VALUE_NORM_0,VALUE_NORM_N999,8,ACLBLAS_STATUS_SUCCESS,0
+TC_L1_20,random_lower,ACLBLAS_LOWER,8,RANDOM_NORM_1E6,RANDOM_NORM_1E6,8,ACLBLAS_STATUS_SUCCESS,1
 ```
 
 - `expect_result`：`ACLBLAS_STATUS_SUCCESS` / `ACLBLAS_STATUS_INVALID_VALUE` / `ACLBLAS_STATUS_NOT_INITIALIZED`

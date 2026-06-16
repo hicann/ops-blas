@@ -214,25 +214,30 @@ subagent: developer
   - 加载 op-samples-reference 技能，参考 cann-samples 仓库中的同类算子实现和编程模式
   - 加载 asc-devkit-reference 技能，参考 asc-devkit 仓库中的示例代码和 API 文档
   - 加载 blas-build-commands 技能获取编译和验证命令
+  - 主动扫描 blas/common/ 下的公共模块，优先复用其中已有的工具和宏，禁止重复定义；通用函数必须提取到公共模块
+  - 主动扫描 test/frame/ 和 test/utils/ 下的测试框架和工具，优先复用其中已有的公共代码，禁止重复定义；通用工具必须补充到公共模块
 输出:
   - blas/{family}/{operator_name}/archXX/{operator_name}_host.cpp
   - blas/{family}/{operator_name}/archXX/{operator_name}_kernel.cpp
   - blas/{family}/{operator_name}/archXX/{operator_name}_tiling_data.h
+  - [可选] blas/common/ 下新增或修改的公共模块文件（当提取通用代码时）
 注意:
   - {operator_name} 使用 snake_case 格式（如 sgeqrf_batched、sgetrf_batched），不是 API 名（aclblasSgeqrfBatched）
   - {family} 也使用 snake_case 格式（如 geqrf_batched、getrf_batched）
 验收标准:
-   - 编译通过
-   - 编码规范符合 blas-ascendc-coding-rules（含 R5-R9 OAT 量化规则）
-   - OAT 自检通过：所有函数圈复杂度 ≤ 20、函数深度 ≤ 5、NBNC ≤ 50、无除零风险、无 extern 引用告警、源码文件包含标准许可证头
-   - OAT checklist 已附在交付报告中（列出各函数的圈复杂度/深度/行数/除零校验/extern 引用检查，标注是否达标）
-   - host.cpp 中已集成 dlog 日志：#include "log/log.h"，关键路径使用 OP_LOGE/I/D
-   - 参数校验失败、ACL Runtime 调用失败使用 OP_LOGE 输出错误信息
-   - Tiling 数据和 Kernel 启动参数使用 OP_LOGD/OP_LOGI 输出
-   - 代码以 blas-op-templates 模板为唯一骨架，按设计文档填充业务逻辑
-   - 代码结构合规：文件命名、目录布局、类名、函数签名必须与 blas-op-templates 模板一致，禁止从仓内已有算子复制代码骨架（仓内算子可能不符合当前规范）
-   - 参考仓内算子时仅提取算法思路（Tiling 切分、数据搬运策略、计算逻辑），禁止复制其文件命名、代码结构或目录布局
-   - BLAS 标准对齐：存储顺序为列主序（Column-Major），lda/ldb/ldc 等参数语义与 BLAS 标准一致，禁止参考仓内存储顺序错误的已有算子
+    - 编译通过
+    - 编码规范符合 blas-ascendc-coding-rules（含 R5-R9 OAT 量化规则）
+    - OAT 自检通过：所有函数圈复杂度 ≤ 20、函数深度 ≤ 5、NBNC ≤ 50、无除零风险、无 extern 引用告警、源码文件包含标准许可证头
+    - OAT checklist 已附在交付报告中（列出各函数的圈复杂度/深度/行数/除零校验/extern 引用检查，标注是否达标）
+    - host.cpp 中已集成 dlog 日志：#include "log/log.h"，关键路径使用 OP_LOGE/I/D
+    - 参数校验失败、ACL Runtime 调用失败使用 OP_LOGE 输出错误信息
+    - Tiling 数据和 Kernel 启动参数使用 OP_LOGD/OP_LOGI 输出
+    - 代码以 blas-op-templates 模板为唯一骨架，按设计文档填充业务逻辑
+    - 代码结构合规：文件命名、目录布局、类名、函数签名必须与 blas-op-templates 模板一致，禁止从仓内已有算子复制代码骨架（仓内算子可能不符合当前规范）
+    - 参考仓内算子时仅提取算法思路（Tiling 切分、数据搬运策略、计算逻辑），禁止复制其文件命名、代码结构或目录布局
+    - BLAS 标准对齐：存储顺序为列主序（Column-Major），lda/ldb/ldc 等参数语义与 BLAS 标准一致，禁止参考仓内存储顺序错误的已有算子
+    - "**公共代码优先**：主动扫描 blas/common/ 下的公共模块，优先复用其中已有的工具、宏和类型（如 CHECK_RET、RoundUp、BlockSizeRoundUp、NumBlocksRoundUp、arch/hardware.h 硬件常量、memory/mem.h 内存管理类型等），禁止在算子代码中重新定义相同功能的宏或工具函数"
+    - "**公共代码提取**：算子代码中发现通用工具函数、宏、常量或类型（不包含算子特有逻辑），必须提取到 blas/common/ 下对应模块（如 helper/、arch/、memory/ 等），禁止定义在算子代码中"
 ```
 
 ### 2.1.1.B / 2.2.1.B 测试开发
@@ -244,6 +249,7 @@ scene: test-development
   - 1.3.B-测试方案设计.md (按迭代指定 L0 或 L0+L1 范围)
   - 加载 blas-ST-develop 技能获取 GTest+CSV 开发规范
   - 加载 blas-build-commands 技能获取编译和验证命令
+  - 主动扫描 test/frame/ 和 test/utils/ 下的公共模块，优先复用其中已有的框架和工具，禁止重新定义；通用工具必须补充到公共模块
 输出:
   - test/{family}/{operator_name}/{operator_name}_param.h (参数结构体，继承 BlasTestParamBase)
   - test/{family}/{operator_name}/{operator_name}_golden.h (CPU golden，签名与 BLAS API 一致)
@@ -251,17 +257,20 @@ scene: test-development
   - test/{family}/{operator_name}/arch35/{operator_name}_test.cpp (GTest 入口，5 步流程)
   - test/{family}/{operator_name}/arch35/{operator_name}_test.csv (CSV 用例表，列名=API 参数名)
   - test/{family}/{operator_name}/CMakeLists.txt
+  - [可选] test/frame/ 或 test/utils/ 下新增或修改的公共头文件（当提取通用代码时）
 注意:
   - {operator_name} 使用 snake_case 格式（如 sgeqrf_batched、sgetrf_batched），与 blas 侧目录名保持一致
   - {family} 也使用 snake_case 格式（如 geqrf_batched、getrf_batched），与 blas 侧 family 目录保持一致
 验收标准:
-   - CSV 用例覆盖测试设计文档中的所有场景
-   - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
+    - CSV 用例覆盖测试设计文档中的所有场景
+    - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
     - golden.h / npu_wrapper.h 实现正确
-     - golden.h 直接调用 CBLAS/LAPACK 函数（通过 cblas_compat.h），保留参数校验，使用列主序
-   - 填充函数只使用 test/frame/fill.h 中已有的公共函数，禁止在测试文件中定义临时填充函数；若需新增，必须补充到 fill.h
-   - CMake 使用 ops_blas_add_gtest_tests
-   - 编译通过
+    - golden.h 直接调用 CBLAS/LAPACK 函数（通过 test/utils/cblas_compat.h），保留参数校验，使用列主序
+    - 填充函数只使用 test/frame/fill.h 中已有的公共函数，禁止在测试文件中定义临时填充函数；若需新增，必须补充到 fill.h
+    - "**测试框架优先**：主动扫描 test/frame/ 和 test/utils/ 下的公共模块，优先复用已有的框架基类、填充函数、校验宏和 golden 工具（如 BlasTestParamBase、BlasTest、makeBlasArray/makeBlasTriangular、Verifier、CHECK_ACLRT/CHECK_ACLBLAS、ToCblasOp/ToCblasUplo、FillRandomData/ComputeGolden 等），禁止在测试文件中重新定义相同功能"
+    - "**公共代码提取**：测试代码中发现新的通用填充模式、校验宏或 golden 数据生成方法，必须补充到 test/frame/ 或 test/utils/ 下对应的公共头文件中，禁止定义在算子测试文件内"
+    - CMake 使用 ops_blas_add_gtest_tests
+    - 编译通过
 ```
 
 ### 2.1.2 / 2.2.2 汇合联调

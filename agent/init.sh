@@ -329,6 +329,8 @@ fi
 # --- Step 5: Symlink local skills -> config/skills/ ---
 step "[5/8] Linking skills..."
 mkdir -p "$CONFIG_DIR/skills"
+# Clean up broken symlinks from previously deleted skills
+find "$CONFIG_DIR/skills" -xtype l -delete 2>/dev/null || true
 local_skills="$AGENT_DIR/skills"
 local_skill_count=0
 
