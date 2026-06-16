@@ -264,6 +264,11 @@ aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* 
 
 aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx);
 
+aclblasStatus_t aclblasScalex(
+    aclblasHandle_t handle, int n, const void* alpha,
+    aclDataType alphaType, void* x, aclDataType xType,
+    int incx, aclDataType executionType);
+
 aclblasStatus_t aclblasCsscal(
     aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx);
 
