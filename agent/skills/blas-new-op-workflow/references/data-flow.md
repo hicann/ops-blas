@@ -98,7 +98,8 @@ CP1.1结论 + 1.1-参考资料清单.md
 ## 阶段三：验收
 
 ```
-git diff + OAT checklist + 全部变更文件 → [3.1 代码检视] → 3.1-代码检视报告.md    ┐
+git diff + OAT checklist + OAT 扫描报告（oat_reports/result.txt）+ 全部变更文件
+    └─→ [3.1 代码检视] → 3.1-代码检视报告.md    ┐
 1.2 + 1.3.A → [3.2 性能验收] → 3.2-性能报告.md      ┤ 并行
                                                       │
 3.1 + 3.2 → ⛔ CP3.2
@@ -108,7 +109,7 @@ git diff + OAT checklist + 全部变更文件 → [3.1 代码检视] → 3.1-代
 ## 阶段四：上库
 
 ```
-git diff + OAT checklist + 全部变更文件 + 文档
+git diff + OAT checklist + OAT 扫描报告（oat_reports/result.txt）+ 全部变更文件 + 文档
     └─→ [4.1 编写文档] → README.md
     └─→ [4.2 代码检视] → 4.2-代码检视报告.md
     └─→ [4.3 开发总结] → CP4.3.json + 4.3-Issue.md（内容来自 1.2-需求分析.md）+ 4.3-上库PR模板.md + 更新 LOG.md

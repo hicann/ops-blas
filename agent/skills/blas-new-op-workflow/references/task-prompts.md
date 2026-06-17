@@ -3,6 +3,7 @@
 ## 通用约束
 
 - **日志摘要不入文档**：每个 Subagent 在回复末尾输出的【日志摘要】段落仅供主 Agent 写入 LOG.md，**不得**写入任何交付文档（.md/json/cpp/h 等）
+- **OAT 自动化扫描**：主 Agent 在调用 reviewer（3.1 / 4.2）前，必须执行 `sh scripts/oat_check.sh <git diff 文件列表>` 进行合规扫描（检查 License Header 和文件类型）。扫描报告存放在仓库根目录 `oat_reports/result.txt`。
 
 ## 任务恢复映射表
 
@@ -217,27 +218,35 @@ subagent: developer
   - 主动扫描 blas/common/ 下的公共模块，优先复用其中已有的工具和宏，禁止重复定义；通用函数必须提取到公共模块
   - 主动扫描 test/frame/ 和 test/utils/ 下的测试框架和工具，优先复用其中已有的公共代码，禁止重复定义；通用工具必须补充到公共模块
 输出:
-  - blas/{family}/{operator_name}/archXX/{operator_name}_host.cpp
-  - blas/{family}/{operator_name}/archXX/{operator_name}_kernel.cpp
-  - blas/{family}/{operator_name}/archXX/{operator_name}_tiling_data.h
+  - blas/{operator_name}/archXX/{operator_name}_host.cpp
+  - blas/{operator_name}/archXX/{operator_name}_kernel.cpp
+  - blas/{operator_name}/archXX/{operator_name}_kernel.h
+  - blas/{operator_name}/archXX/{operator_name}_tiling_data.h
   - [可选] blas/common/ 下新增或修改的公共模块文件（当提取通用代码时）
 注意:
-  - {operator_name} 使用 snake_case 格式（如 sgeqrf_batched、sgetrf_batched），不是 API 名（aclblasSgeqrfBatched）
-  - {family} 也使用 snake_case 格式（如 geqrf_batched、getrf_batched）
+  - {operator_name} 使用 snake_case 格式（如 sgeqrf_batched、sgetrf_batched、getri_batched），不是 API 名（aclblasSgeqrfBatched）
 验收标准:
     - 编译通过
     - 编码规范符合 blas-ascendc-coding-rules（含 R5-R9 OAT 量化规则）
     - OAT 自检通过：所有函数圈复杂度 ≤ 20、函数深度 ≤ 5、NBNC ≤ 50、无除零风险、无 extern 引用告警、源码文件包含标准许可证头
     - OAT checklist 已附在交付报告中（列出各函数的圈复杂度/深度/行数/除零校验/extern 引用检查，标注是否达标）
-    - host.cpp 中已集成 dlog 日志：#include "log/log.h"，关键路径使用 OP_LOGE/I/D
-    - 参数校验失败、ACL Runtime 调用失败使用 OP_LOGE 输出错误信息
-    - Tiling 数据和 Kernel 启动参数使用 OP_LOGD/OP_LOGI 输出
+    - dlog 集成（强制）：host.cpp 必须 `#include "log/log.h"`，`OP_LOGE` 记录校验/Runtime 失败，`OP_LOGD` 记录 tiling，`OP_LOGI` 记录 kernel launch；**禁止** printf/cout
+    - host 函数拆分（强制）：host.cpp 必须拆分为 `Validate{Op}Params(...)` + `Launch{Op}Kernel(...)` 两个静态函数，API 入口只做调度
+    - 独立 kernel.h（强制）：{operator_name}_kernel.h 中声明 `kernel_do` 签名；host.cpp 和 kernel.cpp 都 `#include "{op}_kernel.h"`；**禁止**在 host.cpp 中使用 extern 前向声明
+    - 2 层目录结构（强制）：算子目录路径必须为 `blas/{operator_name}/archXX/`，**禁止**使用 `{family}/{op}/` 三层中间层
     - 代码以 blas-op-templates 模板为唯一骨架，按设计文档填充业务逻辑
     - 代码结构合规：文件命名、目录布局、类名、函数签名必须与 blas-op-templates 模板一致，禁止从仓内已有算子复制代码骨架（仓内算子可能不符合当前规范）
     - 参考仓内算子时仅提取算法思路（Tiling 切分、数据搬运策略、计算逻辑），禁止复制其文件命名、代码结构或目录布局
     - BLAS 标准对齐：存储顺序为列主序（Column-Major），lda/ldb/ldc 等参数语义与 BLAS 标准一致，禁止参考仓内存储顺序错误的已有算子
     - "**公共代码优先**：主动扫描 blas/common/ 下的公共模块，优先复用其中已有的工具、宏和类型（如 CHECK_RET、RoundUp、BlockSizeRoundUp、NumBlocksRoundUp、arch/hardware.h 硬件常量、memory/mem.h 内存管理类型等），禁止在算子代码中重新定义相同功能的宏或工具函数"
     - "**公共代码提取**：算子代码中发现通用工具函数、宏、常量或类型（不包含算子特有逻辑），必须提取到 blas/common/ 下对应模块（如 helper/、arch/、memory/ 等），禁止定义在算子代码中"
+    - Tiling 传递方式（强制）：host 侧 `kernel_do` 以 `const TilingData&` 接收 tiling；kernel 函数以 by value（`const TilingData tiling`）接收；**禁止**使用 `aclrtMalloc` + `aclrtMemcpy(H2D)` + `GM_ADDR tilingGm` 传递 tiling
+    - 异步 launch（强制）：host 侧 launch kernel 后直接返回，**禁止**调用 `aclrtSynchronizeStream`
+    - Workspace（强制）：host 侧**禁止**自行 `aclrtMalloc` workspace；如需 workspace 必须使用 `aclblasGetEffectiveWorkspace(h)` 获取
+    - kernel.h 数据指针类型（强制）：`kernel_do` 数据指针参数统一用 `GM_ADDR`（与 kernel.cpp 签名一致），禁止 `uint8_t*`
+    - kernel 入口 `extern "C"`（强制，reviewer HIGH）：kernel 入口函数必须使用 `extern "C" __global__ __aicore__ void ...`，禁止不加 `extern "C"`
+    - host 公共函数（强制）：host.cpp **禁止**在文件内定义 `static GetAivCoreCount`/`GetVectorCoreCount`，必须 `#include "common/helper/host_utils.h"` 使用公共 `GetAivCoreCount()`；GetAivCoreCount 失败时错误信息统一为 `OP_LOGE("aclblas{Op}", "GetAivCoreCount failed")` 并返回 `ACLBLAS_STATUS_INTERNAL_ERROR`
+    - host include 精简（强制）：host.cpp **禁止**引入冗余 include（如 `acl/acl.h`、`cann_ops_blas_common.h`、`tiling/platform/platform_ascendc.h`）；仅保留必需头文件（`log/log.h`、`cann_ops_blas.h`、`{op}_kernel.h`、`aclblas_handle_internal.h`、`host_utils.h`；视算子需求可选 `kernel_constant.h`）
 ```
 
 ### 2.1.1.B / 2.2.1.B 测试开发
@@ -251,26 +260,29 @@ scene: test-development
   - 加载 blas-build-commands 技能获取编译和验证命令
   - 主动扫描 test/frame/ 和 test/utils/ 下的公共模块，优先复用其中已有的框架和工具，禁止重新定义；通用工具必须补充到公共模块
 输出:
-  - test/{family}/{operator_name}/{operator_name}_param.h (参数结构体，继承 BlasTestParamBase)
-  - test/{family}/{operator_name}/{operator_name}_golden.h (CPU golden，签名与 BLAS API 一致)
-  - test/{family}/{operator_name}/arch35/{operator_name}_npu_wrapper.h (NPU wrapper，封装 ACL 操作)
-  - test/{family}/{operator_name}/arch35/{operator_name}_test.cpp (GTest 入口，5 步流程)
-  - test/{family}/{operator_name}/arch35/{operator_name}_test.csv (CSV 用例表，列名=API 参数名)
-  - test/{family}/{operator_name}/CMakeLists.txt
+  - test/{operator_name}/{operator_name}_param.h (参数结构体，继承 BlasTestParamBase)
+  - test/{operator_name}/{operator_name}_golden.h (CPU golden，签名与 BLAS API 一致，保留参数校验，调用 CBLAS/LAPACK)
+  - test/{operator_name}/arch35/{operator_name}_npu_wrapper.h (NPU wrapper，封装 ACL 操作)
+  - test/{operator_name}/arch35/{operator_name}_test.cpp (GTest 入口，5 步流程)
+  - test/{operator_name}/arch35/{operator_name}_test.csv (CSV 用例表，列名=API 参数名)
+  - test/{operator_name}/CMakeLists.txt
   - [可选] test/frame/ 或 test/utils/ 下新增或修改的公共头文件（当提取通用代码时）
 注意:
   - {operator_name} 使用 snake_case 格式（如 sgeqrf_batched、sgetrf_batched），与 blas 侧目录名保持一致
-  - {family} 也使用 snake_case 格式（如 geqrf_batched、getrf_batched），与 blas 侧 family 目录保持一致
 验收标准:
     - CSV 用例覆盖测试设计文档中的所有场景
     - GTest+CSV 参数化模式，BlasTest<Param> fixture，共享 test_main.cpp
     - golden.h / npu_wrapper.h 实现正确
     - golden.h 直接调用 CBLAS/LAPACK 函数（通过 test/utils/cblas_compat.h），保留参数校验，使用列主序
+    - npu_wrapper.h 完整封装 ACL 操作，每个 ACL 调用（`aclrtMalloc` / `aclrtMemcpy` H2D / `aclrtMemcpy` D2H / `aclrtSynchronizeDevice`）必须校验返回值，失败时清理 device 内存后返回错误码
     - 填充函数只使用 test/frame/fill.h 中已有的公共函数，禁止在测试文件中定义临时填充函数；若需新增，必须补充到 fill.h
     - "**测试框架优先**：主动扫描 test/frame/ 和 test/utils/ 下的公共模块，优先复用已有的框架基类、填充函数、校验宏和 golden 工具（如 BlasTestParamBase、BlasTest、makeBlasArray/makeBlasTriangular、Verifier、CHECK_ACLRT/CHECK_ACLBLAS、ToCblasOp/ToCblasUplo、FillRandomData/ComputeGolden 等），禁止在测试文件中重新定义相同功能"
     - "**公共代码提取**：测试代码中发现新的通用填充模式、校验宏或 golden 数据生成方法，必须补充到 test/frame/ 或 test/utils/ 下对应的公共头文件中，禁止定义在算子测试文件内"
+    - **CSV 随机值范围强制显式指定**：CSV 中所有 `RANDOM` 必须显式指定值域（如 `RANDOM_1_3`、`RANDOM_NORM_1E6`、`RANDOM_LOWER_0.5_2.0`），**禁止**仅写 `RANDOM` 依赖默认范围（reviewer HIGH）
+    - **精度模式显式指定**：`VerifyConfig.mode` 必须根据算子类型显式设置（`PrecisionMode::MERE_MARE` / `ABS` / `EXACT`），对应阈值在 param 字段或 CSV 自定义列 `mere_threshold` / `mare_multiplier` 中提供
     - CMake 使用 ops_blas_add_gtest_tests
     - 编译通过
+```
 ```
 
 ### 2.1.2 / 2.2.2 汇合联调
@@ -320,6 +332,7 @@ subagent: reviewer
   - git diff --stat 输出（主 Agent 执行 `git diff --stat cann/master...HEAD` 后的完整结果）
   - git diff --name-only 列出的所有变更文件路径（不仅是算子代码，包括共享文件）
   - developer 交付报告中的 OAT checklist（各函数圈复杂度/深度/行数/除零/extern 自检结果）
+  - oat_reports/result.txt（主 Agent 在 diff 预检阶段执行 `sh scripts/oat_check.sh <diff文件>` 的扫描报告，若文件不存在说明扫描通过无问题）
   - 3.1-代码检视报告.md 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/3.1-代码检视报告.md)
 输出:
   - .agent/dev-docs/{operator_name}/3.1-代码检视报告.md
@@ -328,12 +341,13 @@ subagent: reviewer
      （1）共享文件（cann_ops_blas.h、fill.h、csv_loader.h）的修改仅包含本算子的新增内容，不得包含对已有代码的格式化、重排、删除；
      （2）不存在与本算子无关的文件变更。
      发现无关变更必须标记为 HIGH 问题并要求还原。
-   - OAT 合规复核：对照 developer 的 OAT checklist，抽查关键函数的圈复杂度/深度/行数是否达标，发现遗漏或超标标记为 HIGH 问题
-   - 代码规范检查完成
-   - 风险点已记录
-   - 状态字段明确
-   - 日志规范检查：host.cpp 中日志级别使用正确、消息格式符合 blas-log 规范
-   - 冗余代码检查（HIGH 置信度）：未使用的 #include、未调用的函数/宏、未使用的变量/参数、死代码、重复定义，发现即要求删除
+    - OAT 合规复核：对照 developer 的 OAT checklist，抽查关键函数的圈复杂度/深度/行数是否达标，发现遗漏或超标标记为 HIGH 问题
+    - OAT 自动化扫描确认：确认 oat_reports/result.txt 中 License Header Invalid 和 Invalid File Type 计数均为 0，否则标记为 HIGH 问题
+    - 代码规范检查完成
+    - 风险点已记录
+    - 状态字段明确
+    - 日志规范检查：host.cpp 中日志级别使用正确、消息格式符合 blas-log 规范
+    - 冗余代码检查（HIGH 置信度）：未使用的 #include、未调用的函数/宏、未使用的变量/参数、死代码、重复定义，发现即要求删除
 ```
 
 ### 3.2 性能验收
@@ -352,8 +366,8 @@ subagent: developer
 验收标准:
   - 性能指标已采集
   - 瓶颈分析完整
-  - 性能测试的中间文件/结果文件统一存放在 test/{family}/{operator_name}/perf/ 目录下
-  - 性能分析结束后及时删除 test/{family}/{operator_name}/perf/ 下的所有中间文件和结果文件
+   - 性能测试的中间文件/结果文件统一存放在 test/{operator_name}/perf/ 目录下
+   - 性能分析结束后及时删除 test/{operator_name}/perf/ 下的所有中间文件和结果文件
 ```
 
 ### 3.3 大 shape 精简
@@ -382,7 +396,7 @@ scene: write-readme
   - 全部设计文档
   - README.md 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/README.md)
 输出:
-  - blas/{family}/{operator_name}/README.md
+  - blas/{operator_name}/README.md
 验收标准:
   - 接口说明完整
   - 调用示例正确
@@ -397,6 +411,7 @@ subagent: reviewer
   - git diff --stat 输出（主 Agent 执行 `git diff --stat cann/master...HEAD` 后的完整结果）
   - git diff --name-only 列出的所有变更文件路径（不仅是算子代码，包括共享文件和文档）
   - developer 交付报告中的 OAT checklist（各函数圈复杂度/深度/行数/除零/extern 自检结果）
+  - oat_reports/result.txt（主 Agent 在 diff 预检阶段执行 `sh scripts/oat_check.sh <diff文件>` 的扫描报告，若文件不存在说明扫描通过无问题）
   - 全部文档文件路径
   - 4.2-代码检视报告.md 模板文件路径 (模板路径: agent/skills/blas-new-op-workflow/assets/4.2-代码检视报告.md)
 输出:
@@ -406,8 +421,9 @@ subagent: reviewer
      （1）共享文件（cann_ops_blas.h、fill.h、csv_loader.h）的修改仅包含本算子的新增内容，不得包含对已有代码的格式化、重排、删除；
      （2）不存在与本算子无关的文件变更。
      发现无关变更必须标记为 HIGH 问题并要求还原。
-   - OAT 合规复核：对照 developer 的 OAT checklist，抽查关键函数的圈复杂度/深度/行数是否达标，发现遗漏或超标标记为 HIGH 问题
-   - 规范检查完成
+    - OAT 合规复核：对照 developer 的 OAT checklist，抽查关键函数的圈复杂度/深度/行数是否达标，发现遗漏或超标标记为 HIGH 问题
+    - OAT 自动化扫描确认：确认 oat_reports/result.txt 中 License Header Invalid 和 Invalid File Type 计数均为 0，否则标记为 HIGH 问题
+    - 规范检查完成
    - 一致性检查完成
    - 风险点已记录
    - 状态字段明确

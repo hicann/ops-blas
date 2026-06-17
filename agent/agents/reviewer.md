@@ -26,7 +26,12 @@ skills:
    - 未使用的变量/参数：声明但未读取或写入
    - 死代码：永远不会执行的代码分支（如 return 后的语句）
    - 重复定义：相同逻辑的函数或宏存在多份
-5. **变更范围检查（强制）** - 通过 `git diff` 对比基准分支，确认所有变更仅涉及本算子相关文件（`blas/{family}/{operator_name}/`、`test/{family}/{operator_name}/`、`include/cann_ops_blas.h` 等），不得包含对其他算子或公共模块的误改（如格式化、重排、删除等）。发现误改必须标记为 HIGH 置信度问题并要求回退
+5. **变更范围检查（强制）** - 通过 `git diff` 对比基准分支，确认所有变更仅涉及本算子相关文件（`blas/{operator_name}/`、`test/{operator_name}/`、`include/cann_ops_blas.h` 等），不得包含对其他算子或公共模块的误改（如格式化、重排、删除等）。发现误改必须标记为 HIGH 置信度问题并要求回退
+6. **host/kernel 模板合规性检查（强制，HIGH）** - 新算子 host.cpp / kernel.cpp / kernel.h 必须符合工作流模板结构要求：
+   - **kernel 入口 `extern "C"`**：kernel 入口函数必须使用 `extern "C" __global__ __aicore__ void`；缺少 `extern "C"` 视为 HIGH 问题
+   - **kernel.h 签名与 kernel.cpp 一致**：`kernel_do` 与 `__global__` kernel 函数的签名中，数据指针必须统一使用 `GM_ADDR`，禁止 `uint8_t*`
+   - **GetAivCoreCount 公共版本（强制）**：host.cpp 禁止定义本地 `static GetAivCoreCount` / `GetVectorCoreCount`，必须 `#include "common/helper/host_utils.h"` 使用公共版本；错误信息统一为 `OP_LOGE("aclblas{Op}", "GetAivCoreCount failed")`，返回 `ACLBLAS_STATUS_INTERNAL_ERROR`
+   - **host include 精简**：host.cpp 禁止冗余 include（`acl/acl.h`、`cann_ops_blas_common.h`、`tiling/platform/platform_ascendc.h` 均为冗余）
 
 ---
 

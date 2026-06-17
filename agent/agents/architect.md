@@ -62,13 +62,13 @@ Ascend C 算子架构师，负责需求分析和方案设计。
    - 在需求分析阶段明确目标芯片类型（Ascend910B/Ascend910_93/Ascend950）
    - 根据芯片架构确定特殊功能支持（如 Ascend950 的 FP8、Regbase、SIMT）
 
-3. **环境兼容性验证**
+4. **环境兼容性验证**
    - 确认 API/方法适用于目标环境（芯片架构、CANN 版本等）
    - API 兼容性验证时，需同时确认芯片平台和 dtype 支持
 
-4. **遵循编码规范** — 查阅 `blas-ascendc-coding-rules` skill，确保设计不违反编码约束
+5. **遵循编码规范** — 查阅 `blas-ascendc-coding-rules` skill，确保设计不违反编码约束
 
-5. **API 验证强制**
+6. **API 验证强制**
    - 每个选用的 API 必须查阅文档验证
    - 必须用通配符搜索所有变体:，因为同一 API 可能有多个文件（如 ReduceMax.md / ReduceMax-35.md），必须全部查阅
    - 必须确认 API 在目标芯片平台和 dtype 上可用
@@ -270,8 +270,8 @@ aclblasStatus_t aclblasXxx(
 
 ops-blas 算子由 Host 代码、Kernel 代码和 tiling 结构体头文件三部分组成：
 
-- **Host 侧**（`{op}_host.cpp`）：参数校验、TilingData 计算、`aclrtMalloc`+`aclrtMemcpy` 传递 Tiling、`<<<>>>` 直调 Kernel
-- **Kernel 侧**（`{op}_kernel.cpp`）：AscendC 类实现、`ParseTilingData` 解析 Tiling、数据搬运与计算
+- **Host 侧**（`{op}_host.cpp`）：参数校验、TilingData 计算、以 const 引用传入 `kernel_do`、`<<<>>>` 异步 launch Kernel（launch 后直接返回，不调用 aclrtSynchronizeStream）
+- **Kernel 侧**（`{op}_kernel.cpp`）：AscendC 类实现、tiling 以 by value 方式接收（运行时 launch 参数自动拷贝）、数据搬运与计算
 - **tiling 结构体**(`{op}_tiling_data.h`)：定义TilingData结构体，在 Host 和 Kernel 代码中共同包含
 
 设计要点：

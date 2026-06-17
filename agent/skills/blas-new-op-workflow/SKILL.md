@@ -37,7 +37,40 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
    - 每次流程步骤推进后，主 Agent 必须立即更新 LOG.md（当前步骤、进度状态、开发记录），不得延迟或累积到后续步骤
    - `.agent/` 目录下的所有文件均为临时文件，已被 `.gitignore` 屏蔽。禁止在任何阶段执行 `git add .agent/` 或将该目录下的文件加入版本控制。若发现误加，必须立即 `git reset` 撤销
 
-5. **检视前 diff 预检** — 调用 reviewer（3.1 / 4.2）前，主 Agent 必须先执行 `git diff --stat cann/master...HEAD`，将完整输出包含在 reviewer 的 prompt 中。若 diff 中出现非本算子文件（允许的文件白名单：blas/{family}/{operator_name}/、test/{family}/{operator_name}/、include/cann_ops_blas.h、test/frame/fill.h、test/frame/csv_loader.h），主 Agent 必须在调用 reviewer 前先让 developer 还原无关变更。
+5. **检视前 diff 预检** — 调用 reviewer（3.1 / 4.2）前，主 Agent 必须先执行以下两个前置步骤：
+   - **diff 预检**：执行 `git diff --stat cann/master...HEAD`，将完整输出包含在 reviewer 的 prompt 中。若 diff 中出现非本算子文件（允许的文件白名单：`blas/{operator_name}/`、`test/{operator_name}/`、`include/cann_ops_blas.h`、`test/frame/fill.h`、`test/frame/csv_loader.h`），主 Agent 必须在调用 reviewer 前先让 developer 还原无关变更。
+   - **OAT 合规扫描**：执行 `git diff --name-only cann/master...HEAD` 获取变更文件列表，然后执行 `sh scripts/oat_check.sh <变更文件列表>`。若扫描发现问题（License Header Invalid 或 Invalid File Type），必须先让 developer 修复后重新扫描，扫描通过后方可调用 reviewer。扫描报告路径：`oat_reports/result.txt`，须包含在 reviewer 的 prompt 中。
+
+6. **异步 Kernel 启动与 const 引用 Tiling**
+   - Host 侧 kernel 是**异步**的：调用 `kernel_do(...)` 后立即返回，**禁止**在 host 侧调用 `aclrtSynchronizeStream`（上层调用方负责同步）
+   - Tiling 数据传递方式：host 侧 `TilingData` 结构体以 **`const` 引用**（`const {{Op}}TilingData&`）传入 `kernel_do`，**禁止**使用 `aclrtMalloc` + `aclrtMemcpy(H2D)` + `GM_ADDR tilingGm` 传递 tiling
+   - Kernel 侧 `kernel` 函数参数中，tiling 为 **by value**（`const {{Op}}TilingData tiling`），通过运行时 launch 参数自动拷贝，不得再解析 `GM_ADDR tilingGm`
+   - 数据 GM 指针仍通过 `uint8_t*`（host 侧）/ `GM_ADDR`（kernel 侧）传递，仅 tiling 参数采用 const 引用
+7. **Workspace 由 handle 统一管理**
+   - 算子内部**禁止**使用 `aclrtMalloc` 额外分配 workspace。`aclblasCreate` 会预分配 4 MiB 默认 workspace，用户也可通过 `aclblasSetWorkspace` 注入自定义 workspace
+   - 需要从 handle 获取当前生效的 workspace：指针用 `aclblasGetEffectiveWorkspace(h)`，大小用 `aclblasGetEffectiveWorkspaceSize(h)`
+   - 若算子所需 workspace 超过默认 4 MiB，应在需求分析文档（1.2）和开发方案设计（1.3.A）中明确说明，由上层调用方在调用前通过 `aclblasSetWorkspace` 注入；**不得**在算子代码中自行扩容
+8. **2 层目录结构**
+   - 算子代码位于 `blas/{operator_name}/archXX/`（**2 层**，不再使用 `{family}/` 中间层目录）
+   - 测试代码位于 `test/{operator_name}/`（同样 2 层）
+   - `{operator_name}` 使用 **snake_case** 格式（如 `sswap`、`sgeqrf_batched`、`getri_batched`），**不是** API 名（`aclblasSgeqrfBatched`）
+9. **独立 kernel.h 头文件**
+   - 每个算子必须有一个独立的 `{operator_name}_kernel.h` 文件，声明 `kernel_do` 函数签名和相关常量
+   - host.cpp 和 kernel.cpp 都 `#include "{op}_kernel.h"` 共享该头文件
+   - **禁止**在 host.cpp 中以 `extern` 前向声明方式声明 `kernel_do`（也不再使用已删除的公共头文件 `common/kernel_launch/aclblas_kernel_do.h`）
+10. **Host 函数结构与强制 dlog 集成**
+    - host.cpp 必须拆分为两个静态函数：`Validate{Op}Params(...)` 负责参数校验，`Launch{Op}Kernel(...)` 负责 tiling 计算 + 异步 launch；API 入口函数 `aclblas{OpName}` 只做调度
+    - **强制集成 dlog 日志**：host.cpp 必须包含 `#include "log/log.h"`，使用 `OP_LOGE` 记录参数校验失败和 ACL Runtime 失败，使用 `OP_LOGD` 记录 tiling 数据，使用 `OP_LOGI` 记录 kernel launch 信息
+    - **禁止**使用 `printf` 或 `std::cout` 输出日志
+11. **kernel.h + kernel 签名规范**
+    - `kernel.h` 中 `kernel_do` 数据指针参数统一使用 `GM_ADDR`，与 kernel.cpp 签名一致，禁止使用 `uint8_t*`
+    - kernel.cpp 中所有 `__global__` kernel 入口函数必须带 `extern "C"` 修饰，禁止 C++ name mangling（reviewer 检视为 HIGH）
+12. **host 公共函数复用**
+    - host.cpp **禁止**在文件内定义本地 `static GetAivCoreCount` / `GetVectorCoreCount`；必须 `#include "common/helper/host_utils.h"` 使用公共 `GetAivCoreCount()`
+    - `GetAivCoreCount` 失败时错误信息统一为 `OP_LOGE("aclblas{Op}", "GetAivCoreCount failed")`，返回 `ACLBLAS_STATUS_INTERNAL_ERROR`（而非 `EXECUTION_FAILED`）
+13. **host include 精简**
+    - host.cpp **禁止**引入冗余 include：`acl/acl.h`、`cann_ops_blas_common.h`、`tiling/platform/platform_ascendc.h` 均为冗余，由 `host_utils.h` / `aclblas_handle_internal.h` / `kernel.h` 间接引入
+    - 仅保留必需头文件：`log/log.h`、`cann_ops_blas.h`、`{op}_kernel.h`、`aclblas_handle_internal.h`、`host_utils.h`；视算子需求可选 `kernel_constant.h`
 
 ---
 
@@ -97,13 +130,13 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
 | 2.2.3 测试验收 | 2.2.2-汇合联调报告.md | tester | 2.2.3-测试验收报告.md | 全量通过率 100%，不通过→打回 | |
 | ⚪ CP2.2 | 2.2.3-测试验收报告.md | 主Agent | 裁定 | 通过→阶段3 + git commit -m "CP2.2: 已完成迭代二"，不通过→打回 | |
 | **阶段3：验收** | | | | | |
-| 3.1 代码检视 | git diff + OAT checklist + 全部变更文件 | reviewer | 3.1-代码检视报告.md | 变更范围、OAT 合规复核、规范、一致性、风险、日志规范 | |
+| 3.1 代码检视 | git diff + OAT checklist + OAT 扫描报告 + 全部变更文件 | reviewer | 3.1-代码检视报告.md | 变更范围、OAT 合规复核、规范、一致性、风险、日志规范 | |
 | 3.2 性能验收 | 1.2-需求分析.md、1.3.A-开发方案设计.md | developer | 3.2-性能报告.md | 性能采集、瓶颈分析 | |
 | ⛔ CP3.2 | 3.1 + 3.2 | 用户 | 验收审批 | AskUserQuestion，通过后 git commit -m "CP3.2: 已完成验收" | |
 | 3.3 大 shape 精简 | CP3.2 问卷结果 | developer | 精简后的 CSV + ST 通过 | 仅当用户选择「精简为 1 条」时执行 | |
 | **阶段4：上库** | | | | | |
 | 4.1 编写文档 | 全部代码和设计文档 | writer | README.md | — | |
-| 4.2 代码检视 | git diff + OAT checklist + 全部变更文件 + 文档 | reviewer | 4.2-代码检视报告.md | 变更范围 + OAT 合规复核 + 规范 + 冗余清理 + 日志规范 | |
+| 4.2 代码检视 | git diff + OAT checklist + OAT 扫描报告 + 全部变更文件 + 文档 | reviewer | 4.2-代码检视报告.md | 变更范围 + OAT 合规复核 + 规范 + 冗余清理 + 日志规范 | |
 | 4.3 开发总结 | 全部交付物 | writer | CP4.3.json、4.3-Issue.md、4.3-上库PR模板.md、更新 LOG.md | 整理为问卷 + 提 Issue（内容来自需求文档）+ 生成上库 PR 描述 + 更新开发日志 | |
 | ⛔ CP4.3 | CP4.3.json | 用户 | 上库审批 | AskUserQuestion，通过后 squash commit -m "Feat: 新增面向archXX的aclblasXxx接口" | |
 

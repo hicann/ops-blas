@@ -229,29 +229,26 @@ if (aivCoreNum == 0) {
 
 ---
 
-## 7. ACL Runtime 调用
+## 7. Workspace 管理（handle 统一）
 
-### 7.1 aclrtMalloc
+> **注意**：Tiling 数据不再通过 `aclrtMalloc`/`aclrtMemcpy(H2D)` 传递（改用 `const TilingData&` 引用直接传给 `kernel_do`，运行时 launch 参数自动拷贝），workspace 由 `aclblasCreate` 预分配 4 MiB 默认容量，也可由用户通过 `aclblasSetWorkspace` 注入。**算子内禁止再 `aclrtMalloc` 分配 tilingDevice 或 workspace**。
+
+### 7.1 Workspace 容量校验（必须）
 
 ```cpp
-void* tilingDevice = nullptr;
-aclError aclRet = aclrtMalloc(&tilingDevice, sizeof(XxxTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-if (aclRet != ACL_SUCCESS) {
-    OP_LOGE("aclblasXxx", "aclrtMalloc failed, size=%zu, ret=%d", sizeof(XxxTilingData), aclRet);
-    return ACLBLAS_STATUS_ALLOC_FAILED;
+size_t workSpaceNeed = /* 算子所需 workspace 大小 */;
+if (workSpaceNeed > aclblasGetEffectiveWorkspaceSize(h)) {
+    OP_LOGE("aclblasXxx",
+            "workspace not enough: need=%zu, have=%zu",
+            workSpaceNeed, aclblasGetEffectiveWorkspaceSize(h));
+    return ACLBLAS_STATUS_EXECUTION_FAILED;
 }
 ```
 
-### 7.2 aclrtMemcpy（Host → Device）
+### 7.2 获取当前生效 workspace 指针
 
 ```cpp
-aclError aclRet = aclrtMemcpy(tilingDevice, sizeof(XxxTilingData), &tiling,
-                              sizeof(XxxTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-if (aclRet != ACL_SUCCESS) {
-    OP_LOGE("aclblasXxx", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-    aclrtFree(tilingDevice);
-    return ACLBLAS_STATUS_INTERNAL_ERROR;
-}
+void* workSpace = aclblasGetEffectiveWorkspace(h);
 ```
 
 ### 7.3 aclrtMemcpy（Device → Host）
@@ -275,13 +272,15 @@ if (aclRet != ACL_SUCCESS) {
 }
 ```
 
-### 7.5 aclrtSynchronizeStream
+### 7.5 aclrtSynchronizeStream（已禁止在算子内使用）
+
+> **算子 host 侧 launch kernel 后必须异步返回，禁止调用 `aclrtSynchronizeStream`**。同步由上层调用方负责。
+> 仅在极少数特殊场景（如上层要求算子自行同步以读取 workspace 中间结果）使用：
 
 ```cpp
 aclError aclRet = aclrtSynchronizeStream(h->stream);
 if (aclRet != ACL_SUCCESS) {
     OP_LOGE("aclblasXxx", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-    aclrtFree(tilingDevice);
     return ACLBLAS_STATUS_EXECUTION_FAILED;
 }
 ```

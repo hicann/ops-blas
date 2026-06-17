@@ -78,5 +78,10 @@ perf/
 .agent
 opencode.json
 
+# OAT scan reports (scripts/oat_check.sh)
+oat_reports/
+log/
+
 # Local model config (generated from template)
 agent/agents/model_config.json
+operators/

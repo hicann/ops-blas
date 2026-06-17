@@ -9,15 +9,16 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ----------------------------------------------------------------------------------------------------------
 # batch_create_issues.sh - 批量创建 GitCode Issue
-# 用法: ./batch_create_issues.sh <token> <repo> <issue_dir> [file_pattern]
-# 示例: ./batch_create_issues.sh "your_token" "cann/ops-blas" "/path/to/issues" "ISSUE-bug-*.md"
+# 用法: ./batch_create_issues.sh <token> <repo> <issue_dir> [file_pattern] [assignee]
+# 示例: ./batch_create_issues.sh "your_token" "cann/ops-blas" "/path/to/issues" "ISSUE-bug-*.md" "xutianze"
 
 set -euo pipefail
 
-TOKEN="${1:?用法: $0 <token> <repo> <issue_dir> [file_pattern]}"
-REPO="${2:?用法: $0 <token> <repo> <issue_dir> [file_pattern]}"
-ISSUE_DIR="${3:?用法: $0 <token> <repo> <issue_dir> [file_pattern]}"
+TOKEN="${1:?用法: $0 <token> <repo> <issue_dir> [file_pattern] [assignee]}"
+REPO="${2:?用法: $0 <token> <repo> <issue_dir> [file_pattern] [assignee]}"
+ISSUE_DIR="${3:?用法: $0 <token> <repo> <issue_dir> [file_pattern] [assignee]}"
 PATTERN="${4:-ISSUE-bug-*.md}"
+ASSIGNEE="${5:-}"
 API="https://gitcode.com/api/v5/repos/${REPO}/issues"
 
 echo "=========================================="
@@ -26,6 +27,9 @@ echo "=========================================="
 echo "仓库: ${REPO}"
 echo "目录: ${ISSUE_DIR}"
 echo "模式: ${PATTERN}"
+if [[ -n "$ASSIGNEE" ]]; then
+  echo "指派人: ${ASSIGNEE}"
+fi
 echo "=========================================="
 echo ""
 
@@ -47,8 +51,12 @@ for f in "${ISSUE_DIR}"/${PATTERN}; do
 import json, sys
 title = sys.argv[1]
 body = sys.stdin.read()
-print(json.dumps({'title': title, 'body': body, 'access_token': sys.argv[2]}))
-" "$title" "$TOKEN" <<< "$body")
+assignee = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
+payload = {'title': title, 'body': body, 'access_token': sys.argv[2]}
+if assignee:
+    payload['assignee'] = assignee
+print(json.dumps(payload))
+" "$title" "$TOKEN" "$ASSIGNEE" <<< "$body")
 
   echo "--- 创建: ${title} ---"
   resp=$(curl -s -X POST "$API" \

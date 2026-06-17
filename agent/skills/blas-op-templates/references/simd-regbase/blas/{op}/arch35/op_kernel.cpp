@@ -10,7 +10,7 @@
 
 #include <cstdint>
 #include "kernel_operator.h"
-#include "{{op}}_tiling_data.h"
+#include "{{op}}_kernel.h"
 
 using namespace AscendC;
 
@@ -21,11 +21,11 @@ template <typename T>
 class {{Op}}AIV {
 public:
     __aicore__ inline {{Op}}AIV() {}
-    __aicore__ inline void Init(GM_ADDR input, GM_ADDR output, GM_ADDR workSpace, GM_ADDR tilingGm);
+    __aicore__ inline void Init(GM_ADDR input, GM_ADDR output, GM_ADDR workSpace, const {{Op}}TilingData& tiling);
     __aicore__ inline void Process();
 
 private:
-    __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
+    __aicore__ inline void CopyTilingData(const {{Op}}TilingData& src);
     __aicore__ inline void InitUbuf();
     __aicore__ inline void CopyIn(uint32_t batchId, uint32_t offset, uint32_t count);
     __aicore__ inline void ComputeWithRegBase(uint32_t count);
@@ -55,10 +55,10 @@ private:
 
 template <typename T>
 __aicore__ inline void {{Op}}AIV<T>::Init(
-    GM_ADDR input, GM_ADDR output, GM_ADDR workSpace, GM_ADDR tilingGm)
+    GM_ADDR input, GM_ADDR output, GM_ADDR workSpace, const {{Op}}TilingData& tiling)
 {
     blockIdx = GetBlockIdx();
-    ParseTilingData(tilingGm);
+    CopyTilingData(tiling);
     
     inputGM.SetGlobalBuffer((__gm__ T*)input);
     outputGM.SetGlobalBuffer((__gm__ T*)output);
@@ -71,11 +71,10 @@ __aicore__ inline void {{Op}}AIV<T>::Init(
 }
 
 template <typename T>
-__aicore__ inline void {{Op}}AIV<T>::ParseTilingData(GM_ADDR tilingGm)
+__aicore__ inline void {{Op}}AIV<T>::CopyTilingData(const {{Op}}TilingData& src)
 {
-    const auto* td = reinterpret_cast<__gm__ {{Op}}TilingData*>(tilingGm);
-    // TEMPLATE: 拷贝 tiling 数据
-    // tiling = *td;
+    // tiling 已通过 launch 参数（const 引用）拷贝至本地，直接按字段赋值
+    // TEMPLATE: tiling.m = src.m; ...
 }
 
 template <typename T>
@@ -202,32 +201,30 @@ __aicore__ inline void {{Op}}AIV<T>::Process()
 
 extern "C" __global__ __aicore__ void {{op}}_kernel(
     // TEMPLATE: 添加算子特定的 GM 指针参数
-    GM_ADDR workSpace, GM_ADDR tilingGm)
+    GM_ADDR workSpace, const {{Op}}TilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     
-    // TEMPLATE: 从 tiling 读取 dtype 信息，进行运行时类型分发
-    // const auto* tdata = reinterpret_cast<__gm__ {{Op}}TilingData*>(tilingGm);
-    //
     // TEMPLATE: 根据 dtype 实例化具体类型的算子
     // 示例：
-    // if (tdata->dtype == 0) {  // half
+    // if (tiling.dtype == 0) {  // half
     //     {{Op}}AIV<half> op;
-    //     op.Init(/* GM 指针 */, workSpace, tilingGm);
+    //     op.Init(/* GM 指针 */, workSpace, tiling);
     //     op.Process();
-    // } else if (tdata->dtype == 1) {  // float
+    // } else if (tiling.dtype == 1) {  // float
     //     {{Op}}AIV<float> op;
-    //     op.Init(/* GM 指针 */, workSpace, tilingGm);
+    //     op.Init(/* GM 指针 */, workSpace, tiling);
     //     op.Process();
     // }
 }
 
+// Tiling 使用 const 值传递（通过 launch 参数从 host 侧自动拷贝）
 void {{op}}_kernel_do(
     // TEMPLATE: 添加算子特定的 GM 指针参数
-    GM_ADDR workSpace, GM_ADDR tilingGm,
-    uint32_t numBlocks, void* stream)
+    GM_ADDR workSpace,
+    uint32_t numBlocks, const {{Op}}TilingData& tiling, void* stream)
 {
     {{op}}_kernel<<<numBlocks, nullptr, stream>>>(
         // TEMPLATE: 传入算子特定的 GM 指针
-        workSpace, tilingGm);
+        workSpace, tiling);
 }

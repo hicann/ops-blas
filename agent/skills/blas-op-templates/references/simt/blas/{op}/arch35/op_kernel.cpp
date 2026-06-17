@@ -25,7 +25,7 @@
 #include "simt_api/asc_simt.h"
 #include "common/helper/kernel_constant.h"
 #include "cann_ops_blas_common.h"
-#include "{{op}}_tiling_data.h"
+#include "{{op}}_kernel.h"
 
 // TEMPLATE: 计算函数
 // - __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) 装饰器（必需）
@@ -55,36 +55,38 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void {{Op}}SimtC
 
 // TEMPLATE: __global__ 调度器
 // - KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY)
-// - 从 tilingGm 读取参数
+// - tiling 通过 by value 方式从 host 传入（运行时 launch 参数自动拷贝）
 // - 按运行时条件选择不同模板特化的 asc_vf_call
-__global__ __aicore__ void {{op}}_kernel(/* GM_ADDR 各参数, */ GM_ADDR workSpace, GM_ADDR tilingGm)
+// - **强制**使用 `extern "C"` 禁止 C++ name mangling，确保 kernel 链接安全（reviewer HIGH 检视）
+extern "C" __global__ __aicore__ void {{op}}_kernel(/* GM_ADDR 各参数, */ GM_ADDR workSpace,
+                                                    const {{Op}}TilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
-    const auto* __restrict tdata = reinterpret_cast<__gm__ {{Op}}TilingData*>(tilingGm);
-
     // TEMPLATE: 按运行时参数分发到不同模板特化
     // 示例 A — 单一路径（无编译期分支）：
-    //   asc_vf_call<{{Op}}SimtCompute>(dim3{tdata->nthreads, 1, 1}, /* 参数 */);
+    //   asc_vf_call<{{Op}}SimtCompute>(dim3{tiling.nthreads, 1, 1}, /* 参数 */);
     //
     // 示例 B — 按 uplo 分发：
-    //   if (tdata->uplo == ACLBLAS_UPPER) {
-    //       asc_vf_call<{{Op}}SimtCompute<true>>(dim3{tdata->nthreads, 1, 1}, ...);
+    //   if (tiling.uplo == ACLBLAS_UPPER) {
+    //       asc_vf_call<{{Op}}SimtCompute<true>>(dim3{tiling.nthreads, 1, 1}, ...);
     //   } else {
-    //       asc_vf_call<{{Op}}SimtCompute<false>>(dim3{tdata->nthreads, 1, 1}, ...);
+    //       asc_vf_call<{{Op}}SimtCompute<false>>(dim3{tiling.nthreads, 1, 1}, ...);
     //   }
     //
     // 示例 C — 按 trans 分发：
-    //   if (tdata->trans == ACLBLAS_OP_N) {
-    //       asc_vf_call<{{Op}}SimtComputeN>(dim3{tdata->nthreads, 1, 1}, ...);
+    //   if (tiling.trans == ACLBLAS_OP_N) {
+    //       asc_vf_call<{{Op}}SimtComputeN>(dim3{tiling.nthreads, 1, 1}, ...);
     //   } else {
-    //       asc_vf_call<{{Op}}SimtComputeT>(dim3{tdata->nthreads, 1, 1}, ...);
+    //       asc_vf_call<{{Op}}SimtComputeT>(dim3{tiling.nthreads, 1, 1}, ...);
     //   }
 }
 
 // TEMPLATE: Kernel 启动器（host 侧调用）
+// Tiling 通过 const 引用从 host 传入，kernel launch 时自动拷贝至 kernel 函数参数（by value）
 void {{op}}_kernel_do(
-    /* GM_ADDR 各参数, */ GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    /* GM_ADDR 各参数, */ GM_ADDR workSpace, uint32_t numBlocks,
+    const {{Op}}TilingData& tiling, void* stream)
 {
-    {{op}}_kernel<<<numBlocks, nullptr, stream>>>(/* ..., */ workSpace, tilingGm);
+    {{op}}_kernel<<<numBlocks, nullptr, stream>>>(/* ..., */ workSpace, tiling);
 }

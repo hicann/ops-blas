@@ -75,6 +75,41 @@ ls test/frame/csv_loader.h test/frame/blas_test.h test/frame/fill.h test/frame/v
 | Level-2 浮点（gbmv） | MERE_MARE | param 字段 `mereThreshold` / `mareMultiplier`，CSV 列 `mere_threshold` / `mare_multiplier` |
 | 格式转换 / pack-unpack | EXACT | 在 `TEST_P` 内设 `cfg.mode = PrecisionMode::EXACT` |
 | Level-1 向量 | ABS | 在 `TEST_P` 内设 `cfg.mode = PrecisionMode::ABS` |
+| Level-3 浮点（gemm） | MERE_MARE | 同上 |
+| 矩阵分解（getrf/geqrf） | MERE_MARE | 同上 |
+
+**PrecisionMode 选择与配置示例**：
+
+```cpp
+// 默认模式（无 CSV 自定义列，param 字段或 TEST_P 内固定）
+VerifyConfig cfg;
+cfg.mode = PrecisionMode::ABS;
+cfg.absThreshold = 1e-5f;
+EXPECT_TRUE(Verifier::verifyVector(npuResult, golden.data(), n, 1, cfg, p.caseName));
+
+// MERE_MARE 模式（带 CSV 自定义列 mere_threshold / mare_multiplier，用例级控制精度）
+// CSV: case_name,...,mere_threshold,mare_multiplier,expect_result
+//       TC_01,...,1e-13,10,ACLBLAS_STATUS_SUCCESS
+VerifyConfig cfg;
+cfg.mode = PrecisionMode::MERE_MARE;
+cfg.mereThreshold = p.mereThreshold;        // 从 CSV 读取
+cfg.mareMultiplier = p.mareMultiplier;      // 从 CSV 读取
+EXPECT_TRUE(Verifier::verifyVector(npuResult, golden.data(), n, stride, cfg, p.caseName));
+
+// 精度模式需在 param.h 中扩展字段（若使用 CSV 自定义列）
+struct SxParam : public BlasTestParamBase {
+    // ... API 常规字段 ...
+    float mereThreshold = 1e-5f;
+    float mareMultiplier = 1.0f;
+    SxParam(const csv_map& m) : BlasTestParamBase(m) {
+        mereThreshold = parseFloat(ReadMap(m, "mere_threshold", "1e-5"));
+        mareMultiplier = parseFloat(ReadMap(m, "mare_multiplier", "1.0"));
+        // ...
+    }
+};
+```
+
+> **强制**：`VerifyConfig.mode` 必须显式设置，不得依赖默认值（默认行为由 `Verifier` 类构造器决定，可能与算子精度需求不匹配）。
 
 ---
 
@@ -129,14 +164,17 @@ struct StpttrParam : public BlasTestParamBase {
 | `INDEX` | 顺序 1, 2, 3, ... |
 | `INDEX_NORM_N1` | 顺序 -1, -2, -3, ... |
 | `INDEX_ALTER` | 正负交替 |
-| `RANDOM` | 全值域随机 |
-| `RANDOM_NORM_1E6` | 随机 [-1e6, 1e6] |
-| `RANDOM_UPPER` | 上三角随机 |
-| `RANDOM_LOWER` | 下三角随机 |
-| `RANDOM_DIAG` | 对角随机 |
-| `RANDOM_BANDED_2_3` | 带状矩阵 kl=2 ku=3，band 内随机 |
+| `RANDOM_1_3` | 随机 [−1, 3]（**推荐显式指定范围**） |
+| `RANDOM_NORM_1E6` | 随机 [−1e6, 1e6]（带 NORM 模式） |
+| `RANDOM_UPPER_0.5_2.0` | 上三角随机 [−0.5, 2.0] |
+| `RANDOM_LOWER` | 下三角随机（**禁止**省略范围，应改为 `RANDOM_LOWER_1_10`） |
+| `RANDOM_DIAG_1_100` | 对角随机 [−1, 100] |
+| `RANDOM_BANDED_2_3_N5_5` | 带状矩阵 kl=2 ku=3，band 内随机 [−5, 5] |
 | `INDEX_BANDED_1_1` | 带状矩阵 kl=1 ku=1，band 内顺序值 |
 | `VALUE_BANDED_2_2_0` | 带状矩阵 kl=2 ku=2，band 内全零 |
+
+> **强制（reviewer HIGH）**：CSV 中所有 `RANDOM` 必须显式指定值域范围（`RANDOM_lo_hi` 或 `RANDOM_PATTERN_lo_hi`），**禁止**仅写 `RANDOM` 依赖默认范围（默认范围为 [−FLT_MAX, FLT_MAX]，不可控）。
+
 | `VALUE_NORM_0` | 全零 |
 | `VALUE_NORM_1` | 全一 |
 | `VALUE_NORM_N999` | 哨兵值 -999 |
@@ -212,22 +250,101 @@ inline aclblasStatus_t aclblasStpttr_cpu(
 
 文件： `test/{op}/arch35/{op}_npu_wrapper.h`
 
-封装 ACL 准备和释放工作，入参 `nullptr` 时跳过对应 device 内存操作。
+封装 ACL 准备和释放工作，入参 `nullptr` 时跳过对应 device 内存操作。**每个 ACL 调用必须校验返回值**（`aclrtMalloc` / `aclrtMemcpy` H2D / `aclrtMemcpy` D2H / `aclrtSynchronizeDevice` / `aclrtFree`），失败时立即清理并返回错误码。
 
 ```cpp
-inline aclblasStatus_t aclblasStpttr_npu(
-    aclblasHandle_t handle, aclblasFillMode_t uplo,
-    int n, const float* ap, float* a, int lda)
+// test/{op}/arch35/{op}_npu_wrapper.h — 完整模板（带返回值校验）
+#ifndef {OP}_NPU_H
+#define {OP}_NPU_H
+
+#include <cstdint>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+inline aclblasStatus_t aclblas{Op}_npu(
+    aclblasHandle_t handle, /* API 参数：维度 + const 指针 + 非常量指针 */)
 {
+    // 1. 快速路径：handle == nullptr 或 n <= 0 → 直接透传（由算子内部处理）
     if (handle == nullptr || n <= 0) {
-        return aclblasStpttr(handle, uplo, n, ap, a, lda);
+        return aclblas{Op}(handle, /* 参数 */);
     }
-    // ap != nullptr → aclrtMalloc(dP) + H2D
-    // a  != nullptr → aclrtMalloc(dA) + H2D
-    // kernel → sync → D2H → free
+
+    // 2. 计算 host 端需要搬运的字节数（考虑 stride / lda / 多维）
+    const size_t xBytes = /* ... */;
+    const size_t yBytes = /* ... */;
+
+    // 3. 分配 device 内存 + H2D（每个 malloc/H2D 必须校验返回值）
+    void* dX = nullptr;
+    void* dY = nullptr;
+    aclError aclRet;
+
+    if (x != nullptr) {
+        aclRet = aclrtMalloc(&dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (aclRet != ACL_SUCCESS) return ACLBLAS_STATUS_ALLOC_FAILED;
+        aclRet = aclrtMemcpy(dX, xBytes, x, xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+        if (aclRet != ACL_SUCCESS) {
+            aclrtFree(dX);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+    }
+
+    if (y != nullptr) {
+        aclRet = aclrtMalloc(&dY, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (aclRet != ACL_SUCCESS) {
+            if (dX) aclrtFree(dX);
+            return ACLBLAS_STATUS_ALLOC_FAILED;
+        }
+        aclRet = aclrtMemcpy(dY, yBytes, y, yBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+        if (aclRet != ACL_SUCCESS) {
+            if (dX) aclrtFree(dX);
+            aclrtFree(dY);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+    }
+
+    // 4. 调用算子（必须校验返回状态）
+    aclblasStatus_t ret = aclblas{Op}(handle, /* 参数转换为 device 指针 */);
+    if (ret != ACLBLAS_STATUS_SUCCESS) {
+        if (dX) aclrtFree(dX);
+        if (dY) aclrtFree(dY);
+        return ret;
+    }
+
+    // 5. 同步设备（必须校验返回值）
+    aclRet = aclrtSynchronizeDevice();
+    if (aclRet != ACL_SUCCESS) {
+        if (dX) aclrtFree(dX);
+        if (dY) aclrtFree(dY);
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
+
+    // 6. D2H（必须校验返回值）+ 释放
+    if (y != nullptr && dY != nullptr) {
+        aclRet = aclrtMemcpy(y, yBytes, dY, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        if (aclRet != ACL_SUCCESS) {
+            if (dX) aclrtFree(dX);
+            aclrtFree(dY);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+    }
+
+    if (dX) aclrtFree(dX);
+    if (dY) aclrtFree(dY);
     return ret;
 }
+
+#endif
 ```
+
+**NPU wrapper 强制约束**（reviewer HIGH）：
+- `aclrtSynchronizeDevice()` 返回 `ACL_SUCCESS` 必须校验
+- `aclrtMemcpy(..., ACL_MEMCPY_DEVICE_TO_HOST)` D2H 返回 `ACL_SUCCESS` 必须校验
+- 任何 ACL 失败后必须 **free 已分配的 device 内存** 再返回对应错误码（防止泄漏）
+- wrapper 内部 **不得**调用业务算子的日志接口（如 `OP_LOGE`），只返回结构化错误码
+
+**特殊场景**：
+- 若算子是异步的（调用方需要流上同步），可改为 `aclrtSynchronizeStream(h->stream)` 并校验返回值
+- 入参 `nullptr` 表示该 buffer 不参与（如 `beta==0` 时 y 无需 H2D 但需 D2H）
 
 ---
 

@@ -9,7 +9,7 @@
  */
 
 // TEMPLATE: Tiling 数据结构头文件（host/kernel 共享）
-// - host 侧计算后通过 GM 传递给 kernel
+// - host 侧计算后以 const 引用传入 kernel_do，kernel 以 by value 接收（运行时 launch 参数自动拷贝）
 // - 字段完全由算子的 Tiling 策略决定
 
 #pragma once
