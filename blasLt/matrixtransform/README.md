@@ -308,4 +308,4 @@ bash build.sh --ops=blasLtMatrixTransform --soc=ascend950 --run
 [Success] Case accuracy is verification passed.
 ```
 
-测试工程位于 `test/blasLtMatrixTransform/`，用例由 `arch35/blasLtMatrixTransform_test.csv` 驱动，覆盖各 dtype（含 FP8 E4M3FN/E5M2、FP4 E2M1）、order（含复杂量化布局）、op 与边界场景。FP8/FP4 用例的参考结果采用与设备 Cast 一致的量化舍入语义。
+测试工程位于 `test/blasLtMatrixTransform/`，用例由 `test/blasLtMatrixTransform/arch35/blasLtMatrixTransform_test.csv` 驱动，覆盖各 dtype（含 FP8 E4M3FN/E5M2、FP4 E2M1）、order（含复杂量化布局）、op 与边界场景。FP8/FP4 用例的参考结果采用与设备 Cast 一致的量化舍入语义。

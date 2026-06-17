@@ -46,7 +46,6 @@ blasLt/
 
 ```
 test/blasLtMatmul/
-├── README.md                              // 说明文档（本文档）
 ├── CMakeLists.txt                         // 编译工程文件
 ├── blasLtMatmul_param.h                   // 参数结构体（继承 BlasTestParamBase）
 ├── blasLtMatmul_golden.h                  // CPU golden（封装 aclblasLtMatmul CPU 参考）
