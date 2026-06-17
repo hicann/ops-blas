@@ -56,7 +56,6 @@ set(ARCH_SRC_FILES "")
 foreach(arch_dir ${SOC_ARCH_DIRS})
     file(GLOB_RECURSE arch_dir_srcs
         ${CMAKE_CURRENT_SOURCE_DIR}/*/${arch_dir}/*.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/*/*/${arch_dir}/*.cpp
     )
     list(APPEND ARCH_SRC_FILES ${arch_dir_srcs})
 endforeach()
