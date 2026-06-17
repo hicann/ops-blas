@@ -294,19 +294,8 @@ aclblasStatus_t aclblasStrmv(
     const float* A, int lda, float* x, int incx);
 
 aclblasStatus_t aclblasSsymm(
-    aclblasHandle handle,
-    aclblasSideMode_t side,
-    aclblasFillMode_t uplo,
-    int64_t m,
-    int64_t n,
-    const float* alpha,
-    const float* A,
-    int64_t lda,
-    const float* B,
-    int64_t ldb,
-    const float* beta,
-    float* C,
-    int64_t ldc);
+    aclblasHandle handle, aclblasSideMode_t side, aclblasFillMode_t uplo, int64_t m, int64_t n, const float* alpha,
+    const float* A, int64_t lda, const float* B, int64_t ldb, const float* beta, float* C, int64_t ldc);
 
 aclblasStatus_t aclblasSsyr(
     aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,
@@ -338,6 +327,8 @@ aclblasStatus_t aclblasSrotm(aclblasHandle_t handle, int n, float* x, int incx, 
 aclblasStatus_t aclblasSgemv(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy);
+
+aclblasStatus_t aclblasSaxpy(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx, float* y, int incy);
 
 aclblasStatus_t aclblasSgeqrfBatched(
     aclblasHandle_t handle, int m, int n, float* const Aarray[], int lda, float* const TauArray[], int* info,

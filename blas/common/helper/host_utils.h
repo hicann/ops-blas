@@ -20,6 +20,8 @@
 #include <limits>
 #include <type_traits>
 
+#include "tiling/platform/platform_ascendc.h"
+
 #define CHECK_RET(cond, return_expr) \
     do {                             \
         if (!(cond)) {               \
@@ -39,10 +41,9 @@
 template <typename R = uint32_t, typename T1, typename T2>
 static inline R CeilDiv(T1 a, T2 b)
 {
-    static_assert(std::is_arithmetic<T1>::value && std::is_arithmetic<T2>::value,
-                  "CeilDiv arguments must be arithmetic types");
-    static_assert(std::is_arithmetic<R>::value,
-                  "CeilDiv return type must be arithmetic");
+    static_assert(
+        std::is_arithmetic<T1>::value && std::is_arithmetic<T2>::value, "CeilDiv arguments must be arithmetic types");
+    static_assert(std::is_arithmetic<R>::value, "CeilDiv return type must be arithmetic");
     auto ra = static_cast<R>(a);
     auto rb = static_cast<R>(b);
     if (rb == 0) {
@@ -65,3 +66,15 @@ static inline R CeilAlign(T1 val, T2 align)
     return CeilDiv<R>(val, align) * static_cast<R>(align);
 }
 
+// ==========================================================================
+//  GetAivCoreCount — get the number of AIV cores on current device
+// ==========================================================================
+
+static inline uint32_t GetAivCoreCount()
+{
+    auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    if (platform == nullptr) {
+        return 0;
+    }
+    return platform->GetCoreNumAiv();
+}
