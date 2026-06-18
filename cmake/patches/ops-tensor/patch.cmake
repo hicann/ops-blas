@@ -69,3 +69,57 @@ function(ops_blas_patch_ops_tensor_block_mmad_mx optensor_root)
     message(STATUS "ops-tensor patch: blaze/block/block_mmad_mx.h already patched, skip")
   endif()
 endfunction()
+
+# CANN 9.1.0 SDK common_types.h 已定义 fp4x2_e2m1_t / fp4x2_e1m2_t 等类型，
+# 与 ops-tensor macro_impl.h 的 #else 分支 uint8_t 回退定义冲突。
+# 直接删除回退定义，依赖 CANN SDK 提供的类型定义。
+function(ops_blas_patch_ops_tensor_fp4_types optensor_root)
+  if(NOT optensor_root)
+    message(FATAL_ERROR "ops_blas_patch_ops_tensor_fp4_types: optensor_root is required")
+  endif()
+
+  set(_target_file "${optensor_root}/include/tensor_api/impl/tensor_api/utils/macro_impl.h")
+  if(NOT EXISTS "${_target_file}")
+    message(WARNING "ops-tensor patch skipped: ${_target_file} not found")
+    return()
+  endif()
+
+  file(READ "${_target_file}" _content)
+  
+  # 检查是否已经打过补丁（回退定义已被删除）
+  if(NOT _content MATCHES "using fp4x2_e2m1_t = uint8_t;")
+    message(STATUS "ops-tensor patch: macro_impl.h already patched for FP4 types, skip")
+    return()
+  endif()
+
+  set(_old_block
+"#else
+    using fp4x2_e2m1_t = uint8_t;
+    using fp4x2_e1m2_t = uint8_t;
+    using fp8_e5m2_t = uint8_t;
+    using fp8_e4m3fn_t = uint8_t;
+    using fp8_e8m0_t = uint8_t;
+#endif")
+
+  set(_new_block
+"#else
+    // CANN 9.1.0 SDK common_types.h already defines these types.
+    // Fallback uint8_t aliases removed to avoid redefinition conflict.
+#endif")
+
+  string(REPLACE "${_old_block}" "${_new_block}" _new_content "${_content}")
+  file(WRITE "${_target_file}" "${_new_content}")
+  message(STATUS "ops-tensor patch: removed FP4 fallback types to avoid CANN 9.1.0 conflict")
+
+  # Patch kernel_qbmm_mx.h: qualify fp8_e8m0_t with :: to resolve ambiguity
+  # between CANN SDK global scope (float8_e8m0_t) and AscendC namespace (uint8_t)
+  set(_qbmm_file "${optensor_root}/include/blaze/kernel/kernel_qbmm_mx.h")
+  if(EXISTS "${_qbmm_file}")
+    file(READ "${_qbmm_file}" _qbmm_content)
+    if(_qbmm_content MATCHES "fp8_e8m0_t" AND NOT _qbmm_content MATCHES "::fp8_e8m0_t")
+      string(REPLACE "fp8_e8m0_t" "::fp8_e8m0_t" _qbmm_new "${_qbmm_content}")
+      file(WRITE "${_qbmm_file}" "${_qbmm_new}")
+      message(STATUS "ops-tensor patch: qualified fp8_e8m0_t with :: in kernel_qbmm_mx.h")
+    endif()
+  endif()
+endfunction()

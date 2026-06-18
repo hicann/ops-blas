@@ -59,3 +59,6 @@ ops_blas_patch_ops_tensor_get_task_ratio("${OPTENSOR_SOURCE_PATH}")
 # bisheng AICore compiler rejects class members whose types are deduced
 # from AscendC::Te::MakeMemPtr/MakeTensor, the patch uses stack-local tensors instead.
 ops_blas_patch_ops_tensor_block_mmad_mx("${OPTENSOR_SOURCE_PATH}")
+# CANN 9.1.0 SDK common_types.h defines fp4x2_e2m1_t/fp4x2_e1m2_t which conflicts
+# with ops-tensor macro_impl.h fallback uint8_t definitions.
+ops_blas_patch_ops_tensor_fp4_types("${OPTENSOR_SOURCE_PATH}")
