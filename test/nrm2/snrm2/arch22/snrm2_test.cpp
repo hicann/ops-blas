@@ -98,8 +98,8 @@ int32_t test_scnrm2()
     aclrtFree(xDevice);
     aclrtFree(resultDevice);
 
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
@@ -153,8 +153,8 @@ int32_t main(int32_t argc, char* argv[])
     aclrtFree(xDevice);
     aclrtFree(resultDevice);
 
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

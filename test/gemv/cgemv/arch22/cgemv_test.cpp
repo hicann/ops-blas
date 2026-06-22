@@ -148,8 +148,8 @@ int TestCgemvNoTrans()
     aclrtFree(aDevice);
     aclrtFree(xDevice);
     aclrtFree(yDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
@@ -219,8 +219,8 @@ int TestCgemvTrans()
     aclrtFree(aDevice);
     aclrtFree(xDevice);
     aclrtFree(yDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

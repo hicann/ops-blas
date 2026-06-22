@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -217,7 +218,7 @@ public:
 };
 
 class ExtremeGenerator : public ValueGenerator {
-    static constexpr float kVals[] = {1.0f, 0.0f, -1.0f, FLT_MAX, FLT_MIN, -FLT_MAX, FLT_TRUE_MIN};
+    static constexpr float kVals[] = {1.0f, 0.0f, -1.0f, FLT_MAX, FLT_MIN, -FLT_MAX, std::numeric_limits<float>::denorm_min()};
 
 public:
     float at(size_t i) override { return kVals[i % 7]; }

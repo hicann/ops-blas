@@ -32,13 +32,13 @@ struct AclGuard {
             return;
         }
         try {
-            if (stream != nullptr) {
-                aclrtDestroyStream(stream);
-                stream = nullptr;
-            }
             if (handle != nullptr) {
                 aclblasDestroy(handle);
                 handle = nullptr;
+            }
+            if (stream != nullptr) {
+                aclrtDestroyStream(stream);
+                stream = nullptr;
             }
             aclrtResetDevice(TEST_DEVICE_ID);
             aclFinalize();
@@ -81,14 +81,14 @@ protected:
         auto& guard = blas_test_detail::globalAcl();
         if (guard.cleaned) return;
 
+        if (guard.handle != nullptr) {
+            aclblasDestroy(guard.handle);
+            guard.handle = nullptr;
+        }
         if (guard.stream != nullptr) {
             aclrtSynchronizeStream(guard.stream);
             aclrtDestroyStream(guard.stream);
             guard.stream = nullptr;
-        }
-        if (guard.handle != nullptr) {
-            aclblasDestroy(guard.handle);
-            guard.handle = nullptr;
         }
         aclrtResetDevice(TEST_DEVICE_ID);
         aclFinalize();

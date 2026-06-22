@@ -105,8 +105,8 @@ int32_t main(int32_t argc, char* argv[])
     aclrtFree(yDevice);
     aclrtFree(resultDevice);
 
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

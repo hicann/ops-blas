@@ -183,8 +183,8 @@ int32_t main(int32_t argc, char* argv[])
     result = TestSscal(handle, stream);
     if (result != 0) {
         std::cout << "[FAIL] Sscal test failed" << std::endl;
-        aclrtDestroyStream(stream);
         aclblasDestroy(handle);
+        aclrtDestroyStream(stream);
         aclrtResetDevice(deviceId);
         aclFinalize();
         return result;
@@ -194,16 +194,16 @@ int32_t main(int32_t argc, char* argv[])
     result = TestCsscal(handle, stream);
     if (result != 0) {
         std::cout << "[FAIL] Csscal test failed" << std::endl;
-        aclrtDestroyStream(stream);
         aclblasDestroy(handle);
+        aclrtDestroyStream(stream);
         aclrtResetDevice(deviceId);
         aclFinalize();
         return result;
     }
     std::cout << "[PASS] Csscal test passed" << std::endl;
 
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

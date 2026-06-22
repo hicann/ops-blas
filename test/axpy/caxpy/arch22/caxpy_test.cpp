@@ -143,16 +143,16 @@ int32_t main(int32_t argc, char* argv[])
     result = TestCaxpy(handle, stream);
     if (result != 0) {
         std::cout << "[FAIL] Caxpy test failed" << std::endl;
-        aclrtDestroyStream(stream);
         aclblasDestroy(handle);
+        aclrtDestroyStream(stream);
         aclrtResetDevice(deviceId);
         aclFinalize();
         return result;
     }
     std::cout << "[PASS] Caxpy test passed" << std::endl;
 
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 

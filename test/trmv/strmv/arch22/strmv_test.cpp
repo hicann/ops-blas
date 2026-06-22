@@ -189,8 +189,8 @@ int TestStrmvUpperN()
 
     aclrtFree(aDevice);
     aclrtFree(xDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
@@ -253,8 +253,8 @@ int TestStrmvLowerN()
 
     aclrtFree(aDevice);
     aclrtFree(xDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
@@ -317,8 +317,8 @@ int TestStrmvUpperT()
 
     aclrtFree(aDevice);
     aclrtFree(xDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
@@ -381,8 +381,8 @@ int TestStrmvLowerT()
 
     aclrtFree(aDevice);
     aclrtFree(xDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
