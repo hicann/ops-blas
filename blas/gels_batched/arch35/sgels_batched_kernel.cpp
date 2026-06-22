@@ -167,7 +167,8 @@ __simt_callee__ __aicore__ inline void ApplyQTransposeLQ(
     uint32_t minMN, uint32_t n, uint32_t nrhs, int32_t lda, int32_t ldc, __gm__ float* aGm, __gm__ float* cGm,
     __gm__ float* tauGm, __ubuf__ float* partialSums)
 {
-    for (uint32_t k = 0; k < minMN; k++) {
+    for (int32_t kk = static_cast<int32_t>(minMN) - 1; kk >= 0; kk--) {
+        uint32_t k = static_cast<uint32_t>(kk);
         float tau = tauGm[k];
         if (tau == 0.0f)
             continue;
@@ -191,7 +192,6 @@ __simt_callee__ __aicore__ inline void ApplyQTransposeLQ(
         }
     }
 }
-
 __simt_callee__ __aicore__ inline void BackSubstitution(
     uint32_t n, uint32_t nrhs, int32_t lda, int32_t ldc, __gm__ float* aGm, __gm__ float* cGm, __gm__ int* devInfoBatch,
     __ubuf__ float* partialSums)

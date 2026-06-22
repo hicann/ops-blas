@@ -41,7 +41,7 @@ struct SsyrTilingData {
 };
 
 aclblasStatus_t aclblasSsyr(
-    aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, const int n, const float* alpha, const float* x, const int incx,
     float* A, const int lda)
 {
     if (n == 0) {

@@ -13,9 +13,6 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
-// NPU wrapper — same signature as aclblasStrsv.
-// The aclblasStrsv host implementation handles H2D / kernel / D2H internally,
-// so this wrapper is a simple passthrough.
 inline aclblasStatus_t aclblasStrsv_npu(
     aclblasHandle_t handle,
     aclblasFillMode_t uplo,
@@ -27,6 +24,8 @@ inline aclblasStatus_t aclblasStrsv_npu(
     float* x,
     int incx)
 {
-    return aclblasStrsv(handle, uplo, trans, diag, n, A, lda, x, incx);
+    aclblasStatus_t ret = aclblasStrsv(handle, uplo, trans, diag, n, A, lda, x, incx);
+    aclrtSynchronizeDevice();
+    return ret;
 }
 

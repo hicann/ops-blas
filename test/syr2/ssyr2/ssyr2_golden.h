@@ -13,10 +13,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <vector>
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 
 inline void aclblasSsyr2_cpu(
     aclblasFillMode_t uplo, int n, float alpha, const float* x, int incx, const float* y, int incy, float* A, int lda)
@@ -24,26 +24,6 @@ inline void aclblasSsyr2_cpu(
     if (n <= 0)
         return;
 
-    int absIncx = std::abs(incx);
-    int absIncy = std::abs(incy);
-
-    auto getX = [&](int i) -> float { return (incx >= 0) ? x[i * incx] : x[(n - 1 - i) * absIncx]; };
-    auto getY = [&](int i) -> float { return (incy >= 0) ? y[i * incy] : y[(n - 1 - i) * absIncy]; };
-
-    for (int j = 0; j < n; j++) {
-        float xj = getX(j);
-        float yj = getY(j);
-        float axj = alpha * xj;
-        float ayj = alpha * yj;
-        if (uplo == ACLBLAS_UPPER) {
-            for (int i = 0; i <= j; i++) {
-                A[j * lda + i] += axj * getY(i) + ayj * getX(i);
-            }
-        } else {
-            for (int i = j; i < n; i++) {
-                A[j * lda + i] += axj * getY(i) + ayj * getX(i);
-            }
-        }
-    }
+    cblas_ssyr2(CblasColMajor, ToCblasUplo(uplo), n, alpha, x, incx, y, incy, A, lda);
 }
 

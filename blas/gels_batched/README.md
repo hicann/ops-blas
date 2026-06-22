@@ -28,7 +28,7 @@ aclblasStatus_t aclblasSgelsBatched(
 
 当 trans == ACLBLAS_OP_T 时：
   将 A[i] 替换为 A[i]^T，即求解 A[i]^T * X = C[i] 的最小二乘/最小范数解。
-  Host 侧将 OP_T 转换为 OP_N（转置 A 并交换 m/n），Kernel 统一按 OP_N 处理。
+  Host 侧交换 m/n 并设置转置标志，Kernel 内部执行矩阵转置后统一按 OP_N 处理。
 ```
 
 算法来源：LAPACK SGELS（sgels.f），采用 Householder 反射实现 QR/LQ 分解。接口签名严格对齐 cuBLAS `cublasSgelsBatched`。
@@ -50,6 +50,10 @@ aclblasStatus_t aclblasSgelsBatched(
 | batchSize | in | Host | 批次数量，batchSize ≥ 0 |
 
 **注意**：Aarray、Carray、devInfo 必须为 device 侧指针，由调用者在调用前通过 `aclrtMalloc` 分配。stream 通过 `aclblasSetStream(handle, stream)` 绑定到 handle。
+
+**异步执行**：Host 侧不执行流同步，kernel 以异步方式提交到 stream。调用者需在 kernel 执行后自行调用 `aclrtSynchronizeStream` 或 `aclrtSynchronizeDevice` 进行同步，然后再通过 `aclrtMemcpy` 拷贝结果回 host。
+
+**TilingData 下发**：TilingData 通过值传递（pass-by-value）方式下发至 kernel，无需设备侧内存分配和 H2D 拷贝。workspace 从 handle 获取（默认 4 MiB），若不足需用户调用 `aclblasSetWorkspace` 设置更大的 workspace。
 
 ### 参数约束
 
@@ -74,8 +78,8 @@ aclblasStatus_t aclblasSgelsBatched(
 |------|------|------|
 | 超定 + 不转置 | m ≥ n, trans == OP_N | QR 分解 → 应用 Q^T 到 C → 回代求解 R*X = C' |
 | 欠定 + 不转置 | m < n, trans == OP_N | LQ 分解 → 前代求解 L*Y = C → 清零 C[m:n,:] → 应用 Q^T |
-| 超定 + 转置 | m ≥ n, trans == OP_T | Host 侧转置 A 并交换 m/n，转为 OP_N 欠定问题 |
-| 欠定 + 转置 | m < n, trans == OP_T | Host 侧转置 A 并交换 m/n，转为 OP_N 超定问题 |
+| 超定 + 转置 | m ≥ n, trans == OP_T | Host 交换 m/n，Kernel 内转置 A，转为 OP_N 欠定问题 |
+| 欠定 + 转置 | m < n, trans == OP_T | Host 交换 m/n，Kernel 内转置 A，转为 OP_N 超定问题 |
 | 秩亏损 | R/L 对角元素 = 0 | 设置 `devInfo[i] = k+1`，跳过该批次求解 |
 
 ### 实现特征
@@ -102,9 +106,22 @@ aclblasStatus_t aclblasSgelsBatched(
 blas/gels_batched/
 ├── README.md                                // 说明文档
 └── arch35/
-    ├── sgels_batched_host.cpp               // Host 侧 API（参数校验、OP_T 转置、指针数组扁平化、Kernel 调用）
+    ├── sgels_batched_host.cpp               // Host 侧 API（参数校验、Tiling 计算、workspace 管理、Kernel 调用）
     ├── sgels_batched_kernel.cpp             // Kernel 入口 + SIMT VF 函数（QR/LQ 分解、应用 Q、三角求解）
     └── sgels_batched_tiling_data.h          // TilingData 结构体（多核分配参数）
+```
+
+测试代码位于 `test/gels_batched/sgels_batched/`：
+
+```
+test/gels_batched/sgels_batched/
+├── CMakeLists.txt
+├── sgels_batched_param.h
+├── sgels_batched_golden.h              // CPU golden（基于 LAPACK sgels_）
+└── arch35/
+    ├── sgels_batched_test.cpp
+    ├── sgels_batched_test.csv
+    └── sgels_batched_npu_wrapper.h
 ```
 
 ## 编译

@@ -24,7 +24,7 @@
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
 
-void sgbmv_kernel_do(uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* workSpace, uint8_t* tilingGm,
+void sgbmv_kernel_do(uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* workSpace, const SgbmvTilingData &tiling,
                       uint32_t numBlocks, void *stream);
 
 #define CHECK_RET(cond, return_expr) \
@@ -57,17 +57,6 @@ static aclblasStatus_t ValidateSgbmvParams(
     CHECK_RET(x != nullptr, OP_LOGE("aclblasSgbmv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(y != nullptr, OP_LOGE("aclblasSgbmv", "y must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
-}
-
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
 }
 
 static SgbmvTilingData CalSgbmvTilingData(
@@ -113,9 +102,9 @@ aclblasStatus_t aclblasSgbmv(
         return st;
     }
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSgbmv", "vector core count is 0");
+        OP_LOGE("aclblasSgbmv", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     bool isTransT = (trans != ACLBLAS_OP_N);
@@ -128,31 +117,11 @@ aclblasStatus_t aclblasSgbmv(
         tiling.kl, tiling.ku, tiling.lda, tiling.trans, useNumBlocks, tiling.numThreads);
     OP_LOGI("aclblasSgbmv", "launching kernel");
 
-    uint8_t* tilingDevice = nullptr;
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SgbmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgbmv", "aclrtMalloc failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(SgbmvTilingData), &tiling, sizeof(SgbmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgbmv", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
     sgbmv_kernel_do(
         reinterpret_cast<uint8_t*>(const_cast<float*>(A)),
         reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
-        reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice,
+        reinterpret_cast<uint8_t*>(y), nullptr, tiling,
         useNumBlocks, h->stream);
-
-    aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgbmv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    aclrtFree(tilingDevice);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

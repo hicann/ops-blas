@@ -30,6 +30,21 @@ blas/syr/
     └── syr_tiling_data.h           // Tiling 数据结构（arch35）
 ```
 
+测试代码位于 `test/syr/ssyr/`：
+
+```
+test/syr/ssyr/
+├── CMakeLists.txt                  // 编译工程文件
+├── ssyr_param.h                    // 测试参数定义
+├── ssyr_golden.h                   // Golden 参考实现（基于 CBLAS）
+├── arch35/
+│   ├── ssyr_test.cpp               // GTest 测试用例
+│   ├── ssyr_test.csv               // CSV 测试数据
+│   └── ssyr_npu_wrapper.h          // NPU 设备端调用封装
+└── arch22/
+    └── syr_test.cpp                // arch22 测试用例
+```
+
 ## 算子描述
 
 - 算子功能：
@@ -53,12 +68,12 @@ blas/syr/
 - 接口定义：
 
 ```cpp
-aclblasStatus_t aclblasSsyr(aclblasHandle handle,
-                             aclblasFillMode uplo,
-                             const int64_t n,
+aclblasStatus_t aclblasSsyr(aclblasHandle_t handle,
+                             aclblasFillMode_t uplo,
+                             const int n,
                              const float *alpha,
-                             const float *x, const int64_t incx,
-                             float *A, const int64_t lda);
+                             const float *x, const int incx,
+                             float *A, const int lda);
 ```
 
 - 参数说明：
@@ -80,8 +95,7 @@ aclblasStatus_t aclblasSsyr(aclblasHandle handle,
 |--------|------|
 | ACLBLAS_STATUS_SUCCESS | 执行成功 |
 | ACLBLAS_STATUS_INVALID_VALUE | 参数无效（n<0, incx=0, lda不足, 空指针等） |
-| ACLBLAS_STATUS_ALLOC_FAILED | 内存分配失败 |
-| ACLBLAS_STATUS_INTERNAL_ERROR | 内部执行错误 |
+| ACLBLAS_STATUS_EXECUTION_FAILED | 内部执行错误（如获取核数失败） |
 
 - 精度指标：
 
@@ -91,10 +105,11 @@ aclblasStatus_t aclblasSsyr(aclblasHandle handle,
 
 ## 关键设计
 
-- 多核并行：循环行分布 (Cyclic Row Distribution)，多核负载均衡比约 1.08:1
-- 数据搬运：使用标准 Ascend C API (DataCopy/DataCopyPad)，三阶流水线 (TPipe/TQue)
-- TILE_SIZE 动态化：按 UB 容量自适应，减少 GM 交互次数
-- incx != 1：Host 侧处理非连续 stride，将数据重组为连续 buffer 再传入 Kernel
+- 多核并行：循环行分布 (Cyclic Row Distribution)，多核负载均衡
+- UB 缓存优化：incx==1 时将 x 向量加载到 UB，减少 GM 访问
+- GM Fallback：incx!=1 或 xLen 超出 UB 容量时，回退到 GM 直接访问模式
+- TilingData 传值下发：Kernel 通过值传递接收 TilingData，无需设备侧内存分配
+- 异步执行：Host 侧不执行流同步，由调用方自行管理同步
 
 ## 编译运行
 
@@ -114,7 +129,7 @@ bash build.sh --ops=syr --soc=ascend950 --run
 
 ```
 ========================================
-  Total: 21  Passed: 21  Failed: 0
+  Total: 45  Passed: 45  Failed: 0
 ========================================
   RESULT: ALL TESTS PASSED
 ```
@@ -123,3 +138,4 @@ bash build.sh --ops=syr --soc=ascend950 --run
 
 1. 本算子仅支持 Ascend950 (A5) 平台，旧版 ssyr 算子已从 A5 排除编译
 2. 接口对齐 cuBLAS cublasSsyr，alpha 为指针类型 `const float *`
+3. Host 侧不做流同步，调用方需在 kernel 执行后自行调用 `aclrtSynchronizeStream` 或 `aclrtSynchronizeDevice`

@@ -100,17 +100,17 @@ inline aclblasStatus_t buildPtrArrays(
 
 inline void copyResultsBack(
     const std::vector<void*>& dA, const std::vector<void*>& dC, int batchSize, int lda, int n, int ldc, int solRows,
-    std::vector<std::vector<float>>& Aout, std::vector<std::vector<float>>& Cout)
+    int nrhs, std::vector<std::vector<float>>& Aout, std::vector<std::vector<float>>& Cout)
 {
     Aout.resize(batchSize);
     Cout.resize(batchSize);
     for (int b = 0; b < batchSize; b++) {
         Aout[b].resize(static_cast<size_t>(lda) * n);
-        Cout[b].resize(static_cast<size_t>(ldc) * solRows);
+        Cout[b].resize(static_cast<size_t>(ldc) * nrhs);
         aclrtMemcpy(
             Aout[b].data(), Aout[b].size() * sizeof(float), dA[b], Aout[b].size() * sizeof(float),
             ACL_MEMCPY_DEVICE_TO_HOST);
-        size_t cSolBytes = static_cast<size_t>(ldc) * solRows * sizeof(float);
+        size_t cSolBytes = static_cast<size_t>(ldc) * nrhs * sizeof(float);
         aclrtMemcpy(Cout[b].data(), cSolBytes, dC[b], cSolBytes, ACL_MEMCPY_DEVICE_TO_HOST);
     }
 }
@@ -187,7 +187,7 @@ inline aclblasStatus_t aclblasSgelsBatched_npu(
     aclblasStatus_t ret =
         runKernelAndCollect(handle, trans, m, n, nrhs, lda, ldc, batchSize, dAptrs, dCptrs, dInfo, hostDevInfo);
 
-    gels_npu::copyResultsBack(dA, dC, batchSize, lda, n, ldc, solRows, Aout, Cout);
+    gels_npu::copyResultsBack(dA, dC, batchSize, lda, n, ldc, solRows, nrhs, Aout, Cout);
     gels_npu::freeAll(dA, dC, dAptrs, dCptrs, dInfo);
     return ret;
 }

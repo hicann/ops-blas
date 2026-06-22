@@ -16,6 +16,7 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 
 inline aclblasStatus_t ValidateTrsvCpuParams(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n,
@@ -48,48 +49,8 @@ inline aclblasStatus_t aclblasStrsv_cpu(
     if (n == 0)
         return ACLBLAS_STATUS_SUCCESS;
 
-    const int ni = static_cast<int>(n);
-    const int ldai = static_cast<int>(lda);
-    const int absIncx = std::abs(static_cast<int>(incx));
-    const bool isUnit = (diag == ACLBLAS_UNIT);
-    const bool isTranspose = (trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C);
-
-    // Determine solve direction:
-    //   forward (i = 0..n-1): LOWER+N, UPPER+T/C
-    //   backward (i = n-1..0): UPPER+N, LOWER+T/C
-    const bool isForward = (uplo == ACLBLAS_LOWER && !isTranspose) || (uplo == ACLBLAS_UPPER && isTranspose);
-
-    // Helper: map logical index i into strided x buffer.
-    auto xIdx = [&](int i) -> int { return (incx >= 0) ? (i * static_cast<int>(incx)) : ((ni - 1 - i) * absIncx); };
-
-    if (isForward) {
-        for (int i = 0; i < ni; i++) {
-            double sum = 0.0;
-            for (int j = 0; j < i; j++) {
-                // Forward: use columns j < i.
-                // LOWER+N: A[i][j] = A[i + j*lda]
-                // UPPER+T: A^T[i][j] = A[j][i] = A[j + i*lda]
-                float aElem = isTranspose ? A[j + i * ldai] : A[i + j * ldai];
-                sum += static_cast<double>(aElem) * static_cast<double>(x[xIdx(j)]);
-            }
-            float diagVal = isUnit ? 1.0f : A[i + i * ldai];
-            x[xIdx(i)] = static_cast<float>((static_cast<double>(x[xIdx(i)]) - sum) / static_cast<double>(diagVal));
-        }
-    } else {
-        for (int i = ni - 1; i >= 0; i--) {
-            double sum = 0.0;
-            for (int j = i + 1; j < ni; j++) {
-                // Backward: use columns j > i.
-                // UPPER+N: A[i][j] = A[i + j*lda]
-                // LOWER+T: A^T[i][j] = A[j][i] = A[j + i*lda]
-                float aElem = isTranspose ? A[j + i * ldai] : A[i + j * ldai];
-                sum += static_cast<double>(aElem) * static_cast<double>(x[xIdx(j)]);
-            }
-            float diagVal = isUnit ? 1.0f : A[i + i * ldai];
-            x[xIdx(i)] = static_cast<float>((static_cast<double>(x[xIdx(i)]) - sum) / static_cast<double>(diagVal));
-        }
-    }
-
+    cblas_strsv(CblasColMajor, ToCblasUplo(uplo), ToCblasOp(trans), ToCblasDiag(diag),
+                static_cast<int>(n), A, static_cast<int>(lda), x, static_cast<int>(incx));
     return ACLBLAS_STATUS_SUCCESS;
 }
 

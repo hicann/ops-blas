@@ -26,7 +26,6 @@
 #include "sgels_batched_tiling_data.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
-#include "tiling/platform/platform_ascendc.h"
 
 struct SgelsBatchedTilingData;
 
@@ -36,16 +35,6 @@ void sgels_decompose_kernel_do(
 
 static const char* const TAG = "aclblasSgelsBatched";
 static constexpr uint32_t SIMT_OPTIMAL_THREADS = 128;
-
-static uint32_t GetVectorCoreCount()
-{
-    auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    if (platform == nullptr) {
-        OP_LOGE(TAG, "PlatformAscendCManager::GetInstance() returned nullptr");
-        return 0;
-    }
-    return platform->GetCoreNumAiv();
-}
 
 static aclblasStatus_t ValidateSgelsBatchedParams(
     aclblasOperation_t trans, int m, int n, int nrhs, float* const aArray[], int lda, float* const cArray[], int ldc,
@@ -129,7 +118,7 @@ static SgelsBatchedTilingData BuildTilingData(
 }
 
 static aclblasStatus_t LaunchGelsKernel(
-    aclrtStream stream, float* const aArray[], float* const cArray[], int* devInfo,
+    _aclblas_handle* h, float* const aArray[], float* const cArray[], int* devInfo,
     const SgelsBatchedTilingData& tiling)
 {
     size_t tauBytes = static_cast<size_t>(tiling.batchSize) * tiling.minMN * sizeof(float);
@@ -137,12 +126,15 @@ static aclblasStatus_t LaunchGelsKernel(
     size_t tempABytes = tempAPerCoreBytes * tiling.usedCoreNum;
     size_t workspaceBytes = tauBytes + tempABytes;
 
-    void* workspace = nullptr;
-    aclError aclRet = aclrtMalloc(&workspace, workspaceBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE(TAG, "aclrtMalloc workspace failed, size=%zu, ret=%d", workspaceBytes, aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED;
+    size_t availableBytes = aclblasGetEffectiveWorkspaceSize(h);
+    if (workspaceBytes > availableBytes) {
+        OP_LOGE(TAG, "workspace required %zu bytes, but only %zu bytes available. "
+                     "Please call aclblasSetWorkspace with size >= %zu bytes",
+                workspaceBytes, availableBytes, workspaceBytes);
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
+
+    uint8_t* workspace = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
 
     OP_LOGI(
         TAG, "launching SIMT kernel: cores=%u, batches=%u, threads=%u", tiling.usedCoreNum, tiling.batchSize,
@@ -150,15 +142,8 @@ static aclblasStatus_t LaunchGelsKernel(
 
     sgels_decompose_kernel_do(
         reinterpret_cast<uint8_t*>(const_cast<float**>(aArray)), reinterpret_cast<uint8_t*>(const_cast<float**>(cArray)),
-        reinterpret_cast<uint8_t*>(workspace), reinterpret_cast<uint8_t*>(devInfo), tiling, tiling.usedCoreNum, stream);
+        workspace, reinterpret_cast<uint8_t*>(devInfo), tiling, tiling.usedCoreNum, h->stream);
 
-    aclRet = aclrtSynchronizeStream(stream);
-    aclrtFree(workspace);
-
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE(TAG, "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_EXECUTION_FAILED;
-    }
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -182,9 +167,9 @@ aclblasStatus_t aclblasSgelsBatched(
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    uint32_t coreNum = GetVectorCoreCount();
+    uint32_t coreNum = GetAivCoreCount();
     if (coreNum == 0) {
-        OP_LOGE(TAG, "vector core count is 0");
+        OP_LOGE(TAG, "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
@@ -201,5 +186,5 @@ aclblasStatus_t aclblasSgelsBatched(
         tiling.m, tiling.n, tiling.nrhs, tiling.lda, tiling.ldc, tiling.batchSize, tiling.batchPerCore,
         tiling.batchTail, tiling.usedCoreNum, tiling.minMN, tiling.maxMN, tiling.trans, tiling.origLda);
 
-    return LaunchGelsKernel(h->stream, aArray, cArray, devInfo, tiling);
+    return LaunchGelsKernel(h, aArray, cArray, devInfo, tiling);
 }

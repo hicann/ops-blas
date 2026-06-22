@@ -15,42 +15,19 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <mutex>
 #include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "sgetrf_batched_tiling_data.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 
 struct SgetrfBatchedTilingData;
 
 void sgetrf_batched_kernel_do(
     uint8_t* aarray, uint8_t* pivotArray, uint8_t* infoArray,
     const SgetrfBatchedTilingData &tiling, uint32_t numBlocks, void *stream);
-
-static uint32_t GetVectorCoreCount()
-{
-    static uint32_t cachedCoreNum = 0;
-    static std::once_flag flag;
-    std::call_once(flag, []() {
-        int32_t deviceId = 0;
-        int64_t vecCoreNum = 0;
-        aclError devRet = aclrtGetDevice(&deviceId);
-        if (devRet != ACL_SUCCESS) {
-            OP_LOGE("aclblasSgetrfBatched", "aclrtGetDevice failed, ret=%d", devRet);
-            return;
-        }
-        aclError aclRet =
-            aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-        if (aclRet != ACL_SUCCESS) {
-            OP_LOGE("aclblasSgetrfBatched", "aclrtGetDeviceInfo failed, ret=%d", aclRet);
-            return;
-        }
-        cachedCoreNum = (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-    });
-    return cachedCoreNum;
-}
 
 static aclblasStatus_t ValidateGetrfBatchedParams(
     int n, float* const Aarray[], int lda, int* pivotArray, int* infoArray, int batchSize)
@@ -106,9 +83,9 @@ aclblasStatus_t aclblasSgetrfBatched(
     }
 
     // Get core count and compute batch distribution
-    uint32_t coreNum = GetVectorCoreCount();
+    uint32_t coreNum = GetAivCoreCount();
     if (coreNum == 0) {
-        OP_LOGE("aclblasSgetrfBatched", "vector core count is 0");
+        OP_LOGE("aclblasSgetrfBatched", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 

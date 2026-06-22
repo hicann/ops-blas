@@ -40,8 +40,8 @@ struct Ssyr2TilingData {
     uint32_t coreNum;
 };
 
-aclblasStatus_t aclblasSsyr2(aclblasHandle handle,
-                             aclblasFillMode uplo,
+aclblasStatus_t aclblasSsyr2(aclblasHandle_t handle,
+                             aclblasFillMode_t uplo,
                              const int n,
                              const float *alpha,
                              const float *x, const int incx,

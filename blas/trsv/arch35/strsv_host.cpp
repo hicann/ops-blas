@@ -91,10 +91,5 @@ aclblasStatus_t aclblasStrsv(
         reinterpret_cast<uint8_t*>(const_cast<float*>(A)),
         reinterpret_cast<uint8_t*>(x), tiling, h->stream);
 
-    aclError aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasStrsv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_INTERNAL_ERROR);
-
     return ACLBLAS_STATUS_SUCCESS;
 }

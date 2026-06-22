@@ -22,6 +22,14 @@
 
 static constexpr uint32_t UB_X_FLOATS = 16384; // 64 KB __ubuf__ for x tile
 
+__simt_callee__ __aicore__ inline void WriteY(
+    uint32_t outIdx, uint32_t dim, int64_t incy, float alpha, float beta, float acc, __gm__ float* yGm)
+{
+    int64_t yIdx = (incy >= 0) ? (outIdx * incy) : ((dim - 1 - outIdx) * (-incy));
+    float alphaTerm = (alpha == 0.0f) ? 0.0f : (alpha * acc);
+    yGm[yIdx] = (beta == 0.0f) ? alphaTerm : (alphaTerm + beta * yGm[yIdx]);
+}
+
 // ==========================================================================
 //  GM path — grid-stride
 // ==========================================================================
@@ -46,8 +54,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgbmvGm(
                 float xVal = (incx >= 0) ? xGm[col * incx] : xGm[(xDim - 1 - col) * (-incx)];
                 acc += aGm[aIdx] * xVal;
             }
-            int64_t yIdx = (incy >= 0) ? (row * incy) : ((m - 1 - row) * (-incy));
-            yGm[yIdx] = alpha * acc + beta * yGm[yIdx];
+            WriteY(row, m, incy, alpha, beta, acc, yGm);
         } else {
             uint32_t col = outIdx;
             uint32_t rowStart = (col >= ku) ? (col - ku) : 0;
@@ -57,8 +64,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgbmvGm(
                 float xVal = (incx >= 0) ? xGm[row * incx] : xGm[(xDim - 1 - row) * (-incx)];
                 acc += aGm[aIdx] * xVal;
             }
-            int64_t yIdx = (incy >= 0) ? (col * incy) : ((n - 1 - col) * (-incy));
-            yGm[yIdx] = alpha * acc + beta * yGm[yIdx];
+            WriteY(col, n, incy, alpha, beta, acc, yGm);
         }
     }
 }
@@ -90,8 +96,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgbmvUb(
                 int64_t aIdx = (ku + row - col) + static_cast<int64_t>(lda) * col;
                 acc += aGm[aIdx] * xUb[col - xBase];
             }
-            int64_t yIdx = (incy >= 0) ? (row * incy) : ((m - 1 - row) * (-incy));
-            yGm[yIdx] = alpha * acc + beta * yGm[yIdx];
+            WriteY(row, m, incy, alpha, beta, acc, yGm);
         } else {
             uint32_t col = outIdx;
             uint32_t rowStart = (col >= ku) ? (col - ku) : 0;
@@ -100,8 +105,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgbmvUb(
                 int64_t aIdx = (ku + row - col) + static_cast<int64_t>(lda) * col;
                 acc += aGm[aIdx] * xUb[row - xBase];
             }
-            int64_t yIdx = (incy >= 0) ? (col * incy) : ((n - 1 - col) * (-incy));
-            yGm[yIdx] = alpha * acc + beta * yGm[yIdx];
+            WriteY(col, n, incy, alpha, beta, acc, yGm);
         }
     }
 }
@@ -111,20 +115,20 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgbmvUb(
 // ==========================================================================
 template <bool TRANS_T>
 __aicore__ inline void SgbmvDispatch(
-    __gm__ const SgbmvTilingData* __restrict tdata, __gm__ float* aGm, __gm__ float* xGm, __gm__ float* yGm)
+    const SgbmvTilingData& tiling, __gm__ float* aGm, __gm__ float* xGm, __gm__ float* yGm)
 {
-    uint32_t outDim = TRANS_T ? tdata->n : tdata->m;
-    uint32_t xDim = TRANS_T ? tdata->m : tdata->n;
+    uint32_t outDim = TRANS_T ? tiling.n : tiling.m;
+    uint32_t xDim = TRANS_T ? tiling.m : tiling.n;
 
-    if (tdata->incx != 1 || outDim < 32) {
+    if (tiling.incx != 1 || outDim < 32) {
         asc_vf_call<SgbmvGm<TRANS_T>>(
-            dim3{tdata->numThreads, 1, 1}, tdata->m, tdata->n, tdata->kl, tdata->ku, tdata->lda, tdata->alpha,
-            tdata->beta, tdata->incx, tdata->incy, aGm, xGm, yGm);
+            dim3{tiling.numThreads, 1, 1}, tiling.m, tiling.n, tiling.kl, tiling.ku, tiling.lda, tiling.alpha,
+            tiling.beta, tiling.incx, tiling.incy, aGm, xGm, yGm);
         return;
     }
 
     int32_t blkIdx = AscendC::GetBlockIdx();
-    uint32_t rowsPerBlk = tdata->rowsPerBlock;
+    uint32_t rowsPerBlk = tiling.rowsPerBlock;
     uint32_t outStart = static_cast<uint32_t>(blkIdx) * rowsPerBlk;
     uint32_t outEnd = (outStart + rowsPerBlk < outDim) ? (outStart + rowsPerBlk) : outDim;
     if (outStart >= outEnd) {
@@ -134,45 +138,45 @@ __aicore__ inline void SgbmvDispatch(
     int32_t xBase;
     uint32_t xEnd;
     if constexpr (!TRANS_T) {
-        xBase = (outStart >= tdata->kl) ? static_cast<int32_t>(outStart - tdata->kl) : 0;
-        xEnd = (xDim < outEnd + tdata->ku) ? xDim : (outEnd + tdata->ku);
+        xBase = (outStart >= tiling.kl) ? static_cast<int32_t>(outStart - tiling.kl) : 0;
+        xEnd = (xDim < outEnd + tiling.ku) ? xDim : (outEnd + tiling.ku);
     } else {
-        xBase = (outStart >= tdata->ku) ? static_cast<int32_t>(outStart - tdata->ku) : 0;
-        xEnd = (xDim < outEnd + tdata->kl) ? xDim : (outEnd + tdata->kl);
+        xBase = (outStart >= tiling.ku) ? static_cast<int32_t>(outStart - tiling.ku) : 0;
+        xEnd = (xDim < outEnd + tiling.kl) ? xDim : (outEnd + tiling.kl);
     }
     uint32_t xLen = xEnd - static_cast<uint32_t>(xBase);
 
     if (xLen == 0 || xLen > UB_X_FLOATS) {
         asc_vf_call<SgbmvGm<TRANS_T>>(
-            dim3{tdata->numThreads, 1, 1}, tdata->m, tdata->n, tdata->kl, tdata->ku, tdata->lda, tdata->alpha,
-            tdata->beta, tdata->incx, tdata->incy, aGm, xGm, yGm);
+            dim3{tiling.numThreads, 1, 1}, tiling.m, tiling.n, tiling.kl, tiling.ku, tiling.lda, tiling.alpha,
+            tiling.beta, tiling.incx, tiling.incy, aGm, xGm, yGm);
         return;
     }
 
     asc_vf_call<SgbmvUb<TRANS_T>>(
-        dim3{tdata->numThreads, 1, 1}, tdata->m, tdata->n, tdata->kl, tdata->ku, tdata->lda, tdata->alpha,
-        tdata->beta, tdata->incy, aGm, xGm, yGm, outStart, outEnd, xBase, xLen);
+        dim3{tiling.numThreads, 1, 1}, tiling.m, tiling.n, tiling.kl, tiling.ku, tiling.lda, tiling.alpha,
+        tiling.beta, tiling.incy, aGm, xGm, yGm, outStart, outEnd, xBase, xLen);
 }
 
-__global__ __aicore__ void sgbmv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void sgbmv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace,
+                                         const SgbmvTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     (void)workSpace;
 
-    const auto* __restrict tdata = reinterpret_cast<__gm__ SgbmvTilingData*>(tilingGm);
     auto* aGm = reinterpret_cast<__gm__ float*>(a);
     auto* xGm = reinterpret_cast<__gm__ float*>(x);
     auto* yGm = reinterpret_cast<__gm__ float*>(y);
 
-    if (tdata->trans == 0) {
-        SgbmvDispatch<false>(tdata, aGm, xGm, yGm);
+    if (tiling.trans == 0) {
+        SgbmvDispatch<false>(tiling, aGm, xGm, yGm);
     } else {
-        SgbmvDispatch<true>(tdata, aGm, xGm, yGm);
+        SgbmvDispatch<true>(tiling, aGm, xGm, yGm);
     }
 }
 
 void sgbmv_kernel_do(
-    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, const SgbmvTilingData& tiling, uint32_t numBlocks, void* stream)
 {
-    sgbmv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tilingGm);
+    sgbmv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tiling);
 }

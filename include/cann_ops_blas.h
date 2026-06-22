@@ -298,11 +298,11 @@ aclblasStatus_t aclblasSsymm(
     const float* A, int64_t lda, const float* B, int64_t ldb, const float* beta, float* C, int64_t ldc);
 
 aclblasStatus_t aclblasSsyr(
-    aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, const int n, const float* alpha, const float* x, const int incx,
     float* A, const int lda);
 
 aclblasStatus_t aclblasSsyr2(
-    aclblasHandle handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, const int n, const float* alpha, const float* x, const int incx,
     const float* y, const int incy, float* A, const int lda);
 
 aclblasStatus_t aclblasSspr(

@@ -51,7 +51,8 @@ P * A[i] = L * U,   i = 0, 1, ..., batchSize - 1
 **注意**：
 - `Aarray` 是 **Device 侧指针数组**（非 Host 侧），调用者需先在 Device 内存中分配指针数组并填充各矩阵地址
 - 矩阵以 **列主序**（Column-major）存储，与 LAPACK 标准一致
-- 本函数为异步执行（Kernel 通过 handle 的 stream 提交），用户需自行通过 `aclrtSynchronizeStream` 同步
+- 本函数为异步执行（Kernel 通过 handle 的 stream 提交），Host 侧不执行流同步，用户需自行通过 `aclrtSynchronizeStream` 同步
+- TilingData 通过值传递（pass-by-value）方式下发至 kernel，无需设备侧内存分配和 H2D 拷贝
 
 ### 参数约束
 
@@ -75,8 +76,7 @@ P * A[i] = L * U,   i = 0, 1, ..., batchSize - 1
 | `ACLBLAS_STATUS_SUCCESS` | 操作成功完成（含 n=0 / batchSize=0 的空操作） |
 | `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | handle 为空 |
 | `ACLBLAS_STATUS_INVALID_VALUE` | 参数非法（见参数约束表） |
-| `ACLBLAS_STATUS_ALLOC_FAILED` | Device 内存分配失败（TilingData 传递） |
-| `ACLBLAS_STATUS_INTERNAL_ERROR` | 内部错误（如获取核数失败、内存拷贝失败） |
+| `ACLBLAS_STATUS_INTERNAL_ERROR` | 内部错误（如获取核数失败） |
 
 > 错误码映射自 cuBLAS 文档（`CUBLAS_STATUS_SUCCESS` / `CUBLAS_STATUS_NOT_INITIALIZED` / `CUBLAS_STATUS_INVALID_VALUE` / `CUBLAS_STATUS_EXECUTION_FAILED`）。
 
@@ -124,6 +124,19 @@ blas/getrf_batched/
     ├── sgetrf_batched_host.cpp                    // Host 侧：参数校验、TilingData 计算、Kernel 启动
     ├── sgetrf_batched_kernel.cpp                  // Kernel 侧：SIMT LU 分解（主元/非主元双路径）
     └── sgetrf_batched_tiling_data.h               // TilingData 结构体（Host 和 Kernel 共用）
+```
+
+测试代码位于 `test/getrf_batched/sgetrf_batched/`：
+
+```
+test/getrf_batched/sgetrf_batched/
+├── CMakeLists.txt
+├── sgetrf_batched_param.h
+├── sgetrf_batched_golden.h              // CPU golden（主元模式基于 LAPACK sgetrf_，非主元模式手写实现）
+└── arch35/
+    ├── sgetrf_batched_test.cpp
+    ├── sgetrf_batched_test.csv
+    └── sgetrf_batched_npu_wrapper.h
 ```
 
 ## 编译

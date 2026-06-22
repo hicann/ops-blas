@@ -19,16 +19,10 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
-/**
- * CPU golden reference for batched LU factorization (sgetrf).
- *
- * Signature matches the BLAS API exactly.
- * Operates on host-side pointer array (each Aarray[i] points to host memory).
- *
- * Storage: column-major, A(row, col) = A[col * lda + row]
- * Pivot:   1-indexed (LAPACK convention), PivotArray[batch * n + k]
- * Info:    infoArray[batch] = 0 if success, k (1-indexed) if U(k-1,k-1) == 0
- */
+extern "C" {
+void sgetrf_(const int* m, const int* n, float* a, const int* lda, int* ipiv, int* info);
+}
+
 inline aclblasStatus_t ValidateGetrfParams(
     aclblasHandle_t handle, int n, float* const Aarray[], int lda, int* PivotArray, int* infoArray, int batchSize)
 {
@@ -45,40 +39,18 @@ inline aclblasStatus_t ValidateGetrfParams(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-inline void FactorizeSingleMatrix(float* A, int n, int lda, int* piv, bool usePivot, int& info)
+inline void FactorizeSingleMatrixNoPivot(float* A, int n, int lda, int& info)
 {
     info = 0;
     for (int k = 0; k < n; k++) {
-        int pivotRow = k;
-        if (usePivot) {
-            float maxVal = std::abs(A[k + k * lda]);
-            for (int i = k + 1; i < n; i++) {
-                float absVal = std::abs(A[i + k * lda]);
-                if (absVal > maxVal) {
-                    maxVal = absVal;
-                    pivotRow = i;
-                }
-            }
-            piv[k] = pivotRow + 1;
-        }
-
-        float diagVal = A[pivotRow + k * lda];
+        float diagVal = A[k + k * lda];
         if (diagVal == 0.0f) {
             info = k + 1;
             break;
         }
-
-        if (pivotRow != k) {
-            for (int j = 0; j < n; j++) {
-                std::swap(A[k + j * lda], A[pivotRow + j * lda]);
-            }
-        }
-
-        diagVal = A[k + k * lda];
         for (int i = k + 1; i < n; i++) {
             A[i + k * lda] /= diagVal;
         }
-
         for (int j = k + 1; j < n; j++) {
             float uKJ = A[k + j * lda];
             for (int i = k + 1; i < n; i++) {
@@ -99,9 +71,18 @@ inline aclblasStatus_t aclblasSgetrfBatched_cpu(
 
     const bool usePivot = (PivotArray != nullptr);
     for (int b = 0; b < batchSize; b++) {
-        int* piv = usePivot ? (PivotArray + b * n) : nullptr;
         int info = 0;
-        FactorizeSingleMatrix(Aarray[b], n, lda, piv, usePivot, info);
+        if (usePivot) {
+            int* piv = PivotArray + b * n;
+            sgetrf_(&n, &n, Aarray[b], &lda, piv, &info);
+            if (info > 0) {
+                for (int k = info; k < n; k++) {
+                    piv[k] = 0;
+                }
+            }
+        } else {
+            FactorizeSingleMatrixNoPivot(Aarray[b], n, lda, info);
+        }
         if (infoArray != nullptr) {
             infoArray[b] = info;
         }

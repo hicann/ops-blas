@@ -8,11 +8,11 @@ aclblasStatus_t aclblasStrsv(
     aclblasFillMode_t uplo,
     aclblasOperation_t trans,
     aclblasDiagType_t diag,
-    int64_t n,
+    int n,
     const float *A,
-    int64_t lda,
+    int lda,
     float *x,
-    int64_t incx);
+    int incx);
 ```
 
 ## 功能
@@ -40,6 +40,8 @@ op(A) * x = b
 | incx | in | Host | x 的存储增量，incx != 0（可正可负）。incx < 0 时 x 反向存储 |
 
 **注意**：A、x 必须为 device 侧指针，由调用者在调用前通过 `aclrtMalloc` 分配并通过 `aclrtMemcpy` 拷入数据。stream 通过 `aclblasSetStream(handle, stream)` 绑定到 handle。
+
+**异步执行**：Host 侧不执行流同步，kernel 以异步方式提交到 stream。调用者需在 kernel 执行后自行调用 `aclrtSynchronizeStream` 或 `aclrtSynchronizeDevice` 进行同步，然后再通过 `aclrtMemcpy` 拷贝结果回 host。
 
 ### 参数约束
 
@@ -75,8 +77,12 @@ op(A) * x = b
 
 | 路径 | 条件 | 策略 |
 |------|------|------|
-| 标量路径 | n < 129 | 单核 AI Core，S 标量逐行求解 |
-| SIMT 路径 | n >= 129 | 多线程并行化每行内积计算，树形归约 |
+| UB 缓存路径 | n <= 4096 | x 向量加载到 UB，多线程并行化每行内积计算，树形归约 |
+| Tiled 路径 | n > 4096 | x 保留在 GM，多线程并行化每行内积计算，树形归约 |
+
+### TilingData 下发
+
+TilingData 通过值传递（pass-by-value）方式下发至 kernel，无需设备侧内存分配和 H2D 拷贝。
 
 ## 支持规格
 
@@ -91,10 +97,30 @@ op(A) * x = b
 ```
 ├── trsv
 │   ├── README.md
+│   ├── arch22/
+│   │   ├── strsv_host.cpp
+│   │   └── strsv_kernel.cpp
 │   └── arch35/
 │       ├── strsv_host.cpp
 │       ├── strsv_kernel.cpp
 │       └── strsv_tiling_data.h
+```
+
+测试代码位于 `test/trsv/strsv/`：
+
+```
+test/trsv/strsv/
+├── CMakeLists.txt
+├── trsv_param.h
+├── trsv_golden.h              // CPU golden（基于 CBLAS cblas_strsv）
+├── arch35/
+│   ├── strsv_test.cpp
+│   ├── strsv_test.csv
+│   └── strsv_npu_wrapper.h
+└── arch22/
+    ├── strsv_test.cpp
+    ├── strsv_test.csv
+    └── strsv_npu_wrapper.h
 ```
 
 ## 编译
@@ -138,9 +164,9 @@ LD_LIBRARY_PATH=$(pwd)/build:$LD_LIBRARY_PATH ./build/test/trsv/trsv_test
 
 int main()
 {
-    constexpr int64_t n = 4;
-    constexpr int64_t incx = 1;
-    constexpr int64_t lda = 4;
+    constexpr int n = 4;
+    constexpr int incx = 1;
+    constexpr int lda = 4;
     constexpr size_t aSize = n * lda * sizeof(float);
     constexpr size_t xSize = n * sizeof(float);
 
@@ -202,7 +228,7 @@ int main()
 
     // 6. 打印结果
     std::cout << "解向量 x:" << std::endl;
-    for (int64_t i = 0; i < n; ++i) {
+    for (int i = 0; i < n; ++i) {
         std::cout << "  x[" << i << "] = " << hX[i] << std::endl;
     }
 

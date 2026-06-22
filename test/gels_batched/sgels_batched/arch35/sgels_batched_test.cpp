@@ -215,7 +215,7 @@ TEST_P(GelsBatchedArch35Test, CsvDriven)
     const int cGoldenCols = std::max(p.nrhs, solRows);
     std::vector<std::vector<float>> Cgolden;
     int goldenDevInfo =
-        computeGolden(GelsBatchedArch35Test::handle_, p, bs, cInputRows, cGoldenCols, Ahost, Chost, Cgolden);
+        computeGolden(GelsBatchedArch35Test::handle_, p, bs, cInputRows, p.nrhs, Ahost, Chost, Cgolden);
 
     const bool isRankDeficient = (p.description.find("rank_deficient") != std::string::npos);
     if (isRankDeficient) {
@@ -224,5 +224,5 @@ TEST_P(GelsBatchedArch35Test, CsvDriven)
         return;
     }
 
-    verifyResults(p, bs, solRows, cGoldenCols, Cout, Cgolden);
+    verifyResults(p, bs, solRows, p.nrhs, Cout, Cgolden);
 }

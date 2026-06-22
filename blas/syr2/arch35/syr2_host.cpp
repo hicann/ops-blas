@@ -25,7 +25,7 @@ void syr2_kernel_do(uint8_t* x, uint8_t* y, uint8_t* A, const Syr2TilingData &ti
                      uint32_t numBlocks, void *stream);
 
 static aclblasStatus_t ValidateSyr2Params(
-    aclblasFillMode uplo, int n, int lda, int incx, int incy, const float* alpha, const float* x, const float* y,
+    aclblasFillMode_t uplo, int n, int lda, int incx, int incy, const float* alpha, const float* x, const float* y,
     const float* A)
 {
     CHECK_RET(
@@ -45,19 +45,8 @@ static aclblasStatus_t ValidateSyr2Params(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-}
-
 static Syr2TilingData CalSyr2TilingData(
-    uint32_t useNumBlocks, int n, int lda, aclblasFillMode uplo, float alpha, int incx, int incy)
+    uint32_t useNumBlocks, int n, int lda, aclblasFillMode_t uplo, float alpha, int incx, int incy)
 {
     Syr2TilingData tilingData{};
     tilingData.numThreads =
@@ -75,7 +64,7 @@ static Syr2TilingData CalSyr2TilingData(
 }
 
 aclblasStatus_t aclblasSsyr2(
-    aclblasHandle handle, aclblasFillMode uplo, int n, const float* alpha, const float* x, int incx, const float* y,
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* x, int incx, const float* y,
     int incy, float* A, int lda)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
@@ -90,9 +79,9 @@ aclblasStatus_t aclblasSsyr2(
         return st;
     }
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSsyr2", "vector core count is 0");
+        OP_LOGE("aclblasSsyr2", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
@@ -109,11 +98,6 @@ aclblasStatus_t aclblasSsyr2(
         reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
         reinterpret_cast<uint8_t*>(const_cast<float*>(y)),
         reinterpret_cast<uint8_t*>(A), tiling, useNumBlocks, h->stream);
-
-    aclError aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsyr2", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

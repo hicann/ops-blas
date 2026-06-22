@@ -91,10 +91,5 @@ aclblasStatus_t aclblasStpsv(
 
     stpsv_kernel_do(tiling, h->stream);
 
-    aclError aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasStpsv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_INTERNAL_ERROR);
-
     return ACLBLAS_STATUS_SUCCESS;
 }

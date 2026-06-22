@@ -13,32 +13,16 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <vector>
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 
 inline void aclblasSsyr_cpu(aclblasFillMode_t uplo, int n, float alpha, const float* x, int incx, float* A, int lda)
 {
     if (n <= 0)
         return;
 
-    int absIncx = std::abs(incx);
-
-    auto getX = [&](int i) -> float { return (incx >= 0) ? x[i * incx] : x[(n - 1 - i) * absIncx]; };
-
-    for (int j = 0; j < n; j++) {
-        float xj = getX(j);
-        float axj = alpha * xj;
-        if (uplo == ACLBLAS_UPPER) {
-            for (int i = 0; i <= j; i++) {
-                A[j * lda + i] += axj * getX(i);
-            }
-        } else {
-            for (int i = j; i < n; i++) {
-                A[j * lda + i] += axj * getX(i);
-            }
-        }
-    }
+    cblas_ssyr(CblasColMajor, ToCblasUplo(uplo), n, alpha, x, incx, A, lda);
 }
 
