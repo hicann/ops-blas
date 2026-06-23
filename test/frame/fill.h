@@ -556,6 +556,156 @@ inline std::vector<float> makeBlasMatrixRM(int m, int n, int lda, const std::str
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Layer 3.5: LAPACK 风格矩阵生成 (getrf/getri/getrs 等 batched 算子共用)
+//   列主序 n×n 方阵, 支持 batch 感知的 seed 偏移
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum class BlasLapackMatrixType {
+    RANDOM_NONSINGULAR,
+    IDENTITY,
+    DIAGONALLY_DOMINANT,
+    ILL_CONDITIONED,
+    DIAGONAL,
+    UPPER_TRIANGULAR,
+    LOWER_TRIANGULAR,
+    SINGULAR_ZERO_COL,
+    SINGULAR_DEPENDENT_ROW,
+    MIXED
+};
+
+namespace detail {
+
+inline void fillRandomNonsingular(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
+                                  std::uniform_real_distribution<float>& dist01)
+{
+    for (int j = 0; j < n; j++) {
+        for (int i = 0; i < n; i++)
+            mat[j * lda + i] = dist01(rng);
+        mat[j * lda + j] += static_cast<float>(n);
+    }
+}
+
+inline void fillIdentity(std::vector<float>& mat, int n, int lda)
+{
+    for (int j = 0; j < n; j++)
+        mat[j * lda + j] = 1.0f;
+}
+
+inline void fillDiagonallyDominant(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
+                                   std::uniform_real_distribution<float>& dist01)
+{
+    for (int j = 0; j < n; j++) {
+        for (int i = 0; i < n; i++)
+            mat[j * lda + i] = dist01(rng);
+        mat[j * lda + j] = static_cast<float>(n);
+    }
+}
+
+inline void fillIllConditioned(std::vector<float>& mat, int n, int lda)
+{
+    for (int j = 0; j < n; j++)
+        for (int i = 0; i < n; i++)
+            mat[j * lda + i] = 1.0f / static_cast<float>(i + j + 1);
+}
+
+inline void fillDiagonal(std::vector<float>& mat, int n, int lda, std::mt19937& rng)
+{
+    std::uniform_real_distribution<float> diagDist(0.1f, 10.0f);
+    for (int j = 0; j < n; j++)
+        mat[j * lda + j] = diagDist(rng);
+}
+
+inline void fillTriangular(std::vector<float>& mat, int n, int lda, std::mt19937& rng, bool upper)
+{
+    std::uniform_real_distribution<float> diagDist(0.5f, 2.0f);
+    std::uniform_real_distribution<float> offDist(0.0f, 1.0f);
+    for (int j = 0; j < n; j++) {
+        for (int i = 0; i < n; i++) {
+            bool isOff = upper ? (i < j) : (i > j);
+            if (isOff)
+                mat[j * lda + i] = offDist(rng);
+            else if (i == j)
+                mat[j * lda + i] = diagDist(rng);
+        }
+    }
+}
+
+inline void fillSingularZeroCol(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
+                                std::uniform_real_distribution<float>& dist01)
+{
+    fillRandomNonsingular(mat, n, lda, rng, dist01);
+    for (int i = 0; i < n; i++)
+        mat[0 * lda + i] = 0.0f;
+}
+
+inline void fillSingularDependentRow(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
+                                     std::uniform_real_distribution<float>& dist01)
+{
+    fillRandomNonsingular(mat, n, lda, rng, dist01);
+    int depRow = std::min(n - 1, 2);
+    if (depRow > 0)
+        for (int j = 0; j < n; j++)
+            mat[j * lda + depRow] = 2.0f * mat[j * lda + 0];
+}
+
+inline void fillMixed(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
+                      std::uniform_real_distribution<float>& dist01, int batchIdx)
+{
+    fillRandomNonsingular(mat, n, lda, rng, dist01);
+    if (batchIdx % 2 == 1)
+        for (int i = 0; i < n; i++)
+            mat[0 * lda + i] = 0.0f;
+}
+
+} // namespace detail
+
+inline std::vector<float> makeBlasLapackMatrix(
+    int n, int lda, BlasLapackMatrixType type, uint32_t seed = 0, int batchIdx = 0)
+{
+    const size_t matSize = static_cast<size_t>(lda) * std::max(1, n);
+    std::vector<float> mat(matSize, 0.0f);
+    if (n <= 0)
+        return mat;
+
+    std::mt19937 rng(seed + static_cast<uint32_t>(batchIdx) * 1000);
+    std::uniform_real_distribution<float> dist01(0.0f, 1.0f);
+
+    switch (type) {
+        case BlasLapackMatrixType::RANDOM_NONSINGULAR:
+            detail::fillRandomNonsingular(mat, n, lda, rng, dist01);
+            break;
+        case BlasLapackMatrixType::IDENTITY:
+            detail::fillIdentity(mat, n, lda);
+            break;
+        case BlasLapackMatrixType::DIAGONALLY_DOMINANT:
+            detail::fillDiagonallyDominant(mat, n, lda, rng, dist01);
+            break;
+        case BlasLapackMatrixType::ILL_CONDITIONED:
+            detail::fillIllConditioned(mat, n, lda);
+            break;
+        case BlasLapackMatrixType::DIAGONAL:
+            detail::fillDiagonal(mat, n, lda, rng);
+            break;
+        case BlasLapackMatrixType::UPPER_TRIANGULAR:
+            detail::fillTriangular(mat, n, lda, rng, true);
+            break;
+        case BlasLapackMatrixType::LOWER_TRIANGULAR:
+            detail::fillTriangular(mat, n, lda, rng, false);
+            break;
+        case BlasLapackMatrixType::SINGULAR_ZERO_COL:
+            detail::fillSingularZeroCol(mat, n, lda, rng, dist01);
+            break;
+        case BlasLapackMatrixType::SINGULAR_DEPENDENT_ROW:
+            detail::fillSingularDependentRow(mat, n, lda, rng, dist01);
+            break;
+        case BlasLapackMatrixType::MIXED:
+            detail::fillMixed(mat, n, lda, rng, dist01, batchIdx);
+            break;
+    }
+    return mat;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Layer 4: 低精度 / 整型专用填充 (FP8 / FP4 / INT 量化 ST 专用, 不经 BlasFillMode 策略)
 //   这些函数产出落在目标 dtype 表示格上的值, 供 bit-exact / 量化往返 ST 直接调用。
 // ─────────────────────────────────────────────────────────────────────────────

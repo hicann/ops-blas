@@ -351,6 +351,10 @@ aclblasStatus_t aclblasGemmEx(
     const void* alpha, const void* A, aclDataType Atype, int lda, const void* B, aclDataType Btype, int ldb,
     const void* beta, void* C, aclDataType Ctype, int ldc, aclblasComputeType_t computeType, aclblasGemmAlgo_t algo);
 
+aclblasStatus_t aclblasSgetrsBatched(
+    aclblasHandle_t handle, aclblasOperation_t trans, int n, int nrhs, const float* const Aarray[], int lda,
+    const int* devIpiv, float* const Barray[], int ldb, int* info, int batchCount);
+
 #ifdef __cplusplus
 }
 #endif
