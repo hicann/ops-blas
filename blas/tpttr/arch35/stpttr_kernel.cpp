@@ -26,7 +26,7 @@ template <typename T>
 class TpttrAIV {
 public:
     __aicore__ inline TpttrAIV(TPipe& pipe) : pipe_(pipe) {}
-    __aicore__ inline void Init(GM_ADDR aPacked, GM_ADDR aFull, GM_ADDR tilingGm);
+    __aicore__ inline void Init(GM_ADDR aPacked, GM_ADDR aFull, const TpttrTilingData& tiling);
     __aicore__ inline void Process();
 
 private:
@@ -35,12 +35,11 @@ private:
 
     GlobalTensor<T> aPGM;
     GlobalTensor<T> aGM;
-    TQue<QuePosition::VECIN, BUFFER_NUM> copyQueue;
+    TBuf<TPosition::VECIN> copyBuf;
 
     uint32_t startCol_;
     uint32_t colCount_;
 
-    __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
     __aicore__ inline uint32_t CalcColLen(uint32_t col) const;
     __aicore__ inline uint32_t CalcSrcOffset(uint32_t col) const;
     __aicore__ inline uint32_t CalcDstOffset(uint32_t col) const;
@@ -48,13 +47,24 @@ private:
 };
 
 template <typename T>
-__aicore__ inline void TpttrAIV<T>::ParseTilingData(GM_ADDR tilingGm)
+__aicore__ inline void TpttrAIV<T>::Init(GM_ADDR aPacked, GM_ADDR aFull, const TpttrTilingData& tiling)
 {
-    auto ptr = reinterpret_cast<__gm__ TpttrTilingData *>(tilingGm);
-    tiling_.uplo      = ptr->uplo;
-    tiling_.n         = ptr->n;
-    tiling_.lda       = ptr->lda;
-    tiling_.useCoreNum = ptr->useCoreNum;
+    tiling_ = tiling;
+    aPGM.SetGlobalBuffer((__gm__ T*)aPacked);
+    aGM.SetGlobalBuffer((__gm__ T*)aFull);
+    pipe_.InitBuffer(copyBuf, MAX_CHUNK_SIZE * sizeof(T));
+
+    uint32_t uN = static_cast<uint32_t>(tiling_.n);
+    uint32_t baseCols = uN / tiling_.useCoreNum;
+    uint32_t remainCols = uN % tiling_.useCoreNum;
+    uint32_t blockIdx = GetBlockIdx();
+    if (blockIdx < remainCols) {
+        startCol_ = blockIdx * (baseCols + 1);
+        colCount_ = baseCols + 1;
+    } else {
+        startCol_ = remainCols * (baseCols + 1) + (blockIdx - remainCols) * baseCols;
+        colCount_ = baseCols;
+    }
 }
 
 template <typename T>
@@ -77,27 +87,6 @@ template <typename T>
 __aicore__ inline uint32_t TpttrAIV<T>::CalcDstOffset(uint32_t col) const
 {
     return (tiling_.uplo == 0) ? (col * tiling_.lda + col) : (col * tiling_.lda);
-}
-
-template <typename T>
-__aicore__ inline void TpttrAIV<T>::Init(GM_ADDR aPacked, GM_ADDR aFull, GM_ADDR tilingGm)
-{
-    ParseTilingData(tilingGm);
-    aPGM.SetGlobalBuffer((__gm__ T *)aPacked);
-    aGM.SetGlobalBuffer((__gm__ T *)aFull);
-    pipe_.InitBuffer(copyQueue, BUFFER_NUM, MAX_CHUNK_SIZE * sizeof(T));
-
-    uint32_t uN = static_cast<uint32_t>(tiling_.n);
-    uint32_t baseCols = uN / tiling_.useCoreNum;
-    uint32_t remainCols = uN % tiling_.useCoreNum;
-    uint32_t blockIdx = GetBlockIdx();
-    if (blockIdx < remainCols) {
-        startCol_ = blockIdx * (baseCols + 1);
-        colCount_ = baseCols + 1;
-    } else {
-        startCol_ = remainCols * (baseCols + 1) + (blockIdx - remainCols) * baseCols;
-        colCount_ = baseCols;
-    }
 }
 
 template <typename T>
@@ -124,16 +113,13 @@ __aicore__ inline void TpttrAIV<T>::CopyColumn(uint32_t col, int32_t eventIdM2M3
         DataCopyExtParams cp{1, blockBytes, 0, 0, 0};
         DataCopyPadExtParams<T> pp{true, 0, paddingNum, static_cast<T>(0)};
 
-        LocalTensor<T> ub = copyQueue.AllocTensor<T>();
+        LocalTensor<T> ub = copyBuf.Get<T>();
         DataCopyPad(ub, aPGM[srcOff + processed], cp, pp);
-        copyQueue.EnQue<T>(ub);
 
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(eventIdM2M3);
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(eventIdM2M3);
 
-        LocalTensor<T> out = copyQueue.DeQue<T>();
-        DataCopyPad(aGM[dstOff + processed], out, cp);
-        copyQueue.FreeTensor(out);
+        DataCopyPad(aGM[dstOff + processed], ub, cp);
 
         AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(eventIdM3M2);
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(eventIdM3M2);
@@ -155,20 +141,19 @@ __aicore__ inline void TpttrAIV<T>::Process()
     }
 }
 
-__global__ __aicore__ void stpttr_kernel(GM_ADDR aPacked, GM_ADDR aFull,
-    GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void stpttr_kernel(GM_ADDR aPacked, GM_ADDR aFull, GM_ADDR workSpace, TpttrTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     TpttrAIV<float> op(pipe);
-    op.Init(aPacked, aFull, tilingGm);
+    op.Init(aPacked, aFull, tiling);
     op.Process();
 }
 
-void stpttr_kernel_do(GM_ADDR aPacked, GM_ADDR aFull, GM_ADDR workSpace,
-    GM_ADDR tilingGm, uint32_t numBlocks, void *stream)
+void stpttr_kernel_do(
+    GM_ADDR aPacked, GM_ADDR aFull, GM_ADDR workSpace, const TpttrTilingData& tiling, uint32_t numBlocks, void* stream)
 {
-    stpttr_kernel<<<numBlocks, nullptr, stream>>>(aPacked, aFull, workSpace, tilingGm);
+    stpttr_kernel<<<numBlocks, nullptr, stream>>>(aPacked, aFull, workSpace, tiling);
 }
 
-#endif  // STPTTR_KERNEL_H
+#endif // STPTTR_KERNEL_H

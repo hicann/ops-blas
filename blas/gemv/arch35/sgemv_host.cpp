@@ -17,17 +17,16 @@
 
 #include <algorithm>
 #include <cstdint>
-#include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
-#include "cann_ops_blas_common.h"
 #include "sgemv_tiling_data.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
 
-void sgemv_kernel_do(uint8_t* A, uint8_t* x, uint8_t* y, uint8_t* workSpace, uint8_t* tilingGm,
-                     uint32_t numBlocks, void *stream);
+void sgemv_kernel_do(
+    uint8_t* A, uint8_t* x, uint8_t* y, uint8_t* workSpace, const SgemvTilingData& tiling, uint32_t numBlocks,
+    void* stream);
 
 static aclblasStatus_t ValidateSgemvParams(
     aclblasOperation_t trans, int m, int n, int lda, int incx, int incy, const float* alpha, const float* beta,
@@ -66,19 +65,6 @@ static aclblasStatus_t ValidateSgemvParams(
         CHECK_RET(y != nullptr, OP_LOGE("aclblasSgemv", "y must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     }
     return ACLBLAS_STATUS_SUCCESS;
-}
-
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    if (aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum) != ACL_SUCCESS) {
-        return 0;
-    }
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
 }
 
 static SgemvTilingData CalcSgemvTiling(
@@ -121,9 +107,9 @@ aclblasStatus_t aclblasSgemv(
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSgemv", "vector core count is 0");
+        OP_LOGE("aclblasSgemv", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
@@ -141,36 +127,9 @@ aclblasStatus_t aclblasSgemv(
         tiling.n, tiling.lda, tiling.trans, useNumBlocks, tiling.numThreads, tiling.rowsPerBlock);
     OP_LOGI("aclblasSgemv", "launching kernel");
 
-    // Allocate device memory for tiling data
-    uint8_t* tilingDevice = nullptr;
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SgemvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgemv", "aclrtMalloc failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    // Copy tiling data to device
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(SgemvTilingData), &tiling, sizeof(SgemvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgemv", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    // Launch kernel
     sgemv_kernel_do(
-        reinterpret_cast<uint8_t*>(const_cast<float*>(a)),
-        reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
-        reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice,
-        useNumBlocks, h->stream);
-
-    // Synchronize and cleanup
-    aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSgemv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); tilingDevice = nullptr; return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    (void)aclrtFree(tilingDevice);
-    tilingDevice = nullptr;
+        reinterpret_cast<uint8_t*>(const_cast<float*>(a)), reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(y), nullptr, tiling, useNumBlocks, h->stream);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

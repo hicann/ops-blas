@@ -186,14 +186,13 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(GEQRF_SIMT_THREADS) inline void GeqrfSimtFp3
     }
 }
 
-__global__ __aicore__ void sgeqrf_batched(GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr, GM_ADDR tilingGm)
+__global__ __aicore__ void sgeqrf_batched(GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr, GeqrfBatchedTilingData td)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
-    const auto* td = reinterpret_cast<__gm__ GeqrfBatchedTilingData*>(tilingGm);
     uint32_t coreIdx = GetBlockIdx();
-    uint32_t startB = coreIdx * td->batchPerCore;
-    uint32_t numB = (coreIdx == td->usedCoreNum - 1) ? td->batchTail : td->batchPerCore;
+    uint32_t startB = coreIdx * td.batchPerCore;
+    uint32_t numB = (coreIdx == td.usedCoreNum - 1) ? td.batchTail : td.batchPerCore;
     if (numB == 0) {
         return;
     }
@@ -202,7 +201,7 @@ __global__ __aicore__ void sgeqrf_batched(GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr
     __gm__ float* tauarrayBase = reinterpret_cast<__gm__ float*>(tauarrayPtr);
 
     uint32_t warpSize = 32;
-    uint32_t numThreads = ((td->m + warpSize - 1) / warpSize) * warpSize;
+    uint32_t numThreads = ((td.m + warpSize - 1) / warpSize) * warpSize;
     if (numThreads < warpSize) {
         numThreads = warpSize;
     }
@@ -211,12 +210,12 @@ __global__ __aicore__ void sgeqrf_batched(GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr
     }
 
     asc_vf_call<GeqrfSimtFp32>(
-        dim3{numThreads, 1, 1}, td->m, td->n, static_cast<uint64_t>(td->lda), numB, startB, aarrayBase, tauarrayBase,
+        dim3{numThreads, 1, 1}, td.m, td.n, static_cast<uint64_t>(td.lda), numB, startB, aarrayBase, tauarrayBase,
         g_smem);
 }
 
 void sgeqrf_batched_kernel_do(
-    GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    GM_ADDR aarrayPtr, GM_ADDR tauarrayPtr, const GeqrfBatchedTilingData& tiling, uint32_t numBlocks, void* stream)
 {
-    sgeqrf_batched<<<numBlocks, 0, stream>>>(aarrayPtr, tauarrayPtr, tilingGm);
+    sgeqrf_batched<<<numBlocks, 0, stream>>>(aarrayPtr, tauarrayPtr, tiling);
 }

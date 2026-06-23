@@ -26,7 +26,7 @@ template <typename T>
 class TrttpAIV {
 public:
     __aicore__ inline TrttpAIV(TPipe& pipe) : pipe_(pipe) {}
-    __aicore__ inline void Init(GM_ADDR aFull, GM_ADDR aPacked, GM_ADDR tilingGm);
+    __aicore__ inline void Init(GM_ADDR aFull, GM_ADDR aPacked, const TrttpTilingData& tiling);
     __aicore__ inline void Process();
 
 private:
@@ -35,12 +35,11 @@ private:
 
     GlobalTensor<T> aGM;
     GlobalTensor<T> apGM;
-    TQue<QuePosition::VECIN, BUFFER_NUM> copyQueue;
+    TBuf<TPosition::VECIN> copyBuf;
 
     uint32_t startCol_;
     uint32_t colCount_;
 
-    __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
     __aicore__ inline uint32_t CalcColLen(uint32_t col) const;
     __aicore__ inline uint32_t CalcSrcOffset(uint32_t col) const;
     __aicore__ inline uint32_t CalcDstOffset(uint32_t col) const;
@@ -48,13 +47,24 @@ private:
 };
 
 template <typename T>
-__aicore__ inline void TrttpAIV<T>::ParseTilingData(GM_ADDR tilingGm)
+__aicore__ inline void TrttpAIV<T>::Init(GM_ADDR aFull, GM_ADDR aPacked, const TrttpTilingData& tiling)
 {
-    auto ptr = reinterpret_cast<__gm__ TrttpTilingData *>(tilingGm);
-    tiling_.n         = ptr->n;
-    tiling_.lda       = ptr->lda;
-    tiling_.uplo      = ptr->uplo;
-    tiling_.useCoreNum = ptr->useCoreNum;
+    tiling_ = tiling;
+    aGM.SetGlobalBuffer((__gm__ T*)aFull);
+    apGM.SetGlobalBuffer((__gm__ T*)aPacked);
+    pipe_.InitBuffer(copyBuf, MAX_CHUNK_SIZE * sizeof(T));
+
+    uint32_t uN = static_cast<uint32_t>(tiling_.n);
+    uint32_t baseCols = uN / tiling_.useCoreNum;
+    uint32_t remainCols = uN % tiling_.useCoreNum;
+    uint32_t blockIdx = GetBlockIdx();
+    if (blockIdx < remainCols) {
+        startCol_ = blockIdx * (baseCols + 1);
+        colCount_ = baseCols + 1;
+    } else {
+        startCol_ = remainCols * (baseCols + 1) + (blockIdx - remainCols) * baseCols;
+        colCount_ = baseCols;
+    }
 }
 
 template <typename T>
@@ -76,27 +86,6 @@ __aicore__ inline uint32_t TrttpAIV<T>::CalcDstOffset(uint32_t col) const
         return static_cast<uint32_t>((static_cast<uint64_t>(col) * (2ULL * tiling_.n - col + 1)) / 2);
     } else {
         return static_cast<uint32_t>((static_cast<uint64_t>(col) * (col + 1)) / 2);
-    }
-}
-
-template <typename T>
-__aicore__ inline void TrttpAIV<T>::Init(GM_ADDR aFull, GM_ADDR aPacked, GM_ADDR tilingGm)
-{
-    ParseTilingData(tilingGm);
-    aGM.SetGlobalBuffer((__gm__ T *)aFull);
-    apGM.SetGlobalBuffer((__gm__ T *)aPacked);
-    pipe_.InitBuffer(copyQueue, BUFFER_NUM, MAX_CHUNK_SIZE * sizeof(T));
-
-    uint32_t uN = static_cast<uint32_t>(tiling_.n);
-    uint32_t baseCols = uN / tiling_.useCoreNum;
-    uint32_t remainCols = uN % tiling_.useCoreNum;
-    uint32_t blockIdx = GetBlockIdx();
-    if (blockIdx < remainCols) {
-        startCol_ = blockIdx * (baseCols + 1);
-        colCount_ = baseCols + 1;
-    } else {
-        startCol_ = remainCols * (baseCols + 1) + (blockIdx - remainCols) * baseCols;
-        colCount_ = baseCols;
     }
 }
 
@@ -124,16 +113,13 @@ __aicore__ inline void TrttpAIV<T>::CopyColumn(uint32_t col, int32_t eventIdM2M3
         DataCopyExtParams cp{1, blockBytes, 0, 0, 0};
         DataCopyPadExtParams<T> pp{true, 0, paddingNum, static_cast<T>(0)};
 
-        LocalTensor<T> ub = copyQueue.AllocTensor<T>();
+        LocalTensor<T> ub = copyBuf.Get<T>();
         DataCopyPad(ub, aGM[srcOff + processed], cp, pp);
-        copyQueue.EnQue<T>(ub);
 
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(eventIdM2M3);
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(eventIdM2M3);
 
-        LocalTensor<T> out = copyQueue.DeQue<T>();
-        DataCopyPad(apGM[dstOff + processed], out, cp);
-        copyQueue.FreeTensor(out);
+        DataCopyPad(apGM[dstOff + processed], ub, cp);
 
         AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(eventIdM3M2);
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(eventIdM3M2);
@@ -155,19 +141,18 @@ __aicore__ inline void TrttpAIV<T>::Process()
     }
 }
 
-__global__ __aicore__ void strttp_kernel(GM_ADDR aFull, GM_ADDR aPacked, GM_ADDR tilingGm)
+__global__ __aicore__ void strttp_kernel(GM_ADDR aFull, GM_ADDR aPacked, TrttpTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     TrttpAIV<float> op(pipe);
-    op.Init(aFull, aPacked, tilingGm);
+    op.Init(aFull, aPacked, tiling);
     op.Process();
 }
 
-void strttp_kernel_do(GM_ADDR aFull, GM_ADDR aPacked, GM_ADDR tilingGm,
-                      uint32_t numBlocks, void *stream)
+void strttp_kernel_do(GM_ADDR aFull, GM_ADDR aPacked, const TrttpTilingData& tiling, uint32_t numBlocks, void* stream)
 {
-    strttp_kernel<<<numBlocks, nullptr, stream>>>(aFull, aPacked, tilingGm);
+    strttp_kernel<<<numBlocks, nullptr, stream>>>(aFull, aPacked, tiling);
 }
 
-#endif  // STRTTP_KERNEL_H
+#endif // STRTTP_KERNEL_H

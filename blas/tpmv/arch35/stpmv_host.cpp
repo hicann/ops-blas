@@ -15,10 +15,8 @@
 
 #include <algorithm>
 #include <cstdint>
-#include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
-#include "cann_ops_blas_common.h"
 #include "stpmv_tiling_data.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
@@ -49,19 +47,6 @@ static aclblasStatus_t ValidateStpmvParams(
     CHECK_RET(AP != nullptr, OP_LOGE("aclblasStpmv", "AP must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(x != nullptr, OP_LOGE("aclblasStpmv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
-}
-
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    if (aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum) != ACL_SUCCESS) {
-        return 0;
-    }
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
 }
 
 static StpmvTilingData CalStpmvTilingData(
@@ -138,9 +123,9 @@ aclblasStatus_t aclblasStpmv(
         return st;
     }
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     CHECK_RET(
-        aivCoreNum > 0, OP_LOGE("aclblasStpmv", "vector core count is 0"); return ACLBLAS_STATUS_EXECUTION_FAILED);
+        aivCoreNum > 0, OP_LOGE("aclblasStpmv", "GetAivCoreCount failed"); return ACLBLAS_STATUS_EXECUTION_FAILED);
 
     uint32_t nU32 = static_cast<uint32_t>(n);
     uint32_t useNumBlocks = std::min(nU32, aivCoreNum);

@@ -22,18 +22,11 @@
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
 
-void tpmv_kernel_do(uint8_t* aPacked, uint8_t* x, uint8_t* y, uint8_t* workSpace, uint8_t* tilingGm,
-                    uint32_t numBlocks, void *stream);
-
-constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
-constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
-constexpr uint64_t ELEMENTS_PER_BLOCK_TILING = UB_BYTENUM_PER_BLOCK_TILING / BYTENUM_PER_FLOAT32_TILING;
 constexpr uint32_t MAX_CORE_NUM = 50;
 constexpr uint32_t TILE_SIZE = 128;
-constexpr uint32_t MAX_TILE_TASK = 128;
 constexpr uint32_t NUM_BLOCKS = 8;
 
-struct tpmvTilingData {
+struct TpmvTilingDataDevice {
     uint32_t n;
     uint32_t useCoreNum;
     int64_t incx;
@@ -45,9 +38,13 @@ struct tpmvTilingData {
     uint32_t taskStep[MAX_CORE_NUM];
 };
 
-tpmvTilingData CalTilingData(uint32_t totalRows, uint32_t vecCoreNum, int64_t incx)
+void tpmv_kernel_do(
+    uint8_t* aPacked, uint8_t* x, uint8_t* y, uint8_t* workSpace, const TpmvTilingDataDevice& tiling,
+    uint32_t numBlocks, void* stream);
+
+TpmvTilingDataDevice CalTilingData(uint32_t totalRows, uint32_t vecCoreNum, int64_t incx)
 {
-    tpmvTilingData tilingData{};
+    TpmvTilingDataDevice tilingData{};
     tilingData.n = totalRows;
     tilingData.incx = incx;
     tilingData.tileSize = TILE_SIZE;
@@ -97,25 +94,22 @@ aclblasStatus_t aclblasStpmv_legacy(
     const size_t packedEleNum = nSize * (nSize + 1U) / 2U;
     const size_t packedByteSize = packedEleNum * sizeof(float);
 
-    tpmvTilingData tiling = CalTilingData(static_cast<uint32_t>(n), numBlocks, incx);
+    TpmvTilingDataDevice tiling = CalTilingData(static_cast<uint32_t>(n), numBlocks, incx);
 
     uint8_t* aDevice = nullptr;
     uint8_t* xDevice = nullptr;
     uint8_t* yDevice = nullptr;
-    uint8_t* tilingDevice = nullptr;
 
     aclrtMalloc((void**)&aDevice, packedByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc((void**)&xDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc((void**)&yDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&tilingDevice, sizeof(tpmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
 
     aclrtMemcpy(aDevice, packedByteSize, aPacked, packedByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(xDevice, vecByteSize, x, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(tpmvTilingData), &tiling, sizeof(tpmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-
     aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
 
-    tpmv_kernel_do(aDevice, xDevice, yDevice, nullptr, tilingDevice, numBlocks, useStream);
+    tpmv_kernel_do(aDevice, xDevice, yDevice, nullptr, tiling, numBlocks, useStream);
+
     aclrtSynchronizeStream(useStream);
 
     aclrtMemcpy(y, vecByteSize, yDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
@@ -123,7 +117,6 @@ aclblasStatus_t aclblasStpmv_legacy(
     aclrtFree(aDevice);
     aclrtFree(xDevice);
     aclrtFree(yDevice);
-    aclrtFree(tilingDevice);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

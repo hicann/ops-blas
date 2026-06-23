@@ -160,47 +160,46 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SgemvTUb(
 // ==========================================================================
 //  Kernel dispatcher — choose GM or UB path per launch
 // ==========================================================================
-__global__ __aicore__ void sgemv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void sgemv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, SgemvTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     (void)workSpace;
 
-    const auto* __restrict tdata = reinterpret_cast<__gm__ const SgemvTilingData*>(tilingGm);
     auto* aGm = reinterpret_cast<__gm__ const float*>(a);
     auto* xGm = reinterpret_cast<__gm__ const float*>(x);
     auto* yGm = reinterpret_cast<__gm__ float*>(y);
 
-    uint32_t outDim = (tdata->trans == 0) ? tdata->m : tdata->n;
-    uint32_t xDim = (tdata->trans == 0) ? tdata->n : tdata->m;
+    uint32_t outDim = (tiling.trans == 0) ? tiling.m : tiling.n;
+    uint32_t xDim = (tiling.trans == 0) ? tiling.n : tiling.m;
 
     // UB path requires incx==1 and x vector fits in UB and enough work
-    bool useUb = (tdata->incx == 1) && (xDim <= UB_X_FLOATS) && (outDim >= 32);
+    bool useUb = (tiling.incx == 1) && (xDim <= UB_X_FLOATS) && (outDim >= 32);
 
-    if (tdata->trans == 0) {
+    if (tiling.trans == 0) {
         if (useUb) {
             asc_vf_call<SgemvNUb>(
-                dim3{tdata->numThreads, 1, 1}, tdata->m, tdata->n, tdata->lda, tdata->alpha, tdata->beta, tdata->incy,
+                dim3{tiling.numThreads, 1, 1}, tiling.m, tiling.n, tiling.lda, tiling.alpha, tiling.beta, tiling.incy,
                 aGm, xGm, yGm);
         } else {
             asc_vf_call<SgemvNGm>(
-                dim3{tdata->numThreads, 1, 1}, tdata->m, tdata->n, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
-                tdata->incy, aGm, xGm, yGm);
+                dim3{tiling.numThreads, 1, 1}, tiling.m, tiling.n, tiling.lda, tiling.alpha, tiling.beta, tiling.incx,
+                tiling.incy, aGm, xGm, yGm);
         }
     } else {
         if (useUb) {
             asc_vf_call<SgemvTUb>(
-                dim3{tdata->numThreads, 1, 1}, tdata->m, tdata->n, tdata->lda, tdata->alpha, tdata->beta, tdata->incy,
+                dim3{tiling.numThreads, 1, 1}, tiling.m, tiling.n, tiling.lda, tiling.alpha, tiling.beta, tiling.incy,
                 aGm, xGm, yGm);
         } else {
             asc_vf_call<SgemvTGm>(
-                dim3{tdata->numThreads, 1, 1}, tdata->m, tdata->n, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
-                tdata->incy, aGm, xGm, yGm);
+                dim3{tiling.numThreads, 1, 1}, tiling.m, tiling.n, tiling.lda, tiling.alpha, tiling.beta, tiling.incx,
+                tiling.incy, aGm, xGm, yGm);
         }
     }
 }
 
 void sgemv_kernel_do(
-    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, const SgemvTilingData& tiling, uint32_t numBlocks, void* stream)
 {
-    sgemv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tilingGm);
+    sgemv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tiling);
 }

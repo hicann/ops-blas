@@ -10,28 +10,16 @@
 
 #include <cstdint>
 #include <algorithm>
-#include "acl/acl.h"
 #include "log/log.h"
-#include "tiling/platform/platform_ascendc.h"
 #include "cann_ops_blas.h"
-#include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 #include "sgeqrf_batched_tiling_data.h"
 
-void sgeqrf_batched_kernel_do(uint8_t* aarray, uint8_t* tauArray, uint8_t* tilingGm,
-                             uint32_t numBlocks, void *stream);
+void sgeqrf_batched_kernel_do(
+    uint8_t* aarray, uint8_t* tauArray, const GeqrfBatchedTilingData& tiling, uint32_t numBlocks, void* stream);
 
 static const char* const TAG = "aclblasSgeqrfBatched";
-
-static uint32_t GetAivCoreCount()
-{
-    auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    if (platform == nullptr) {
-        OP_LOGE(TAG, "PlatformAscendCManager::GetInstance() returned nullptr");
-        return 0;
-    }
-    return platform->GetCoreNumAiv();
-}
 
 static aclblasStatus_t ValidateGeqrfBatchedParams(
     int m, int n, float* const Aarray[], int lda, float* const TauArray[], int batchSize)
@@ -90,33 +78,10 @@ static GeqrfBatchedTilingData CalGeqrfBatchedTilingData(
 static aclblasStatus_t LaunchGeqrfBatchedKernel(
     float* const Aarray[], float* const TauArray[], const GeqrfBatchedTilingData& tiling, aclrtStream stream)
 {
-    void* tilingDevice = nullptr;
-    aclError aclRet = aclrtMalloc(&tilingDevice, sizeof(GeqrfBatchedTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE(TAG, "aclrtMalloc failed, size=%zu, ret=%d", sizeof(GeqrfBatchedTilingData), aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED;
-    }
-
-    aclRet = aclrtMemcpy(
-        tilingDevice, sizeof(GeqrfBatchedTilingData), &tiling, sizeof(GeqrfBatchedTilingData),
-        ACL_MEMCPY_HOST_TO_DEVICE);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE(TAG, "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-
     sgeqrf_batched_kernel_do(
         reinterpret_cast<uint8_t*>(const_cast<float**>(Aarray)),
-        reinterpret_cast<uint8_t*>(const_cast<float**>(TauArray)), static_cast<uint8_t*>(tilingDevice),
-        tiling.usedCoreNum, stream);
+        reinterpret_cast<uint8_t*>(const_cast<float**>(TauArray)), tiling, tiling.usedCoreNum, stream);
 
-    aclError syncRet = aclrtSynchronizeStream(stream);
-    aclrtFree(tilingDevice);
-    if (syncRet != ACL_SUCCESS) {
-        OP_LOGE(TAG, "aclrtSynchronizeStream failed, ret=%d", syncRet);
-        return ACLBLAS_STATUS_EXECUTION_FAILED;
-    }
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -144,7 +109,7 @@ aclblasStatus_t aclblasSgeqrfBatched(
 
     uint32_t coreNum = GetAivCoreCount();
     if (coreNum == 0) {
-        OP_LOGE(TAG, "aiv core count is 0");
+        OP_LOGE(TAG, "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 

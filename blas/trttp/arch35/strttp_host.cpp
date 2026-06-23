@@ -11,15 +11,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <algorithm>
-#include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
-#include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "strttp_tiling_data.h"
 
-void strttp_kernel_do(uint8_t* a, uint8_t* ap, uint8_t* tilingGm,
-                      uint32_t numBlocks, void *stream);
+void strttp_kernel_do(uint8_t* a, uint8_t* ap, const TrttpTilingData& tiling, uint32_t numBlocks, void* stream);
 
 // ---------------------------------------------------------------------------
 // Parameter validation — returns non-success if invalid
@@ -109,40 +106,12 @@ static aclblasStatus_t CalTilingData(TrttpTilingData* tiling, uint32_t n, uint32
 // ---------------------------------------------------------------------------
 // Kernel execution & cleanup
 // ---------------------------------------------------------------------------
-static aclblasStatus_t ExecuteKernel(const float* A, float* AP, const TrttpTilingData* tiling, aclrtStream stream)
+static aclblasStatus_t ExecuteKernel(const float* A, float* AP, const TrttpTilingData& tiling, aclrtStream stream)
 {
-    uint8_t* tilingDevice = nullptr;
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(TrttpTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasStrttp", "aclrtMalloc failed, error=%d", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED;
-    }
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(TrttpTilingData), tiling, sizeof(TrttpTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasStrttp", "aclrtMemcpy failed, error=%d", aclRet);
-        aclrtFree(tilingDevice);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-
     strttp_kernel_do(
-        reinterpret_cast<uint8_t*>(const_cast<float*>(A)), reinterpret_cast<uint8_t*>(AP), tilingDevice,
-        tiling->useCoreNum, stream);
+        reinterpret_cast<uint8_t*>(const_cast<float*>(A)), reinterpret_cast<uint8_t*>(AP), tiling, tiling.useCoreNum,
+        stream);
 
-    aclRet = aclrtSynchronizeStream(stream);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasStrttp", "aclrtSynchronizeStream failed, error=%d", aclRet);
-        aclrtFree(tilingDevice);
-        return ACLBLAS_STATUS_EXECUTION_FAILED;
-    }
-
-    aclRet = aclrtFree(tilingDevice);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasStrttp", "aclrtFree failed, error=%d", aclRet);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -167,5 +136,5 @@ aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo, in
         return status;
     }
 
-    return ExecuteKernel(A, AP, &tiling, h->stream);
+    return ExecuteKernel(A, AP, tiling, h->stream);
 }

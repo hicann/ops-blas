@@ -126,7 +126,11 @@ inline aclblasStatus_t aclblasSgeqrfBatched_npu(
     }
 
     aclblasStatus_t ret = aclblasSgeqrfBatched(handle, m, n, bufs.dAarray, lda, bufs.dTauArray, info, batchSize);
-    aclrtSynchronizeDevice();
+    aclError syncRet = aclrtSynchronizeDevice();
+    if (syncRet != ACL_SUCCESS) {
+        FreeGeqrfDeviceBuffers(bufs, batchSize);
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
 
     aclblasStatus_t copyRet = CopyGeqrfResultsBack(bufs, Aarray, TauArray, batchSize, matBytes, tauBytes);
     FreeGeqrfDeviceBuffers(bufs, batchSize);

@@ -24,7 +24,6 @@ constexpr uint32_t UB_BYTENUM_PER_BLOCK = 32;
 constexpr uint32_t UB_BYTENUM_PER_REPEAT = 256;
 constexpr uint32_t TILE_SIZE = 128;
 
-template <typename T>
 struct TpmvTilingDataDevice {
     uint32_t n;
     uint32_t useCoreNum;
@@ -41,13 +40,13 @@ template <typename T>
 class TpmvAIV {
 public:
     __aicore__ inline TpmvAIV() = default;
-    __aicore__ inline void Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR tilingGm);
+    __aicore__ inline void Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, const TpmvTilingDataDevice& tiling);
     __aicore__ inline void Process();
 
 private:
     TPipe pipe;
 
-    __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
+    __aicore__ inline void ParseTilingData(const TpmvTilingDataDevice& tiling);
     __aicore__ inline uint32_t PackedIndex(uint32_t i, uint32_t j) const;
 
     __aicore__ inline void CopyIn(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
@@ -87,10 +86,10 @@ private:
 };
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR tilingGm)
+__aicore__ inline void TpmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, const TpmvTilingDataDevice& tiling)
 {
     vecIdx = GetBlockIdx();
-    ParseTilingData(tilingGm);
+    ParseTilingData(tiling);
 
     xGM.SetGlobalBuffer((__gm__ T*)x, this->n);
     yGM.SetGlobalBuffer((__gm__ T*)y, this->n);
@@ -108,16 +107,14 @@ __aicore__ inline void TpmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, G
 }
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::ParseTilingData(GM_ADDR tilingGm)
+__aicore__ inline void TpmvAIV<T>::ParseTilingData(const TpmvTilingDataDevice& tiling)
 {
-    auto tiling = reinterpret_cast<__gm__ TpmvTilingDataDevice<T>*>(tilingGm);
-
-    n = tiling->n;
-    useCoreNum = tiling->useCoreNum;
-    incx = tiling->incx;
-    tileSize = tiling->tileSize;
-    tileRows = tiling->tileRows;
-    taskCount = tiling->taskCount;
+    n = tiling.n;
+    useCoreNum = tiling.useCoreNum;
+    incx = tiling.incx;
+    tileSize = tiling.tileSize;
+    tileRows = tiling.tileRows;
+    taskCount = tiling.taskCount;
 
     if (tileSize == 0) {
         tileSize = TILE_SIZE;
@@ -127,11 +124,11 @@ __aicore__ inline void TpmvAIV<T>::ParseTilingData(GM_ADDR tilingGm)
     }
 
     for (uint32_t i = 0; i < taskCount && i < MAX_TILE_TASK; ++i) {
-        taskBi[i] = tiling->taskBi[i];
+        taskBi[i] = tiling.taskBi[i];
     }
 
-    taskStart = tiling->taskStart[vecIdx];
-    taskStep = tiling->taskStep[vecIdx];
+    taskStart = tiling.taskStart[vecIdx];
+    taskStep = tiling.taskStep[vecIdx];
 }
 
 template <typename T>
@@ -263,18 +260,20 @@ __aicore__ inline void TpmvAIV<T>::Process()
     SetAtomicNone();
 }
 
-__global__ __aicore__ void tpmv_kernel(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void tpmv_kernel(
+    GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, TpmvTilingDataDevice tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TpmvAIV<float> op;
-    op.Init(aPacked, x, y, tilingGm);
+    op.Init(aPacked, x, y, tiling);
     op.Process();
 }
 
 void tpmv_kernel_do(
-    GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, const TpmvTilingDataDevice& tiling, uint32_t numBlocks,
+    void* stream)
 {
-    tpmv_kernel<<<numBlocks, nullptr, stream>>>(aPacked, x, y, workSpace, tilingGm);
+    tpmv_kernel<<<numBlocks, nullptr, stream>>>(aPacked, x, y, workSpace, tiling);
 }
 
 #endif // COPY_AIV_H

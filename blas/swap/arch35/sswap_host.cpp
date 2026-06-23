@@ -9,28 +9,14 @@
  */
 
 #include <cstdint>
-#include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
-#include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 #include "sswap_tiling_data.h"
 
-void sswap_kernel_do(uint8_t* x, uint8_t* y, uint8_t* workSpace, uint8_t* tilingGm,
-                     uint32_t numBlocks, void *stream);
-
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    if (aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum) != ACL_SUCCESS) {
-        return 0;
-    }
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-}
+void sswap_kernel_do(
+    uint8_t* x, uint8_t* y, uint8_t* workSpace, const SswapTilingData& tiling, uint32_t numBlocks, void* stream);
 
 static aclblasStatus_t ValidateSswapParams(const float* x, const float* y, int incx, int incy)
 {
@@ -83,9 +69,9 @@ aclblasStatus_t aclblasSswap(aclblasHandle_t handle, int n, float* x, int incx, 
         return st;
     }
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSswap", "vector core count is 0");
+        OP_LOGE("aclblasSswap", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
@@ -102,26 +88,8 @@ aclblasStatus_t aclblasSswap(aclblasHandle_t handle, int n, float* x, int incx, 
         tiling.perCoreN, tiling.remainder, tiling.tileSize, numBlocks);
     OP_LOGI("aclblasSswap", "launching kernel");
 
-    uint8_t* tilingDevice = nullptr;
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SswapTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSswap", "aclrtMalloc failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED;
-    }
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(SswapTilingData), &tiling, sizeof(SswapTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSswap", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-
     sswap_kernel_do(
-        reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice, numBlocks, useStream);
-
-    aclrtFree(tilingDevice);
+        reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y), nullptr, tiling, numBlocks, useStream);
 
     return ACLBLAS_STATUS_SUCCESS;
 }
