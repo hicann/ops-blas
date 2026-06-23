@@ -81,37 +81,44 @@ __aicore__ inline T Min(const T lhs, const T rhs)
     return lhs < rhs ? lhs : rhs;
 }
 
-template <typename Dtype> __aicore__ __attribute__((always_inline)) inline uint32_t BlockSize()
+template <typename Dtype>
+__aicore__ __attribute__((always_inline)) inline uint32_t BlockSize()
 {
     return 32 / sizeof(Dtype);
 }
 
-template <typename Dtype> __aicore__ __attribute__((always_inline)) inline uint32_t MatrixSize()
+template <typename Dtype>
+__aicore__ __attribute__((always_inline)) inline uint32_t MatrixSize()
 {
     return 512 / sizeof(Dtype);
 }
 
-template <typename Dtype> __aicore__ __attribute__((always_inline)) inline uint64_t BlockSizeRoundUp(uint64_t num)
+template <typename Dtype>
+__aicore__ __attribute__((always_inline)) inline uint64_t BlockSizeRoundUp(uint64_t num)
 {
     return (num + BlockSize<Dtype>() - 1) / BlockSize<Dtype>() * BlockSize<Dtype>();
 }
 
-template <typename Dtype> __aicore__ __attribute__((always_inline)) inline uint64_t NumBlocksRoundUp(uint64_t num)
+template <typename Dtype>
+__aicore__ __attribute__((always_inline)) inline uint64_t NumBlocksRoundUp(uint64_t num)
 {
     return (num + BlockSize<Dtype>() - 1) / BlockSize<Dtype>();
 }
 
-template <typename Dtype> __aicore__ __attribute__((always_inline)) inline uint64_t MatrixSizeRoundUp(uint64_t num)
+template <typename Dtype>
+__aicore__ __attribute__((always_inline)) inline uint64_t MatrixSizeRoundUp(uint64_t num)
 {
     return (num + MatrixSize<Dtype>() - 1) / MatrixSize<Dtype>() * MatrixSize<Dtype>();
 }
 
-template <typename Dtype> __aicore__ __attribute__((always_inline)) inline uint64_t NumMatrixsRoundUp(uint64_t num)
+template <typename Dtype>
+__aicore__ __attribute__((always_inline)) inline uint64_t NumMatrixsRoundUp(uint64_t num)
 {
     return (num + MatrixSize<Dtype>() - 1) / MatrixSize<Dtype>();
 }
 
-template <typename Dtype> __aicore__ __attribute__((always_inline)) inline uint64_t L0HalfSize()
+template <typename Dtype>
+__aicore__ __attribute__((always_inline)) inline uint64_t L0HalfSize()
 {
     return 32 * 1024 / sizeof(Dtype);
 }
@@ -125,20 +132,15 @@ template <typename Dtype> __aicore__ __attribute__((always_inline)) inline uint6
 #define PIPE_BARRIER(pipe) AscendC::PipeBarrier<PIPE_##pipe>()
 
 template <typename IN_DTYPE>
-__aicore__ inline void CreateCaMatrix(const AscendC::LocalTensor<IN_DTYPE> &dst,
-                                      const uint16_t repeats,
-                                      const uint16_t blockNum,
-                                      const uint16_t dstGap,
-                                      const IN_DTYPE initValue)
+__aicore__ inline void CreateCaMatrix(
+    const AscendC::LocalTensor<IN_DTYPE>& dst, const uint16_t repeats, const uint16_t blockNum, const uint16_t dstGap,
+    const IN_DTYPE initValue)
 {
-    AscendC::InitConstValue<IN_DTYPE>(dst,
-                                      AscendC::InitConstValueParams<IN_DTYPE>(repeats, blockNum, dstGap, initValue));
+    AscendC::InitConstValue<IN_DTYPE>(
+        dst, AscendC::InitConstValueParams<IN_DTYPE>(repeats, blockNum, dstGap, initValue));
 }
 
-__aicore__ inline void SetFftsBaseAddr(uint64_t config)
-{
-    AscendC::SetSyncBaseAddr(config);
-}
+__aicore__ inline void SetFftsBaseAddr(uint64_t config) { AscendC::SetSyncBaseAddr(config); }
 
 template <typename IN_DTYPE>
 __aicore__ inline void SetPadding(IN_DTYPE padValue)
@@ -146,10 +148,7 @@ __aicore__ inline void SetPadding(IN_DTYPE padValue)
     AscendC::SetLoadDataPaddingValue<IN_DTYPE>(padValue);
 }
 
-__aicore__ inline void SetAtomicnone()
-{
-    AscendC::SetAtomicNone();
-}
+__aicore__ inline void SetAtomicnone() { AscendC::SetAtomicNone(); }
 
 __aicore__ inline void SetMasknorm()
 {
@@ -170,15 +169,9 @@ __aicore__ inline void SetVectorMask(const uint64_t maskHigh, const uint64_t mas
     AscendC::SetVectorMask<IN_DTYPE>(maskHigh, maskLow);
 }
 
-__aicore__ inline int64_t GetSubBlockidx()
-{
-    return AscendC::GetSubBlockIdx();
-}
+__aicore__ inline int64_t GetSubBlockidx() { return AscendC::GetSubBlockIdx(); }
 
-__aicore__ inline void WaitFlagDev(uint16_t flagId)
-{
-    AscendC::WaitEvent(flagId);
-}
+__aicore__ inline void WaitFlagDev(uint16_t flagId) { AscendC::WaitEvent(flagId); }
 
 template <pipe_t pipe, uint8_t mode>
 __aicore__ inline void FftsCrossCoreSync(uint16_t flagId)
@@ -187,46 +180,41 @@ __aicore__ inline void FftsCrossCoreSync(uint16_t flagId)
 }
 
 template <typename IN_DTYPE, bool setRelu = false>
-__aicore__ inline void SetFpc(const AscendC::LocalTensor<IN_DTYPE> &preTensor, bool isUnitFlag = false)
+__aicore__ inline void SetFpc(const AscendC::LocalTensor<IN_DTYPE>& preTensor, bool isUnitFlag = false)
 {
     AscendC::SetFixPipeConfig<IN_DTYPE, setRelu>(preTensor, isUnitFlag);
 }
 
 template <typename IN_DTYPE>
-__aicore__ inline void CopyCbufToFbuf(AscendC::LocalTensor<IN_DTYPE> &dst,
-                                      AscendC::LocalTensor<IN_DTYPE> &src,
-                                      uint16_t burstNum,
-                                      uint16_t burstLen,
-                                      uint16_t srcGapSize,
-                                      uint16_t dstGapSize)
+__aicore__ inline void CopyCbufToFbuf(
+    AscendC::LocalTensor<IN_DTYPE>& dst, AscendC::LocalTensor<IN_DTYPE>& src, uint16_t burstNum, uint16_t burstLen,
+    uint16_t srcGapSize, uint16_t dstGapSize)
 {
     dst.address_.logicPos = static_cast<uint8_t>(AscendC::TPosition::C2PIPE2GM);
-    AscendC::DataCopy(dst,
-                      src,
-                      AscendC::DataCopyParams(burstNum,     // nBurst
-                                              burstLen,     // lenBurst
-                                              srcGapSize,   // srcGap
-                                              dstGapSize)); // dstGap);
+    AscendC::DataCopy(
+        dst, src,
+        AscendC::DataCopyParams(
+            burstNum,     // nBurst
+            burstLen,     // lenBurst
+            srcGapSize,   // srcGap
+            dstGapSize)); // dstGap);
 }
 
 template <typename IN_DTYPE>
-__aicore__ inline void CopyCbufToBt(uint64_t dst,
-                                    const AscendC::LocalTensor<IN_DTYPE> &src,
-                                    uint16_t convControl,
-                                    uint16_t nBurst,
-                                    uint16_t lenBurst,
-                                    uint16_t sourceGap,
-                                    uint16_t dstGap)
+__aicore__ inline void CopyCbufToBt(
+    uint64_t dst, const AscendC::LocalTensor<IN_DTYPE>& src, uint16_t convControl, uint16_t nBurst, uint16_t lenBurst,
+    uint16_t sourceGap, uint16_t dstGap)
 {
     AscendC::LocalTensor<IN_DTYPE> dstTensor;
     dstTensor.InitBuffer(dst, nBurst * lenBurst);
     dstTensor.address_.logicPos = static_cast<uint8_t>(AscendC::TPosition::C2);
-    AscendC::DataCopy(dstTensor,
-                      src,
-                      AscendC::DataCopyParams(nBurst,    // nBurst
-                                              lenBurst,  // lenBurst
-                                              sourceGap, // srcGap
-                                              dstGap));  // dstGap);
+    AscendC::DataCopy(
+        dstTensor, src,
+        AscendC::DataCopyParams(
+            nBurst,    // nBurst
+            lenBurst,  // lenBurst
+            sourceGap, // srcGap
+            dstGap));  // dstGap);
 }
 
 /* ========== Ascend BLAS kernel utilities ========== */
@@ -236,13 +224,12 @@ __aicore__ inline void CopyCbufToBt(uint64_t dst,
 static constexpr int64_t BIT_4 = 4;
 static constexpr int64_t BIT_8 = 8;
 
-__aicore__ inline int64_t GET_FFST_MSG(int64_t mode, int64_t flagId)
-{
-    return 1 | (mode << BIT_4) | (flagId << BIT_8);
-}
+__aicore__ inline int64_t GET_FFST_MSG(int64_t mode, int64_t flagId) { return 1 | (mode << BIT_4) | (flagId << BIT_8); }
 
+#if defined(__NPU_ARCH__) && (__NPU_ARCH__ != 3510)
 #ifndef INCLUDE_ITERTOR_H
 #include "../iterator/iterator.h"
+#endif
 #endif
 
 namespace fp32 {
@@ -262,45 +249,22 @@ __aicore__ inline int64_t ROUND(int64_t num, int64_t paddingNum)
 }
 
 __aicore__ __inline__ void matrix_gm2cbuf_ND2nZ(
-    AscendC::LocalTensor<float> dst,
-    AscendC::GlobalTensor<float> src,
-    int64_t CBUF_M0, int64_t CBUF_N0, int64_t mActual, int64_t nActual, size_t stride)
+    AscendC::LocalTensor<float> dst, AscendC::GlobalTensor<float> src, int64_t CBUF_M0, int64_t CBUF_N0,
+    int64_t mActual, int64_t nActual, size_t stride)
 {
     if (stride < UINT16_STRIDE_LIMIT) {
-        AscendC::DataCopy(
-            dst, src,
-            AscendC::Nd2NzParams(
-                1,
-                nActual,
-                mActual,
-                0,
-                stride,
-                CBUF_N0,
-                1,
-                0)
-        );
+        AscendC::DataCopy(dst, src, AscendC::Nd2NzParams(1, nActual, mActual, 0, stride, CBUF_N0, 1, 0));
     } else {
         for (int i = 0; i < nActual; i++) {
             AscendC::DataCopy(
-                dst[i * CUBE_K0], src[i * stride],
-                AscendC::Nd2NzParams(
-                    1,
-                    1,
-                    mActual,
-                    0,
-                    0,
-                    CBUF_N0,
-                    0,
-                    0)
-            );
+                dst[i * CUBE_K0], src[i * stride], AscendC::Nd2NzParams(1, 1, mActual, 0, 0, CBUF_N0, 0, 0));
         }
     }
 }
 
 __aicore__ __inline__ void matrix_gm2cbuf_ND2nN(
-    AscendC::LocalTensor<float> dst,
-    AscendC::GlobalTensor<float> src,
-    int64_t CBUF_M0, int64_t CBUF_N0, int64_t mActual, int64_t nActual, size_t stride)
+    AscendC::LocalTensor<float> dst, AscendC::GlobalTensor<float> src, int64_t CBUF_M0, int64_t CBUF_N0,
+    int64_t mActual, int64_t nActual, size_t stride)
 {
     int64_t srcNdStride = CUBE_N0 * stride;
     int64_t srcNStride = stride;
@@ -310,30 +274,12 @@ __aicore__ __inline__ void matrix_gm2cbuf_ND2nN(
         if (ndNum > 0) {
             AscendC::DataCopy(
                 dst, src,
-                AscendC::Nd2NzParams(
-                    ndNum,
-                    CUBE_N0,
-                    mActual,
-                    srcNdStride,
-                    srcNStride,
-                    CUBE_N0,
-                    1,
-                    CUBE_N0 * CBUF_M0)
-            );
+                AscendC::Nd2NzParams(ndNum, CUBE_N0, mActual, srcNdStride, srcNStride, CUBE_N0, 1, CUBE_N0 * CBUF_M0));
         }
         if (remains > 0) {
             AscendC::DataCopy(
                 dst[ndNum * CUBE_N0 * CBUF_M0], src[ndNum * CUBE_N0 * stride],
-                AscendC::Nd2NzParams(
-                    1,
-                    remains,
-                    mActual,
-                    0,
-                    srcNStride,
-                    CUBE_N0,
-                    1,
-                    0)
-            );
+                AscendC::Nd2NzParams(1, remains, mActual, 0, srcNStride, CUBE_N0, 1, 0));
         }
     } else if (srcNStride < UINT16_STRIDE_LIMIT) {
         int ndNum = nActual / CUBE_N0;
@@ -341,30 +287,12 @@ __aicore__ __inline__ void matrix_gm2cbuf_ND2nN(
         for (int i = 0; i < ndNum; i++) {
             AscendC::DataCopy(
                 dst[i * CUBE_N0 * CBUF_M0], src[i * CUBE_N0 * stride],
-                AscendC::Nd2NzParams(
-                    1,
-                    CUBE_N0,
-                    mActual,
-                    0,
-                    srcNStride,
-                    CUBE_N0,
-                    1,
-                    0)
-            );
+                AscendC::Nd2NzParams(1, CUBE_N0, mActual, 0, srcNStride, CUBE_N0, 1, 0));
         }
         if (remains > 0) {
             AscendC::DataCopy(
                 dst[ndNum * CUBE_N0 * CBUF_M0], src[ndNum * CUBE_N0 * stride],
-                AscendC::Nd2NzParams(
-                    1,
-                    remains,
-                    mActual,
-                    0,
-                    srcNStride,
-                    CUBE_N0,
-                    1,
-                    0)
-            );
+                AscendC::Nd2NzParams(1, remains, mActual, 0, srcNStride, CUBE_N0, 1, 0));
         }
     } else {
         for (int i = 0; i < nActual; i++) {
@@ -372,24 +300,15 @@ __aicore__ __inline__ void matrix_gm2cbuf_ND2nN(
             int idxInR0 = i % CUBE_N0;
             AscendC::DataCopy(
                 dst[idxR0 * CUBE_N0 * CBUF_M0 + idxInR0 * CUBE_K0], src[i * stride],
-                AscendC::Nd2NzParams(
-                    1,
-                    1,
-                    mActual,
-                    0,
-                    0,
-                    CUBE_N0,
-                    0,
-                    0)
-            );
+                AscendC::Nd2NzParams(1, 1, mActual, 0, 0, CUBE_N0, 0, 0));
         }
     }
 }
 
+#if defined(__NPU_ARCH__) && (__NPU_ARCH__ != 3510)
 __aicore__ __inline__ void matrix_gm2ubuf(
-    AscendC::LocalTensor<float> dst,
-    AscendC::GlobalTensor<float> src,
-    int64_t mActual, int64_t nActual, size_t srcStride, size_t dstStride)
+    AscendC::LocalTensor<float> dst, AscendC::GlobalTensor<float> src, int64_t mActual, int64_t nActual,
+    size_t srcStride, size_t dstStride)
 {
     int64_t mRound = ROUND(mActual, NUM_ELE_PERBLOCK);
     for (int i = 0; i < nActual; i++) {
@@ -399,16 +318,15 @@ __aicore__ __inline__ void matrix_gm2ubuf(
 }
 
 __aicore__ __inline__ void matrix_ubuf2gm(
-    AscendC::GlobalTensor<float> dst,
-    AscendC::LocalTensor<float> src,
-    int64_t mActual, int64_t nActual, size_t srcStride, size_t dstStride)
+    AscendC::GlobalTensor<float> dst, AscendC::LocalTensor<float> src, int64_t mActual, int64_t nActual,
+    size_t srcStride, size_t dstStride)
 {
     for (int i = 0; i < nActual; i++) {
         ub_to_gm_align<ArchType::ASCEND_V220, float>(
             dst[i * dstStride], src[i * srcStride], 0, 1, mActual * sizeof(float), 0, 0, 0, 0);
     }
 }
-}
+#endif
+} // namespace fp32
 
-#endif  // KERNEL_UTILS_LITE
-
+#endif // KERNEL_UTILS_LITE

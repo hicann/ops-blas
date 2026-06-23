@@ -17,6 +17,8 @@
 #include <memory>
 #include <string>
 
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
 #include "types.h"
 
 class PrecisionStrategy {
@@ -311,3 +313,37 @@ private:
     }
 };
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// Helper: get MERE threshold based on output dtype
+//   FP16:  threshold = 2^-10 ≈ 0.000977, multiplier = 10
+//   BF16:  threshold = 2^-7  ≈ 0.0078125, multiplier = 10
+//   FP32:  threshold = 2^-13 ≈ 0.000122, multiplier = 10
+//   FP8 E4M3FN: threshold = 2^-3 ≈ 0.125, multiplier = 10
+//   FP8 E5M2:   threshold = 2^-2 ≈ 0.25, multiplier = 10
+// ═══════════════════════════════════════════════════════════════════════════════
+
+static double getMereThreshold(aclDataType dtype)
+{
+    switch (dtype) {
+        case ACL_FLOAT16:
+            return 0.0009765625; // 2^-10
+        case ACL_BF16:
+            return 0.0078125; // 2^-7
+        case ACL_FLOAT:
+            return 0.0001220703125; // 2^-13
+        case ACL_FLOAT8_E4M3FN:
+            return 0.125; // 2^-3
+        case ACL_FLOAT8_E5M2:
+            return 0.25; // 2^-2
+        default:
+            return 0.0009765625;
+    }
+}
+
+static double getMareMultiplier(aclDataType dtype, int k, aclblasComputeType_t computeType)
+{
+    if (dtype == ACL_FLOAT16 && computeType == ACLBLAS_COMPUTE_16F && k > 160) {
+        return std::max(10.0, static_cast<double>(k) / 3.0);
+    }
+    return 10.0;
+}

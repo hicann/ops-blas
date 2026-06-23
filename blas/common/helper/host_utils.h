@@ -78,3 +78,12 @@ static inline uint32_t GetAivCoreCount()
     }
     return platform->GetCoreNumAiv();
 }
+
+static inline uint32_t GetAicCoreCount()
+{
+    auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    if (platform == nullptr) {
+        return 0;
+    }
+    return platform->GetCoreNumAic();
+}

@@ -23,7 +23,12 @@
 #include <string>
 #include <vector>
 
+#include "dtype_utils.h"
+
 constexpr float kBlasSentinel = -999.0f;
+#ifndef FLT_TRUE_MIN
+#define FLT_TRUE_MIN 1.401298464e-45F
+#endif
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Layer 1: Configuration
@@ -218,7 +223,8 @@ public:
 };
 
 class ExtremeGenerator : public ValueGenerator {
-    static constexpr float kVals[] = {1.0f, 0.0f, -1.0f, FLT_MAX, FLT_MIN, -FLT_MAX, std::numeric_limits<float>::denorm_min()};
+    static constexpr float kVals[] = {
+        1.0f, 0.0f, -1.0f, FLT_MAX, FLT_MIN, -FLT_MAX, std::numeric_limits<float>::denorm_min()};
 
 public:
     float at(size_t i) override { return kVals[i % 7]; }
@@ -527,13 +533,13 @@ inline std::vector<float> makeBlasFp8Levels(int64_t size, bool e5m2, uint32_t se
         return {};
     // exact representable magnitudes (subset spanning small/normal range) + inter-level midpoints.
     static const float kE4m3Levels[] = {
-        0.0f, 0.015625f, 0.0625f, 0.09375f, 0.125f, 0.25f, 0.375f, 0.5f,
-        0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f,
+        0.0f, 0.015625f, 0.0625f, 0.09375f, 0.125f, 0.25f, 0.375f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 3.0f,
+        4.0f, 6.0f, 8.0f,
         // midpoints (round-to-nearest-even probes):
         0.1875f, 0.4375f, 0.625f, 1.125f, 2.5f, 5.0f, 7.0f};
     static const float kE5m2Levels[] = {
-        0.0f, 0.0625f, 0.125f, 0.1875f, 0.25f, 0.375f, 0.5f, 0.75f,
-        1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f, 12.0f, 16.0f,
+        0.0f, 0.0625f, 0.125f, 0.1875f, 0.25f, 0.375f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f, 8.0f,
+        12.0f, 16.0f,
         // midpoints:
         0.3125f, 0.4375f, 0.875f, 1.75f, 2.5f, 5.0f, 10.0f};
     const float* levels = e5m2 ? kE5m2Levels : kE4m3Levels;
@@ -556,9 +562,8 @@ inline std::vector<float> makeBlasFp4Levels(int64_t size, uint32_t seed = 0)
 {
     if (size <= 0)
         return {};
-    static const float levels[] = {
-        0.0f, 0.5f, 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 6.0f,        // exact E2M1 magnitudes
-        0.25f, 0.75f, 1.25f, 1.75f, 2.5f, 3.5f, 5.0f};         // inter-level midpoints
+    static const float levels[] = {0.0f,  0.5f,  1.0f,  1.5f,  2.0f, 3.0f, 4.0f, 6.0f, // exact E2M1 magnitudes
+                                   0.25f, 0.75f, 1.25f, 1.75f, 2.5f, 3.5f, 5.0f};      // inter-level midpoints
     const size_t n = sizeof(levels) / sizeof(float);
     std::vector<float> data(static_cast<size_t>(size));
     std::mt19937 rng(seed ? seed : 42);
@@ -590,3 +595,20 @@ inline std::vector<float> makeBlasFp4Random(int64_t size, uint32_t seed = 0)
     return data;
 }
 
+inline std::vector<uint8_t> QuantizeMatrix(
+    const std::vector<float>& floatData, const BlasFillMode& fill, aclDataType dtype, bool isNull)
+{
+    if (floatData.empty() || fill.method == BlasFillMode::M_NULLPTR || isNull) {
+        return {};
+    }
+    return quantizeToBytes(floatData, dtype);
+}
+
+inline std::vector<float> PrepareGoldenData(const std::vector<float>& floatData, aclDataType dtype, bool isNull)
+{
+    std::vector<float> golden = floatData;
+    if (!golden.empty() && !isNull) {
+        quantizeRoundTrip(golden, dtype);
+    }
+    return golden;
+}

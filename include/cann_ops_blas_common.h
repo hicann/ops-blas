@@ -99,6 +99,21 @@ typedef enum aclblasLogLevel {
     ACLBLAS_LOG_LEVEL_ERROR = 2,
 } aclblasLogLevel_t;
 
+/*! \brief The algorithm to be used for GemmEx operations.
+ *  Note that support for algorithms is largely dependent on backend. */
+typedef enum aclblasGemmAlgo
+{
+    ACLBLAS_GEMM_DEFAULT = 0,         /**< Default algorithm (auto-selected by backend) */
+    ACLBLAS_GEMM_ALGO0 = 1,           /**< Algorithm 0 (reserved for future use) */
+    ACLBLAS_GEMM_ALGO1 = 2,           /**< Algorithm 1 (reserved for future use) */
+    ACLBLAS_GEMM_ALGO2 = 3,           /**< Algorithm 2 (reserved for future use) */
+    ACLBLAS_GEMM_ALGO3 = 4,           /**< Algorithm 3 (reserved for future use) */
+    ACLBLAS_GEMM_ALGO4 = 5,           /**< Algorithm 4 (reserved for future use) */
+    ACLBLAS_GEMM_ALGO5 = 6,           /**< Algorithm 5 (reserved for future use) */
+    ACLBLAS_GEMM_ALGO6 = 7,           /**< Algorithm 6 (reserved for future use) */
+    ACLBLAS_GEMM_ALGO7 = 8,           /**< Algorithm 7 (reserved for future use) */
+} aclblasGemmAlgo_t;
+
 #ifdef __cplusplus
 }
 #endif
