@@ -487,6 +487,74 @@ inline std::vector<float> makeBlasMatrix(int m, int n, int lda, const std::strin
     return makeBlasMatrix(m, n, lda, BlasFillMode(fillStr), seed);
 }
 
+inline void FillStructuredMatrixRM(
+    std::vector<float>& data, int m, int n, int lda, BlasFillMode::Pattern pattern, std::mt19937& rng)
+{
+    std::uniform_real_distribution<float> dist(-2.0f, 2.0f);
+
+    if (pattern == BlasFillMode::P_UPPER) {
+        for (int i = 0; i < m; i++)
+            for (int j = i; j < n; j++)
+                data[static_cast<size_t>(i) * lda + j] = dist(rng);
+    } else if (pattern == BlasFillMode::P_LOWER) {
+        for (int i = 0; i < m; i++)
+            for (int j = 0; j <= std::min(i, n - 1); j++)
+                data[static_cast<size_t>(i) * lda + j] = dist(rng);
+    } else if (pattern == BlasFillMode::P_DIAG) {
+        int mn = std::min(m, n);
+        for (int i = 0; i < mn; i++)
+            data[static_cast<size_t>(i) * lda + i] = dist(rng);
+    } else if (pattern == BlasFillMode::P_ILLCOND) {
+        for (int i = 0; i < m; i++) {
+            float scale = (i % 2 == 0) ? 1e6f : 1e-6f;
+            for (int j = 0; j < n; j++)
+                data[static_cast<size_t>(i) * lda + j] = dist(rng) * scale;
+        }
+    }
+}
+
+inline std::vector<float> makeBlasMatrixRM(int m, int n, int lda, const BlasFillMode& fill, uint32_t seed = 0)
+{
+    if (fill.method == BlasFillMode::M_NULLPTR || m <= 0 || n <= 0 || lda <= 0)
+        return {};
+
+    const size_t storageSize = static_cast<size_t>(m) * lda;
+    std::vector<float> data(storageSize, 0.0f);
+
+    if (fill.method == BlasFillMode::M_VALUE) {
+        if (fill.pattern == BlasFillMode::P_DIAG) {
+            int mn = std::min(m, n);
+            for (int i = 0; i < mn; i++)
+                data[static_cast<size_t>(i) * lda + i] = fill.val1;
+            return data;
+        }
+        std::fill(data.begin(), data.end(), fill.val1);
+        return data;
+    }
+
+    static const std::map<BlasFillMode::Pattern, bool> structured = {
+        {BlasFillMode::P_UPPER, true},
+        {BlasFillMode::P_LOWER, true},
+        {BlasFillMode::P_DIAG, true},
+        {BlasFillMode::P_ILLCOND, true}};
+    if (structured.count(fill.pattern)) {
+        std::mt19937 rng(seed ? seed : 42);
+        FillStructuredMatrixRM(data, m, n, lda, fill.pattern, rng);
+        return data;
+    }
+
+    std::mt19937 rng(seed ? seed : 42);
+    auto gen = createGenerator(fill, rng);
+    for (size_t i = 0; i < storageSize; i++)
+        data[i] = gen->at(i);
+    return data;
+}
+
+inline std::vector<float> makeBlasMatrixRM(int m, int n, int lda, const std::string& fillStr, uint32_t seed = 0)
+{
+    return makeBlasMatrixRM(m, n, lda, BlasFillMode(fillStr), seed);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Layer 4: 低精度 / 整型专用填充 (FP8 / FP4 / INT 量化 ST 专用, 不经 BlasFillMode 策略)
 //   这些函数产出落在目标 dtype 表示格上的值, 供 bit-exact / 量化往返 ST 直接调用。

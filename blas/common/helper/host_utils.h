@@ -79,6 +79,10 @@ static inline uint32_t GetAivCoreCount()
     return platform->GetCoreNumAiv();
 }
 
+// ==========================================================================
+//  GetAicCoreCount — get the number of AIC (Cube) cores on current device
+// ==========================================================================
+
 static inline uint32_t GetAicCoreCount()
 {
     auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
