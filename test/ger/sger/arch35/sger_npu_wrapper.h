@@ -80,6 +80,14 @@ inline aclblasStatus_t aclblasSger_npu(
         static_cast<const float*>(dY), incy,
         static_cast<float*>(dA), lda);
 
+    aclError syncRet = aclrtSynchronizeDevice();
+    if (syncRet != ACL_SUCCESS) {
+        if (dX) aclrtFree(dX);
+        if (dY) aclrtFree(dY);
+        if (dA) aclrtFree(dA);
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+
     if (ret == ACLBLAS_STATUS_SUCCESS && A != nullptr) {
         aclrtMemcpy(A, aBytes, dA, aBytes, ACL_MEMCPY_DEVICE_TO_HOST);
     }

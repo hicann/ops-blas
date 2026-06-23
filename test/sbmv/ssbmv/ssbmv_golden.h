@@ -10,25 +10,35 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cblas_compat.h"
 
-inline aclblasStatus_t aclblasSscal_cpu(
-    aclblasHandle_t handle, int n, const float* alpha, float* x, int incx)
+inline aclblasStatus_t aclblasSsbmv_cpu(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, int k, const float* alpha, const float* a, int lda,
+    const float* x, int incx, const float* beta, float* y, int incy)
 {
     if (handle == nullptr)
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
-    if (n <= 0)
+    if (n < 0)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (uplo != ACLBLAS_UPPER && uplo != ACLBLAS_LOWER)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (k < 0)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (lda < k + 1)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (incx == 0 || incy == 0)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (alpha == nullptr || beta == nullptr)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (n == 0)
         return ACLBLAS_STATUS_SUCCESS;
-    if (x == nullptr || alpha == nullptr)
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    if (incx == 0)
-        return ACLBLAS_STATUS_INVALID_VALUE;
 
-    cblas_sscal(n, *alpha, x, incx);
+    cblas_ssbmv(CblasColMajor, ToCblasUplo(uplo), n, k, *alpha, a, lda, x, incx, *beta, y, incy);
     return ACLBLAS_STATUS_SUCCESS;
 }
-

@@ -21,30 +21,15 @@
 #include "common/helper/host_utils.h"
 #include "log/log.h"
 #include "sasum_tiling_data.h"
-#include "tiling/platform/platform_ascendc.h"
 
-// arch35-style: tiling passed by value
 void sasum_kernel_do(uint8_t* inGM, uint8_t* outGM, uint8_t* workSpace,
                      const SasumTilingData& tiling, uint32_t numBlocks, void *stream);
-// arch22-style: tiling passed as GM pointer (for backward compatibility)
-void sasum_kernel_do(uint8_t* inGM, uint8_t* outGM, uint8_t* workSpace, uint8_t* tilingGm,
-                     uint32_t numBlocks, void *stream);
 
 namespace {
 
 inline _aclblas_handle* ToInternal(aclblasHandle_t handle)
 {
     return reinterpret_cast<_aclblas_handle*>(handle);
-}
-
-static uint32_t GetAivCoreNum()
-{
-    auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    if (platform == nullptr) {
-        OP_LOGE("aclblasSasum", "PlatformAscendCManager::GetInstance() returned nullptr");
-        return 0;
-    }
-    return platform->GetCoreNumAiv();
 }
 
 // AIV kernel internally handles 32B-alignment via maxDataCount tiling;
@@ -113,9 +98,9 @@ static aclblasStatus_t ValidateSasumParams(aclblasHandle_t handle, int n,
 static aclblasStatus_t CalcSasumLaunchConfig(int n, int incx,
                                               uint32_t* numBlocks, uint32_t* nthreads)
 {
-    uint32_t aivCoreNum = GetAivCoreNum();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSasum", "vector core count is 0");
+        OP_LOGE("aclblasSasum", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
@@ -137,35 +122,24 @@ static aclblasStatus_t CalcSasumLaunchConfig(int n, int incx,
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-static aclblasStatus_t SasumExecuteKernel(const float* x, float* result, int incx,
-                                           uint32_t numBlocks, const SasumTilingData& tiling,
-                                           aclrtStream stream)
+static aclblasStatus_t SasumExecuteKernel(_aclblas_handle* h, const float* x, float* result, int incx,
+                                           uint32_t numBlocks, const SasumTilingData& tiling)
 {
     uint8_t* workspaceDevice = nullptr;
     if (incx != 1) {
         size_t workspaceBytes = static_cast<size_t>(numBlocks) * sizeof(float);
-        aclError aclRet = aclrtMalloc(reinterpret_cast<void**>(&workspaceDevice),
-                                       workspaceBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-        if (aclRet != ACL_SUCCESS) {
-            OP_LOGE("aclblasSasum", "aclrtMalloc workspace failed, size=%zu, ret=%d", workspaceBytes, aclRet);
-            return ACLBLAS_STATUS_ALLOC_FAILED;
-        }
+        CHECK_RET(workspaceBytes <= aclblasGetEffectiveWorkspaceSize(h),
+            OP_LOGE("aclblasSasum", "workspace %zu > handle %zu", workspaceBytes, aclblasGetEffectiveWorkspaceSize(h));
+            return ACLBLAS_STATUS_EXECUTION_FAILED);
+        workspaceDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
     }
 
     OP_LOGI("aclblasSasum", "launching kernel: blocks=%u", numBlocks);
     sasum_kernel_do(reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
                     reinterpret_cast<uint8_t*>(result),
-                    reinterpret_cast<uint8_t*>(workspaceDevice),
-                    tiling, numBlocks, stream);
+                    workspaceDevice,
+                    tiling, numBlocks, h->stream);
 
-    aclError aclRet = aclrtSynchronizeStream(stream);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSasum", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        if (workspaceDevice) aclrtFree(workspaceDevice);
-        return ACLBLAS_STATUS_EXECUTION_FAILED;
-    }
-
-    if (workspaceDevice) aclrtFree(workspaceDevice);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -195,5 +169,5 @@ aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n,
     OP_LOGD("aclblasSasum", "tiling: n=%ld incx=%ld useCoreNum=%u numBlocks=%u nthreads=%u",
             tiling.n, tiling.incx, tiling.useCoreNum, numBlocks, tiling.nthreads);
 
-    return SasumExecuteKernel(x, result, incx, numBlocks, tiling, h->stream);
+    return SasumExecuteKernel(h, x, result, incx, numBlocks, tiling);
 }

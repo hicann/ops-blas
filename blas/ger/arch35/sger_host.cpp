@@ -20,25 +20,8 @@
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
 
-struct SgerTilingData;
-
 void sger_arch35_kernel_do(
     uint8_t* x, uint8_t* y, uint8_t* A, const SgerTilingData &tiling, uint32_t numBlocks, void *stream);
-
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    if (aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId),
-                           ACL_DEV_ATTR_VECTOR_CORE_NUM,
-                           &vecCoreNum) != ACL_SUCCESS) {
-        return 0;
-    }
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-}
 
 static aclblasStatus_t ValidateSgerParams(
     int m, int n, int lda, int incx, int incy, const float* alpha, const float* x, const float* y, const float* A)
@@ -79,9 +62,9 @@ static aclblasStatus_t LaunchSgerKernel(
     _aclblas_handle* h, int m, int n, int lda, float alphaVal, int incx, int incy, const float* x, const float* y,
     float* A)
 {
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSger", "vector core count is 0");
+        OP_LOGE("aclblasSger", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(static_cast<uint32_t>(n), SIMT_MIN_THREAD_NUM), aivCoreNum);
@@ -108,8 +91,7 @@ aclblasStatus_t aclblasSger(
     aclblasHandle_t handle, int m, int n, const float* alpha, const float* x, int incx, const float* y, int incy,
     float* A, int lda)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    CHECK_RET(h != nullptr, OP_LOGE("aclblasSger", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(handle != nullptr, OP_LOGE("aclblasSger", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     CHECK_RET(m >= 0, OP_LOGE("aclblasSger", "m must be >= 0, got %d", m); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(n >= 0, OP_LOGE("aclblasSger", "n must be >= 0, got %d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     if (m == 0 || n == 0) {
@@ -119,18 +101,10 @@ aclblasStatus_t aclblasSger(
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
     }
-    // alpha is a host-side pointer (cuBLAS convention); dereference on host
     float alphaVal = *alpha;
     if (alphaVal == 0.0f) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-    st = LaunchSgerKernel(h, m, n, lda, alphaVal, incx, incy, x, y, A);
-    if (st != ACLBLAS_STATUS_SUCCESS) {
-        return st;
-    }
-    aclError aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSger", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_EXECUTION_FAILED);
-    return ACLBLAS_STATUS_SUCCESS;
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    return LaunchSgerKernel(h, m, n, lda, alphaVal, incx, incy, x, y, A);
 }

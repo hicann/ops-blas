@@ -56,6 +56,14 @@ inline aclblasStatus_t aclblasSdot_npu(
         handle, n, static_cast<const float*>(dX), incx,
         static_cast<const float*>(dY), incy, static_cast<float*>(dResult));
 
+    aclError syncRet = aclrtSynchronizeDevice();
+    if (syncRet != ACL_SUCCESS) {
+        aclrtFree(dX);
+        aclrtFree(dY);
+        aclrtFree(dResult);
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+
     if (ret == ACLBLAS_STATUS_SUCCESS && result != nullptr) {
         aclrtMemcpy(result, sizeof(float), dResult, sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
     }

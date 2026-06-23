@@ -16,6 +16,7 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 
 inline aclblasStatus_t aclblasSrotm_cpu(
     aclblasHandle_t handle,
@@ -30,34 +31,8 @@ inline aclblasStatus_t aclblasSrotm_cpu(
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    float h11 = 1.0f, h12 = 0.0f, h21 = 0.0f, h22 = 1.0f;
-    if (sparam[0] < 0.0f) {
-        h11 = sparam[1];
-        h21 = sparam[2];
-        h12 = sparam[3];
-        h22 = sparam[4];
-    } else if (sparam[0] == 0.0f) {
-        h12 = sparam[3];
-        h21 = sparam[2];
-    } else {
-        h11 = sparam[1];
-        h12 = 1.0f;
-        h21 = -1.0f;
-        h22 = sparam[4];
-    }
-
-    int64_t xStartIndex = (incx >= 0) ? 0 : (1 - n) * incx;
-    int64_t yStartIndex = (incy >= 0) ? 0 : (1 - n) * incy;
-
-    for (int64_t i = 0; i < n; ++i) {
-        int64_t xIdx = xStartIndex + i * incx;
-        int64_t yIdx = yStartIndex + i * incy;
-        float xVal = x[xIdx];
-        float yVal = y[yIdx];
-        x[xIdx] = xVal * h11 + yVal * h12;
-        y[yIdx] = xVal * h21 + yVal * h22;
-    }
-
+    cblas_srotm(static_cast<int>(n), x, static_cast<int>(incx),
+                y, static_cast<int>(incy), sparam);
     return ACLBLAS_STATUS_SUCCESS;
 }
 

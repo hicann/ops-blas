@@ -25,16 +25,15 @@
 #include "common/helper/host_utils.h"
 #include "sdot_tiling_data.h"
 
-void sdot_kernel_do(uint8_t* x, uint8_t* y, uint8_t* result, uint8_t* workSpace, uint8_t* tilingGm,
-                    uint32_t numBlocks, void *stream);
+void sdot_kernel_do(uint8_t* x, uint8_t* y, uint8_t* result, uint8_t* workSpace,
+                    uint32_t numBlocks, const SdotTilingData& tiling, void *stream);
 
 // ---------------------------------------------------------------------------
 // Parameter validation
 // ---------------------------------------------------------------------------
 static aclblasStatus_t ValidateSdotParams(
-    aclblasHandle_t handle, int64_t incx, int64_t incy, const float* x, const float* y, const float* result)
+    int64_t incx, int64_t incy, const float* x, const float* y, const float* result)
 {
-    CHECK_RET(handle != nullptr, OP_LOGE("aclblasSdot", "handle is nullptr"); return ACLBLAS_STATUS_NOT_INITIALIZED);
     CHECK_RET(incx != 0, OP_LOGE("aclblasSdot", "incx must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(incy != 0, OP_LOGE("aclblasSdot", "incy must not be zero"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(x != nullptr, OP_LOGE("aclblasSdot", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
@@ -42,25 +41,6 @@ static aclblasStatus_t ValidateSdotParams(
     CHECK_RET(
         result != nullptr, OP_LOGE("aclblasSdot", "result must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
-}
-
-// ---------------------------------------------------------------------------
-// Query AI Vector Core count
-// ---------------------------------------------------------------------------
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        OP_LOGE("aclblasSdot", "aclrtGetDevice failed");
-        return 0;
-    }
-    aclError ret = aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-    if (ret != ACL_SUCCESS) {
-        OP_LOGE("aclblasSdot", "aclrtGetDeviceInfo failed, ret=%d", ret);
-        return 0;
-    }
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,29 +52,10 @@ static SdotTilingData CalSdotTilingData(int64_t n, int64_t incx, int64_t incy, u
     tiling.n = n;
     tiling.incx = incx;
     tiling.incy = incy;
-
-    uint32_t useCoreNum = std::min(vectorCoreNum, static_cast<uint32_t>(n));
-    if (useCoreNum == 0) {
-        useCoreNum = 1;
+    tiling.useCoreNum = std::min(vectorCoreNum, static_cast<uint32_t>(n));
+    if (tiling.useCoreNum == 0) {
+        tiling.useCoreNum = 1;
     }
-    if (useCoreNum > SDOT_MAX_CORE_NUM) {
-        useCoreNum = SDOT_MAX_CORE_NUM;
-    }
-    tiling.useCoreNum = useCoreNum;
-
-    uint32_t baseCount = static_cast<uint32_t>(n) / useCoreNum;
-    uint32_t remain = static_cast<uint32_t>(n) % useCoreNum;
-    uint32_t offset = 0;
-    for (uint32_t i = 0; i < useCoreNum; i++) {
-        tiling.startOffset[i] = offset;
-        tiling.calCount[i] = baseCount + (i < remain ? 1 : 0);
-        offset += tiling.calCount[i];
-    }
-    for (uint32_t i = useCoreNum; i < SDOT_MAX_CORE_NUM; i++) {
-        tiling.startOffset[i] = 0;
-        tiling.calCount[i] = 0;
-    }
-
     return tiling;
 }
 
@@ -102,48 +63,21 @@ static SdotTilingData CalSdotTilingData(int64_t n, int64_t incx, int64_t incy, u
 // Kernel launch helper
 // ---------------------------------------------------------------------------
 static aclblasStatus_t LaunchSdotKernel(
-    const SdotTilingData& tiling, const float* x, const float* y, float* result, aclrtStream stream)
+    _aclblas_handle* h, const SdotTilingData& tiling, const float* x, const float* y, float* result)
 {
-    uint32_t workspaceSize = tiling.useCoreNum * sizeof(float);
-    uint8_t* workspaceDevice = nullptr;
-    aclError aclRet = aclrtMalloc(reinterpret_cast<void**>(&workspaceDevice), workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    size_t workspaceNeed = tiling.useCoreNum * sizeof(float);
     CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSdot", "aclrtMalloc workspace failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    uint8_t* tilingDevice = nullptr;
-    aclRet = aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SdotTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSdot", "aclrtMalloc tiling failed, ret=%d", aclRet);
-        aclrtFree(workspaceDevice);
-        return ACLBLAS_STATUS_ALLOC_FAILED;
-    }
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(SdotTilingData), &tiling, sizeof(SdotTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSdot", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice);
-        aclrtFree(workspaceDevice);
-        return ACLBLAS_STATUS_EXECUTION_FAILED;
-    }
+        workspaceNeed <= aclblasGetEffectiveWorkspaceSize(h),
+        OP_LOGE("aclblasSdot", "workspace %zu > handle %zu", workspaceNeed, aclblasGetEffectiveWorkspaceSize(h));
+        return ACLBLAS_STATUS_EXECUTION_FAILED);
+    uint8_t* workspaceDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
 
     OP_LOGI("aclblasSdot", "launching kernel with %u cores", tiling.useCoreNum);
 
     sdot_kernel_do(
         reinterpret_cast<uint8_t*>(const_cast<float*>(x)), reinterpret_cast<uint8_t*>(const_cast<float*>(y)),
-        reinterpret_cast<uint8_t*>(result), workspaceDevice, tilingDevice, tiling.useCoreNum, stream);
+        reinterpret_cast<uint8_t*>(result), workspaceDevice, tiling.useCoreNum, tiling, h->stream);
 
-    aclRet = aclrtSynchronizeStream(stream);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSdot", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice);
-        aclrtFree(workspaceDevice);
-        return ACLBLAS_STATUS_EXECUTION_FAILED;
-    }
-
-    aclrtFree(tilingDevice);
-    aclrtFree(workspaceDevice);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -154,6 +88,7 @@ aclblasStatus_t aclblasSdot(
     aclblasHandle_t handle, const int64_t n, const float* x, const int64_t incx, const float* y, const int64_t incy,
     float* result)
 {
+    CHECK_RET(handle != nullptr, OP_LOGE("aclblasSdot", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     if (n <= 0) {
         if (result != nullptr) {
             aclError ret = aclrtMemset(result, sizeof(float), 0, sizeof(float));
@@ -165,16 +100,16 @@ aclblasStatus_t aclblasSdot(
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    aclblasStatus_t status = ValidateSdotParams(handle, incx, incy, x, y, result);
+    aclblasStatus_t status = ValidateSdotParams(incx, incy, x, y, result);
     if (status != ACLBLAS_STATUS_SUCCESS) {
         return status;
     }
 
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
 
-    uint32_t vectorCoreNum = GetVectorCoreCount();
+    uint32_t vectorCoreNum = GetAivCoreCount();
     if (vectorCoreNum == 0) {
-        OP_LOGE("aclblasSdot", "vector core count is 0");
+        OP_LOGE("aclblasSdot", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
@@ -184,5 +119,5 @@ aclblasStatus_t aclblasSdot(
         "aclblasSdot", "tiling: n=%ld incx=%ld incy=%ld useCoreNum=%u", tiling.n, tiling.incx, tiling.incy,
         tiling.useCoreNum);
 
-    return LaunchSdotKernel(tiling, x, y, result, h->stream);
+    return LaunchSdotKernel(h, tiling, x, y, result);
 }

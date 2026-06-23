@@ -12,9 +12,6 @@
 
 #include <cstdint>
 
-static constexpr uint32_t SIMT_MIN_THREAD_NUM = 128;
-static constexpr uint32_t SIMT_MAX_THREAD_NUM = 2048;
-
 struct SsymvTilingData {
     uint32_t nthreads;
     uint32_t n;

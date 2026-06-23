@@ -27,23 +27,6 @@
 #include "scalex_tiling_data.h"
 #include "scalex_kernel.h"
 
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    aclError aclRet = aclrtGetDevice(&deviceId);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasScalex", "aclrtGetDevice failed, ret=%d", aclRet);
-        return 0;
-    }
-    aclRet = aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasScalex", "aclrtGetDeviceInfo failed, ret=%d", aclRet);
-        return 0;
-    }
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-}
-
 static uint32_t GetBytePerElement(uint32_t xType)
 {
     constexpr uint32_t kFp16Bf16Size = 2;         // sizeof(half) == sizeof(bfloat16_t)
@@ -193,9 +176,9 @@ aclblasStatus_t aclblasScalex(
         return status;
     }
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasScalex", "vector core count is 0");
+        OP_LOGE("aclblasScalex", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 

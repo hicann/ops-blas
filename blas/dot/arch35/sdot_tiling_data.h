@@ -12,14 +12,10 @@
 
 #include <cstdint>
 
-constexpr uint32_t SDOT_MAX_CORE_NUM = 64;
-
 struct SdotTilingData {
     int64_t n;
     int64_t incx;
     int64_t incy;
     uint32_t useCoreNum;
-    uint32_t startOffset[SDOT_MAX_CORE_NUM];
-    uint32_t calCount[SDOT_MAX_CORE_NUM];
 };
 

@@ -34,6 +34,19 @@ blas/gemv_batched/
     └── gemv_batched_tiling_data.h      // Tiling 数据结构（Host 和 Kernel 共用）
 ```
 
+测试代码位于 `test/gemv_batched/`：
+
+```
+test/gemv_batched/
+├── CMakeLists.txt                      // 编译工程文件
+├── gemv_batched_param.h                // CSV 参数解析
+├── gemv_batched_golden.h               // CPU golden（调用 cblas_sgemv）
+└── arch35/
+    ├── gemv_batched_test.cpp           // GTest 精度测试
+    ├── gemv_batched_test.csv           // CSV 测试用例
+    └── gemv_batched_npu_wrapper.h      // NPU 调用封装
+```
+
 ## 算子描述
 
 ### 实数批量矩阵-向量乘法（SgemvBatched / HSHgemvBatched / HSSgemvBatched）
@@ -50,7 +63,7 @@ y[i] = alpha * op(A[i]) * x[i] + beta * y[i]
 - `A`（不转置，trans = N）：维度 m×n，x 长度 n，y 长度 m
 - `A^T`（转置，trans = T）：x 长度 m，y 长度 n
 
-矩阵 A 采用行主序（row-major）存储。
+矩阵 A 采用列主序（column-major）存储。
 
 - 对应的接口为：
 
@@ -102,12 +115,15 @@ aclblasStatus_t aclblasHSSgemvBatched(
 
 - 算子实现：
 
+  Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，Tiling 数据通过值传递给 kernel（无需 GM 分配）。Workspace 使用 handle 的默认 workspace（通过 `aclblasGetEffectiveWorkspace()` 获取），无需手动申请。Host 侧为异步执行，不包含流同步操作，由调用方负责同步。日志输出使用 `OP_LOG*` 宏（如 `OP_LOGD`、`OP_LOGE`）。
+
   trans=N（不转置）：
     - 使用 AIV SIMD 向量指令实现行级点积（VEC_SCOPE），支持 m-tiling 和 n-tiling 分片策略
     - 多核并行：按 batch 数均匀分配到多个 AIV Core
 
   trans=T（转置）：
-    - 使用 SIMT 编程模型，每个线程处理一个输出元素
+    - incx=1 且 incy=1 时使用 AIV SIMD 双缓冲流水线
+    - 其他步长组合使用 SIMT 编程模型，每个线程处理一个输出元素
 
 - 调用实现：
   使用 `gemv_batched_kernel_do()` 封装内核调用。
@@ -211,6 +227,16 @@ int aclblasCgemvBatched(const void *A, const void *x, void *y,
 
 - 调用实现
     使用内核调用符<<<>>>调用核函数。
+
+## 测试用例覆盖
+
+测试基于 GTest + CSV 驱动框架，golden 实现调用 Netlib BLAS `cblas_sgemv`（逐 batch 调用）。
+
+| 分组 | 用例数 | 覆盖场景 |
+|------|--------|----------|
+| L0 | 5 | FP32/FP16 Normal、FP16 Large/LargeM、FP32 Transpose |
+| L1 | 54 | FP32/FP16/HSS/TST/TSS Normal+Transpose、大规模 m/n/batch、非对齐维度、多步长 lda/incx/incy、负步长 |
+| Error | 11 | 无效 trans enum、m/n<0、lda<m、incx/incy=0、A/x/y/alpha/beta 空指针 |
 
 ## 编译运行
 

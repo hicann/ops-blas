@@ -28,11 +28,11 @@ class GemvBatchedAIV {
 public:
     __aicore__ inline GemvBatchedAIV() {}
     __aicore__ inline void Init(
-        GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm);
+        GM_ADDR A, GM_ADDR x, GM_ADDR y, const GemvBatchedTilingData& tdata);
     __aicore__ inline void Process();
 
     __aicore__ inline void InitUbuf();
-    __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
+    __aicore__ inline void ParseTilingData(const GemvBatchedTilingData& tdata);
     __aicore__ inline void CopyInMatAndVec(uint32_t curBatchId, uint32_t nOffset, uint32_t nCurr,
                                            uint32_t mOffset, uint32_t mCurr);
     __aicore__ inline void CopyInY(uint32_t curBatchId, uint32_t mOffset, uint32_t mCurr);
@@ -57,7 +57,6 @@ private:
     GlobalTensor<T> outGM;
     GlobalTensor<float> inyFloatGM;   // HSS: float y input
     GlobalTensor<float> outFloatGM;   // HSS: float y output
-    GlobalTensor<float> workGM;
 
     TBuf<QuePosition::VECCALC> inABuf;
     TBuf<QuePosition::VECCALC> inxBuf;
@@ -101,10 +100,10 @@ private:
 
 template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Init(
-    GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
+    GM_ADDR A, GM_ADDR x, GM_ADDR y, const GemvBatchedTilingData& tdata)
 {
     this->vecIdx = GetBlockIdx();
-    ParseTilingData(tilingGm);
+    ParseTilingData(tdata);
     this->inAGM.SetGlobalBuffer((__gm__ T *)A);
     this->inxGM.SetGlobalBuffer((__gm__ T *)x);
     if constexpr (HSS_MODE) {
@@ -114,34 +113,31 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Init(
         this->inyGM.SetGlobalBuffer((__gm__ T *)y);
         this->outGM.SetGlobalBuffer((__gm__ T *)y);
     }
-    this->workGM.SetGlobalBuffer((__gm__ float *)workSpace);
     InitUbuf();
 }
 
 template <typename T, const bool TRANS_T, bool HSS_MODE>
-__aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ParseTilingData(GM_ADDR tilingGm)
+__aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ParseTilingData(const GemvBatchedTilingData& tdata)
 {
-    const auto *td = reinterpret_cast<__gm__ GemvBatchedTilingData *>(tilingGm);
-    this->alpha          = td->alpha;
-    this->beta           = td->beta;
-    this->m              = td->m;
-    this->n              = td->n;
-    this->outDim         = td->outSize;
-    this->dotDim         = td->dotSize;
-    this->batchGroupSize = td->batchGroupSize;  // 后续batchGroup搬入时使用
-    this->dotTile          = td->dotTile;
-    this->outTile          = td->outTile;
-    this->szInA          = td->bufInA;
-    this->szInx          = td->bufInx;
-    this->szInY          = td->bufInY;
-    this->szOut          = td->bufOut;
-    this->szMatTmp       = td->bufMatTmp;
-    this->szVecTmp       = td->bufVecTmp;
-    this->lda            = td->lda;
+    this->alpha          = tdata.alpha;
+    this->beta           = tdata.beta;
+    this->m              = tdata.m;
+    this->n              = tdata.n;
+    this->outDim         = tdata.outSize;
+    this->dotDim         = tdata.dotSize;
+    this->batchGroupSize = tdata.batchGroupSize;
+    this->dotTile          = tdata.dotTile;
+    this->outTile          = tdata.outTile;
+    this->szInA          = tdata.bufInA;
+    this->szInx          = tdata.bufInx;
+    this->szInY          = tdata.bufInY;
+    this->szOut          = tdata.bufOut;
+    this->szMatTmp       = tdata.bufMatTmp;
+    this->szVecTmp       = tdata.bufVecTmp;
+    this->lda            = tdata.lda;
 
-    this->startMatId = this->vecIdx * td->batchPerCore;
-    this->calMatNum  = (this->vecIdx == td->usedCoreNum - 1) ? td->batchTail : td->batchPerCore;
-
+    this->startMatId = this->vecIdx * tdata.batchPerCore;
+    this->calMatNum  = (this->vecIdx == tdata.usedCoreNum - 1) ? tdata.batchTail : tdata.batchPerCore;
 }
 
 template <typename T, const bool TRANS_T, bool HSS_MODE>
@@ -485,58 +481,56 @@ inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
 // Kernel entry helpers
 // ============================================================
 template <typename T_IN, typename T_OUT>
-__aicore__ inline void DispatchNormal(const __gm__ GemvBatchedTilingData *td, uint32_t nB, uint32_t sB,
+__aicore__ inline void DispatchNormal(const GemvBatchedTilingData& td, uint32_t nB, uint32_t sB,
                                        int32_t lda, int32_t incx, int32_t incy,
                                        GM_ADDR A, GM_ADDR x, GM_ADDR y)
 {
     asc_vf_call<GemvSimt<T_IN, T_OUT, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-        td->m, td->n, nB, sB, td->alpha, td->beta, lda, incx, incy,
+        td.m, td.n, nB, sB, td.alpha, td.beta, lda, incx, incy,
         reinterpret_cast<__gm__ const T_IN *>(A), reinterpret_cast<__gm__ const T_IN *>(x),
         reinterpret_cast<__gm__ T_OUT *>(y));
 }
 
 template <typename T, bool HSS>
-__aicore__ inline void DispatchTranspose(const __gm__ GemvBatchedTilingData *td, uint32_t nB, uint32_t sB,
+__aicore__ inline void DispatchTranspose(const GemvBatchedTilingData& td, uint32_t nB, uint32_t sB,
                                           int32_t lda, int32_t incx, int32_t incy,
-                                          GM_ADDR A, GM_ADDR x, GM_ADDR y,
-                                          GM_ADDR workSpace, GM_ADDR tilingGm)
+                                          GM_ADDR A, GM_ADDR x, GM_ADDR y)
 {
-    if (td->incx == 1 && td->incy == 1) {
+    if (td.incx == 1 && td.incy == 1) {
         GemvBatchedAIV<T, true, HSS> op;
-        op.Init(A, x, y, workSpace, tilingGm); op.Process();
+        op.Init(A, x, y, td); op.Process();
         return;
     }
     using TO = typename std::conditional<HSS, float, T>::type;
     asc_vf_call<GemvSimt<T, TO, true>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
-        td->m, td->n, nB, sB, td->alpha, td->beta, lda, incx, incy,
+        td.m, td.n, nB, sB, td.alpha, td.beta, lda, incx, incy,
         reinterpret_cast<__gm__ const T *>(A), reinterpret_cast<__gm__ const T *>(x),
         reinterpret_cast<__gm__ TO *>(y));
 }
 
 extern "C" __global__ __aicore__ void gemv_batched(
-    GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
+    GM_ADDR A, GM_ADDR x, GM_ADDR y, GemvBatchedTilingData td)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-    const auto *td = reinterpret_cast<__gm__ GemvBatchedTilingData *>(tilingGm);
-    uint32_t sB = GetBlockIdx() * td->batchPerCore;
-    uint32_t nB = (GetBlockIdx() == td->usedCoreNum - 1) ? td->batchTail : td->batchPerCore;
+    uint32_t sB = GetBlockIdx() * td.batchPerCore;
+    uint32_t nB = (GetBlockIdx() == td.usedCoreNum - 1) ? td.batchTail : td.batchPerCore;
     if (nB == 0) return;
-    int32_t lda = td->lda, incx = td->incx, incy = td->incy;
+    int32_t lda = td.lda, incx = td.incx, incy = td.incy;
 
 #define D_NORM(T_IN, T_OUT) DispatchNormal<T_IN, T_OUT>(td, nB, sB, lda, incx, incy, A, x, y)
-#define D_TRANS(T, HSS)     DispatchTranspose<T, HSS>(td, nB, sB, lda, incx, incy, A, x, y, workSpace, tilingGm)
+#define D_TRANS(T, HSS)     DispatchTranspose<T, HSS>(td, nB, sB, lda, incx, incy, A, x, y)
 
-    if (td->trans == 0) {
-        if      (td->dtype == 1) D_NORM(float,      float);
-        else if (td->dtype == 0) D_NORM(half,       half);
-        else if (td->dtype == 2) D_NORM(half,       float);
-        else if (td->dtype == 3) D_NORM(bfloat16_t, bfloat16_t);
+    if (td.trans == 0) {
+        if      (td.dtype == 1) D_NORM(float,      float);
+        else if (td.dtype == 0) D_NORM(half,       half);
+        else if (td.dtype == 2) D_NORM(half,       float);
+        else if (td.dtype == 3) D_NORM(bfloat16_t, bfloat16_t);
         else                     D_NORM(bfloat16_t, float);
     } else {
-        if      (td->dtype == 1) D_TRANS(float,      false);
-        else if (td->dtype == 0) D_TRANS(half,       false);
-        else if (td->dtype == 2) D_TRANS(half,       true);
-        else if (td->dtype == 3) D_TRANS(bfloat16_t, false);
+        if      (td.dtype == 1) D_TRANS(float,      false);
+        else if (td.dtype == 0) D_TRANS(half,       false);
+        else if (td.dtype == 2) D_TRANS(half,       true);
+        else if (td.dtype == 3) D_TRANS(bfloat16_t, false);
         else                     D_TRANS(bfloat16_t, true);
     }
 
@@ -545,8 +539,8 @@ extern "C" __global__ __aicore__ void gemv_batched(
 }
 
 void gemv_batched_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR y,
-                            GM_ADDR workSpace, GM_ADDR tilingGm,
+                            const GemvBatchedTilingData& tiling,
                             uint32_t numBlocks, void *stream)
 {
-    gemv_batched<<<numBlocks, nullptr, stream>>>(A, x, y, workSpace, tilingGm);
+    gemv_batched<<<numBlocks, nullptr, stream>>>(A, x, y, tiling);
 }

@@ -40,7 +40,8 @@ template <typename T>
 class SdotKernel {
 public:
     __aicore__ inline SdotKernel() {}
-    __aicore__ inline void Init(TPipe* pipe, GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace, GM_ADDR tilingGm);
+    __aicore__ inline void Init(TPipe* pipe, GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace,
+                                SdotTilingData tiling);
     __aicore__ inline void Process();
 
 private:
@@ -48,12 +49,12 @@ private:
     TQue<QuePosition::VECIN, BUFFER_NUM> xQueue_, yQueue_;
     TBuf<TPosition::VECCALC> tmpBuf_;
     GlobalTensor<T> xGM_, yGM_, resultGM_, workspaceGM_;
-    SdotTilingData tiling_;
+    int64_t n_, incx_, incy_;
+    uint32_t useCoreNum_;
     int64_t incxAbs_, incyAbs_;
     bool incxPos_, incyPos_;
     uint32_t coreIdx_, startIdx_, calCount_, chunkSize_, accOffset_;
 
-    __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
     __aicore__ inline void SyncMTEToV();
     __aicore__ inline void SyncVToMTE();
     __aicore__ inline void ProcessContiguous();
@@ -61,16 +62,43 @@ private:
 };
 
 template <typename T>
-__aicore__ inline void SdotKernel<T>::ParseTilingData(GM_ADDR tilingGm)
+__aicore__ inline void SdotKernel<T>::Init(
+    TPipe* pipe, GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace, SdotTilingData tiling)
 {
-    auto tiling = reinterpret_cast<__gm__ SdotTilingData*>(tilingGm);
-    tiling_.n = tiling->n;
-    tiling_.incx = tiling->incx;
-    tiling_.incy = tiling->incy;
-    tiling_.useCoreNum = tiling->useCoreNum;
+    pipe_ = pipe;
+    n_ = tiling.n;
+    incx_ = tiling.incx;
+    incy_ = tiling.incy;
+    useCoreNum_ = tiling.useCoreNum;
     coreIdx_ = GetBlockIdx();
-    startIdx_ = tiling->startOffset[coreIdx_];
-    calCount_ = tiling->calCount[coreIdx_];
+
+    uint32_t baseCount = static_cast<uint32_t>(n_) / useCoreNum_;
+    uint32_t remain = static_cast<uint32_t>(n_) % useCoreNum_;
+    startIdx_ = coreIdx_ * baseCount + (coreIdx_ < remain ? coreIdx_ : remain);
+    calCount_ = baseCount + (coreIdx_ < remain ? 1 : 0);
+
+    xGM_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(x));
+    yGM_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(y));
+    resultGM_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(result), 1);
+    workspaceGM_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(workSpace), useCoreNum_);
+
+    incxAbs_ = (incx_ >= 0) ? incx_ : -incx_;
+    incyAbs_ = (incy_ >= 0) ? incy_ : -incy_;
+    incxPos_ = (incx_ >= 0);
+    incyPos_ = (incy_ >= 0);
+
+    uint32_t availFloats = (UB_SIZE - SAFETY_MARGIN) / sizeof(T);
+    uint32_t fixedCost = 1 + SHARED_TMP_ELEMENTS + ACCUMULATOR_FLOATS;
+    uint32_t rawChunk = (availFloats > fixedCost) ? (availFloats - fixedCost) / CHUNK_MULTIPLIER : 0;
+    rawChunk = (rawChunk / ELEMENTS_PER_BLOCK) * ELEMENTS_PER_BLOCK;
+    chunkSize_ = (rawChunk > MAX_CHUNK_SIZE) ? MAX_CHUNK_SIZE : rawChunk;
+
+    pipe_->InitBuffer(xQueue_, BUFFER_NUM, chunkSize_ * sizeof(T));
+    pipe_->InitBuffer(yQueue_, BUFFER_NUM, chunkSize_ * sizeof(T));
+
+    uint32_t alignedChunk = ((chunkSize_ + 1 + 7) / 8) * 8;
+    accOffset_ = ((alignedChunk + SHARED_TMP_ELEMENTS + 7) / 8) * 8;
+    pipe_->InitBuffer(tmpBuf_, (accOffset_ + ACCUMULATOR_FLOATS) * sizeof(T));
 }
 
 template <typename T>
@@ -87,37 +115,6 @@ __aicore__ inline void SdotKernel<T>::SyncVToMTE()
     int32_t eid = static_cast<int32_t>(pipe_->FetchEventID(HardEvent::V_MTE3));
     SetFlag<HardEvent::V_MTE3>(eid);
     WaitFlag<HardEvent::V_MTE3>(eid);
-}
-
-template <typename T>
-__aicore__ inline void SdotKernel<T>::Init(
-    TPipe* pipe, GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace, GM_ADDR tilingGm)
-{
-    pipe_ = pipe;
-    ParseTilingData(tilingGm);
-    xGM_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(x));
-    yGM_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(y));
-    resultGM_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(result), 1);
-    workspaceGM_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(workSpace), tiling_.useCoreNum);
-
-    incxAbs_ = (tiling_.incx >= 0) ? tiling_.incx : -tiling_.incx;
-    incyAbs_ = (tiling_.incy >= 0) ? tiling_.incy : -tiling_.incy;
-    incxPos_ = (tiling_.incx >= 0);
-    incyPos_ = (tiling_.incy >= 0);
-
-    uint32_t availFloats = (UB_SIZE - SAFETY_MARGIN) / sizeof(T);
-    // 哨兵(1) + ReduceSum暂存 + 累加器，chunk 公式的固定减项，availFloats 不足时置 0 防下溢
-    uint32_t fixedCost = 1 + SHARED_TMP_ELEMENTS + ACCUMULATOR_FLOATS;
-    uint32_t rawChunk = (availFloats > fixedCost) ? (availFloats - fixedCost) / CHUNK_MULTIPLIER : 0;
-    rawChunk = (rawChunk / ELEMENTS_PER_BLOCK) * ELEMENTS_PER_BLOCK;
-    chunkSize_ = (rawChunk > MAX_CHUNK_SIZE) ? MAX_CHUNK_SIZE : rawChunk;
-
-    pipe_->InitBuffer(xQueue_, BUFFER_NUM, chunkSize_ * sizeof(T));
-    pipe_->InitBuffer(yQueue_, BUFFER_NUM, chunkSize_ * sizeof(T));
-
-    uint32_t alignedChunk = ((chunkSize_ + 1 + 7) / 8) * 8;
-    accOffset_ = ((alignedChunk + SHARED_TMP_ELEMENTS + 7) / 8) * 8;
-    pipe_->InitBuffer(tmpBuf_, (accOffset_ + ACCUMULATOR_FLOATS) * sizeof(T));
 }
 
 template <typename T>
@@ -180,7 +177,7 @@ __aicore__ inline void SdotKernel<T>::ProcessStrided()
     Duplicate<T>(acc, static_cast<T>(0), ACCUMULATOR_FLOATS);
     PipeBarrier<PIPE_V>();
 
-    uint32_t nv = static_cast<uint32_t>(tiling_.n);
+    uint32_t nv = static_cast<uint32_t>(n_);
     for (uint32_t i = 0; i < calCount_; i++) {
         int64_t idx = static_cast<int64_t>(startIdx_ + i);
         int64_t xo = incxPos_ ? idx * incxAbs_ : (static_cast<int64_t>(nv) - 1 - idx) * incxAbs_;
@@ -226,12 +223,12 @@ __aicore__ inline void SdotKernel<T>::Process()
 
     if (coreIdx_ == 0) {
         LocalTensor<T> ws = tmpBuf_.Get<T>();
-        uint32_t cpLen = static_cast<uint32_t>(tiling_.useCoreNum * sizeof(T));
+        uint32_t cpLen = static_cast<uint32_t>(useCoreNum_ * sizeof(T));
         DataCopyPad(ws, workspaceGM_[0], {1, cpLen, 0, 0, 0}, {false, 0, 0, 0});
         SyncMTEToV();
 
-        uint32_t wa = ((tiling_.useCoreNum + 7) / 8) * 8;
-        ReduceSum<T>(ws, ws, ws[wa], static_cast<int32_t>(tiling_.useCoreNum));
+        uint32_t wa = ((useCoreNum_ + 7) / 8) * 8;
+        ReduceSum<T>(ws, ws, ws[wa], static_cast<int32_t>(useCoreNum_));
         PipeBarrier<PIPE_V>();
 
         SyncVToMTE();
@@ -239,17 +236,19 @@ __aicore__ inline void SdotKernel<T>::Process()
     }
 }
 
-__global__ __aicore__ void sdot_kernel(GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void sdot_kernel(GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace,
+                                       SdotTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     SdotKernel<float> op;
-    op.Init(&pipe, x, y, result, workSpace, tilingGm);
+    op.Init(&pipe, x, y, result, workSpace, tiling);
     op.Process();
 }
 
 void sdot_kernel_do(
-    GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    GM_ADDR x, GM_ADDR y, GM_ADDR result, GM_ADDR workSpace,
+    uint32_t numBlocks, const SdotTilingData& tiling, void* stream)
 {
-    sdot_kernel<<<numBlocks, nullptr, stream>>>(x, y, result, workSpace, tilingGm);
+    sdot_kernel<<<numBlocks, nullptr, stream>>>(x, y, result, workSpace, tiling);
 }

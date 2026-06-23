@@ -27,12 +27,22 @@ A = A + alpha * x * y^T
 ```
 blas/ger/
 ├── README.md                   // 说明文档
-├── sger_host.cpp               // 通用 Host 侧实现（arch22）
-├── sger_kernel.cpp             // 通用 Kernel 实现（arch22）
+├── arch22/
+│   ├── sger_host.cpp           // Host 侧实现（arch22）
+│   └── sger_kernel.cpp         // Kernel 侧实现（arch22）
 └── arch35/
-    ├── sger_host.cpp           // arch35 Host 侧实现（ascend950）
-    ├── sger_kernel.cpp         // arch35 Kernel 实现（SIMT）
-    └── sger_tiling_data.h      // arch35 Tiling 数据结构定义
+    ├── sger_host.cpp           // Host 侧实现（arch35）
+    ├── sger_kernel.cpp         // Kernel 侧实现（arch35，SIMT）
+    └── sger_tiling_data.h      // Tiling 数据结构（arch35）
+
+test/ger/sger/
+├── CMakeLists.txt              // 测试构建文件
+├── sger_param.h                // CSV 参数解析结构体
+├── sger_golden.h               // CPU golden（cblas_sger）
+└── arch35/
+    ├── sger_test.cpp           // 测试代码（arch35，GTest 参数化）
+    ├── sger_test.csv           // CSV 测试用例
+    └── sger_npu_wrapper.h      // NPU wrapper
 ```
 
 ## 算子描述
@@ -53,6 +63,14 @@ blas/ger/
 
 - 调用实现：
   本样例为 Host API 调用示例，使用 `aclblasSger` 接口完成算子配置与执行。
+
+- 实现说明：
+
+  **arch35 (SIMT)**：采用 SIMT 编程模型，支持两条执行路径：
+  - **UB-x 路径**：当 incx=1 且 m≤16384 时，将 x 向量缓存到 `__ubuf__` 共享内存，所有列共享同一份 x 数据，提升数据复用率
+  - **GM 路径**：grid-stride loop 遍历所有列，适用于任意 incx 或 m>16384 的场景
+
+  Tiling 数据通过传值方式（by value）从 host 传入 kernel，无需分配 GM 设备内存。Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，异步 launch kernel 后直接返回。
 
 - 接口定义：
 
@@ -96,8 +114,8 @@ source ${install_path}/cann/set_env.sh
 bash build.sh --ops=sger --soc=ascend950 --run
 ```
 
-执行结果如下，说明精度对比成功。
+执行结果如下，说明所有测试用例通过。
 
 ```bash
-[Success] Case accuracy verification passed.
+[  PASSED  ] N tests.
 ```

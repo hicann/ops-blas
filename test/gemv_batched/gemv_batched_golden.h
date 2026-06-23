@@ -16,6 +16,7 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 
 inline aclblasStatus_t validateGemvBatchedCpuParams(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, int lda, int incx,
@@ -36,47 +37,6 @@ inline aclblasStatus_t validateGemvBatchedCpuParams(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-// Per-batch GEMV: y = alpha * op(A) * x + beta * y
-// For real types OP_C (conjugate-transpose) is equivalent to OP_T.
-static void gemvBatchedCpuOne(
-    aclblasOperation_t trans, int m, int n, float alpha, const float* a, int lda,
-    const float* x, int incx, float beta, float* y, int incy)
-{
-    const bool isTransN = (trans == ACLBLAS_OP_N);
-    const int xCount = isTransN ? n : m;
-    const int yCount = isTransN ? m : n;
-    const int absIncx = std::abs(incx);
-    const int absIncy = std::abs(incy);
-
-    for (int i = 0; i < yCount; i++) {
-        int yIdx = (incy > 0) ? (i * incy) : ((yCount - 1 - i) * absIncy);
-        y[yIdx] *= beta;
-    }
-
-    if (isTransN) {
-        for (int i = 0; i < m; i++) {
-            double sum = 0.0;
-            for (int j = 0; j < n; j++) {
-                int xIdx = (incx > 0) ? (j * incx) : ((xCount - 1 - j) * absIncx);
-                sum += static_cast<double>(a[i + static_cast<int64_t>(j) * lda]) * static_cast<double>(x[xIdx]);
-            }
-            int yIdx = (incy > 0) ? (i * incy) : ((yCount - 1 - i) * absIncy);
-            y[yIdx] = static_cast<float>(static_cast<double>(alpha) * sum + static_cast<double>(y[yIdx]));
-        }
-    } else {
-        for (int j = 0; j < n; j++) {
-            double sum = 0.0;
-            for (int i = 0; i < m; i++) {
-                int xIdx = (incx > 0) ? (i * incx) : ((xCount - 1 - i) * absIncx);
-                sum += static_cast<double>(a[i + static_cast<int64_t>(j) * lda]) * static_cast<double>(x[xIdx]);
-            }
-            int yIdx = (incy > 0) ? (j * incy) : ((yCount - 1 - j) * absIncy);
-            y[yIdx] = static_cast<float>(static_cast<double>(alpha) * sum + static_cast<double>(y[yIdx]));
-        }
-    }
-}
-
-// Unified CPU golden: computes in float using caller-quantized inputs
 inline aclblasStatus_t aclblasGemvBatched_cpu(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* a, int lda,
     const float* x, int incx, const float* beta, float* y, int incy, int batchCount)
@@ -94,8 +54,13 @@ inline aclblasStatus_t aclblasGemvBatched_cpu(
     const size_t yStride = static_cast<size_t>((yCount - 1) * std::abs(incy) + 1);
     const size_t aStride = static_cast<size_t>(lda) * n;
 
+    CBLAS_TRANSPOSE cblasTrans = (trans == ACLBLAS_OP_N) ? CblasNoTrans : CblasTrans;
+
     for (int b = 0; b < batchCount; b++) {
-        gemvBatchedCpuOne(trans, m, n, *alpha, a + b * aStride, lda, x + b * xStride, incx, *beta, y + b * yStride, incy);
+        cblas_sgemv(CblasColMajor, cblasTrans, m, n, *alpha,
+                     a + b * aStride, lda,
+                     x + b * xStride, incx,
+                     *beta, y + b * yStride, incy);
     }
     return ACLBLAS_STATUS_SUCCESS;
 }

@@ -34,11 +34,14 @@ blas/asum/
 
 ```
 test/asum/
-├── CMakeLists.txt                  // 编译工程文件
-├── arch35/
-│   └── sasum_test.cpp              // 精度测试（arch35）
-└── arch22/
-    └── sasum_test.cpp              // 精度测试（arch22）
+└── sasum/
+    ├── CMakeLists.txt              // 编译工程文件
+    ├── sasum_param.h               // CSV 参数解析
+    ├── sasum_golden.h              // CPU golden（调用 cblas_sasum）
+    └── arch35/
+        ├── sasum_test.cpp          // GTest 精度测试（arch35）
+        ├── sasum_test.csv          // CSV 测试用例
+        └── sasum_npu_wrapper.h     // NPU 调用封装
 ```
 
 ## 算子描述
@@ -126,13 +129,15 @@ aclblasStatus_t aclblasSasum(
   - **arch35**（Ascend 950）：
 
     采用多kernel实现，根据步长分两条路径：
-    - **incx=1 路径（AIV）**：单kernel `sasum_aiv_kernel` 实现。Host侧动态获取AIV核数并均分元素到各核，Tiling数据通过值传递（无需GM分配）。每个AI Core按`maxDataCount`分片迭代：将子块从GM搬运到UB，`Abs`取绝对值后`ReduceSum`求局部和，通过`DataCopyPad`+原子加写回全局result。
-    - **incx≠1 路径（SIMT + Reduce）**：两阶段实现。第一阶段`sasum_simt_kernel`通过SIMT多线程并行，每个线程按步长跨步访问向量元素，在UB上完成局部绝对值累加，再通过线程内树形归约得到每核部分和写入workspace。第二阶段`sasum_reduce_kernel`使用1个AI Core将workspace中所有部分和累加得到最终结果。
+    - **incx=1 路径（AIV）**：单kernel `sasum_aiv_kernel` 实现。Host侧通过`GetAivCoreCount()`获取AIV核数并均分元素到各核，Tiling数据通过值传递（无需GM分配）。每个AI Core按`maxDataCount`分片迭代：将子块从GM搬运到UB，`Abs`取绝对值后`ReduceSum`求局部和，通过`DataCopyPad`+原子加写回全局result。
+    - **incx≠1 路径（SIMT + Reduce）**：两阶段实现。第一阶段`sasum_simt_kernel`通过SIMT多线程并行，每个线程按步长跨步访问向量元素，在UB上完成局部绝对值累加，再通过线程内树形归约得到每核部分和写入workspace（使用handle workspace）。第二阶段`sasum_reduce_kernel`使用1个AI Core将workspace中所有部分和累加得到最终结果。
 
 - 调用实现  
-    使用内核调用符<<<>>>调用核函数。arch35下incx=1时直接调用`sasum_aiv_kernel`，incx≠1时依次调用`sasum_simt_kernel`和`sasum_reduce_kernel`。
+    使用内核调用符<<<>>>调用核函数。arch35下incx=1时直接调用`sasum_aiv_kernel`，incx≠1时依次调用`sasum_simt_kernel`和`sasum_reduce_kernel`。Host侧为异步执行，不包含流同步操作，由调用方负责同步。
 
 ## 测试用例覆盖
+
+测试基于 GTest + CSV 驱动框架，golden 实现调用 Netlib BLAS `cblas_sasum`。
 
 | 分组 | 用例数 | 覆盖场景 |
 |------|--------|----------|

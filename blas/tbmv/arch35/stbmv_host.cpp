@@ -25,20 +25,12 @@
 #include "common/helper/kernel_constant.h"
 #include "stbmv_common.h"
 
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
 static constexpr bool STBMV_ENABLE_COLUMN_SIMD_FASTPATH = true;
 
 static aclblasStatus_t ValidateStbmvParams(
-    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k,
+    aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k,
     const float* a, int lda, const float* x, int incx)
 {
-    CHECK_RET(handle != nullptr, OP_LOGE("aclblasStbmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     CHECK_RET(
         uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
         OP_LOGE("aclblasStbmv", "invalid uplo=%d", static_cast<int>(uplo));
@@ -59,17 +51,6 @@ static aclblasStatus_t ValidateStbmvParams(
     CHECK_RET(a != nullptr, OP_LOGE("aclblasStbmv", "a must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(x != nullptr, OP_LOGE("aclblasStbmv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
-}
-
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
 }
 
 static StbmvTilingData CalStbmvTilingData(
@@ -133,15 +114,10 @@ static aclblasStatus_t LaunchStbmvKernel(
             A, x, workspaceDevice, workspaceSize, tilingData, fastTilingData, fastBlocks, h->stream);
         CHECK_RET(
             kernelRet == ACL_SUCCESS, OP_LOGE("aclblasStbmv", "fastpath kernel failed, ret=%d", kernelRet);
-            aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+            return ACLBLAS_STATUS_INTERNAL_ERROR);
     } else {
         stbmv_arch35_kernel_do(A, x, workspaceDevice, tilingData, useNumBlocks, h->stream);
     }
-    aclError aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasStbmv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-    aclrtFree(workspaceDevice);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -149,19 +125,20 @@ aclblasStatus_t aclblasStbmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k,
     const float* A, int lda, float* x, int incx)
 {
+    CHECK_RET(n >= 0, OP_LOGE("aclblasStbmv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(handle != nullptr, OP_LOGE("aclblasStbmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-    aclblasStatus_t st = ValidateStbmvParams(handle, uplo, trans, diag, n, k, A, lda, x, incx);
+    aclblasStatus_t st = ValidateStbmvParams(uplo, trans, diag, n, k, A, lda, x, incx);
     CHECK_RET(st == ACLBLAS_STATUS_SUCCESS, return st);
     if (k == 0 && diag == ACLBLAS_UNIT) {
         return ACLBLAS_STATUS_SUCCESS;
     }
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     CHECK_RET(
-        aivCoreNum > 0, OP_LOGE("aclblasStbmv", "vector core count is 0"); return ACLBLAS_STATUS_EXECUTION_FAILED);
+        aivCoreNum > 0, OP_LOGE("aclblasStbmv", "GetAivCoreCount failed"); return ACLBLAS_STATUS_EXECUTION_FAILED);
     uint32_t useNumBlocks =
         std::max<uint32_t>(std::min(CeilDiv<uint32_t>(static_cast<uint32_t>(n), SIMT_MIN_THREAD_NUM), aivCoreNum), 1);
 
@@ -173,14 +150,14 @@ aclblasStatus_t aclblasStbmv(
         fastTilingData = CalStbmvFastTilingData(aivCoreNum, n, k, lda, uplo, fastBlocks);
     }
 
-    uint8_t* workspaceDevice = nullptr;
     size_t workspaceSize = (k > 0) ? static_cast<size_t>(n) * sizeof(float) : 0;
+    uint8_t* workspaceDevice = nullptr;
     if (k > 0) {
-        aclError aclRet =
-            aclrtMalloc(reinterpret_cast<void**>(&workspaceDevice), workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
         CHECK_RET(
-            aclRet == ACL_SUCCESS, OP_LOGE("aclblasStbmv", "aclrtMalloc failed, ret=%d", aclRet);
-            return ACLBLAS_STATUS_ALLOC_FAILED);
+            workspaceSize <= aclblasGetEffectiveWorkspaceSize(h),
+            OP_LOGE("aclblasStbmv", "workspace %zu > handle %zu", workspaceSize, aclblasGetEffectiveWorkspaceSize(h));
+            return ACLBLAS_STATUS_EXECUTION_FAILED);
+        workspaceDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
     }
     return LaunchStbmvKernel(
         h, A, x, workspaceDevice, workspaceSize, tilingData, useFastPath, fastTilingData, fastBlocks, useNumBlocks);

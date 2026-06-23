@@ -34,6 +34,24 @@ blas/scal/
     └── sscal_tiling_data.h         // Sscal Tiling 数据结构（arch35）
 ```
 
+测试代码位于 `test/scal/`：
+
+```
+test/scal/
+├── cscal/
+│   ├── CMakeLists.txt              // 编译工程文件
+│   └── arch22/
+│       └── cscal_test.cpp          // 精度测试（arch22）
+└── sscal/
+    ├── CMakeLists.txt              // 编译工程文件
+    ├── sscal_param.h               // CSV 参数解析
+    ├── sscal_golden.h              // CPU golden（调用 cblas_sscal）
+    └── arch35/
+        ├── sscal_test.cpp          // GTest 精度测试（arch35）
+        ├── sscal_test.csv          // CSV 测试用例
+        └── sscal_npu_wrapper.h     // NPU 调用封装
+```
+
 ## 算子描述
 
 ### Sscal（实数向量缩放）
@@ -100,13 +118,11 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
 
 - 算子实现：
 
-  使用 TPipe + TQue(VECIN/VECOUT) 双队列流水：
-  1. MTE3: DataCopy / DataCopyPad 将 x 从 GM 搬入 UB（32B 对齐，tail 用 Pad 补齐）
-  2. V: Muls 指令完成向量乘标量 `outLocal[i] = inLocal[i] * alpha`
-  3. MTE3: DataCopy / DataCopyPad 将结果写回 GM
+  根据步长分两条路径：
+  - **incx=1 路径（AIV）**：单kernel `sscal_aiv_kernel` 实现。Host侧通过`GetAivCoreCount()`获取AIV核数并均分元素到各核，Tiling数据通过值传递（无需GM分配）。使用 TPipe + TQue(VECIN/VECOUT) 双队列流水：(1) MTE3: DataCopy / DataCopyPad 将 x 从 GM 搬入 UB（32B 对齐，tail 用 Pad 补齐）；(2) V: Muls 指令完成向量乘标量；(3) MTE3: DataCopy / DataCopyPad 将结果写回 GM。多核并行按 AIV core 数量均分 n 个元素，每个 core 处理 `perCoreN` 个（ELEMENTS_PER_BLOCK=8 对齐），末尾 core 吸收余数，Tile 循环避免 UB 溢出。
+  - **incx≠1 路径（SIMT）**：单kernel `sscal_simt_kernel` 实现。通过SIMT多线程并行，每个线程按步长跨步访问向量元素并完成乘标量操作。
 
-  多核并行：按 AIV core 数量均分 n 个元素，每个 core 处理 `perCoreN` 个（ELEMENTS_PER_BLOCK=8 对齐），
-  末尾 core 吸收余数。Tile 循环避免 UB 溢出。
+  Host侧为异步执行，不包含流同步操作，由调用方负责同步。
 
 ### Cscal（复数向量缩放）
 
@@ -184,6 +200,17 @@ int aclblasCscal(aclblasHandle handle, std::complex<float> *x, const std::comple
 - 调用实现
     使用内核调用符<<<>>>调用核函数。
 
+## 测试用例覆盖
+
+测试基于 GTest + CSV 驱动框架，golden 实现调用 Netlib BLAS `cblas_sscal`。
+
+| 分组 | 用例数 | 覆盖场景 |
+|------|--------|----------|
+| 异常 | 5 | x空指针、n=0提前退出、n<0提前退出、incx=0无效入参 |
+| L0 | 6 | AIV路径(incx=1)：n=1/2/4/32/128/512 |
+| L1 | 25 | AIV路径(incx=1)：alpha=0/1/负/小/大、n=64~16384、全零/全一/NaN/Inf/Extreme特殊数据、非2幂n=7/33/100/1000 |
+| L2 | 18 | SIMT路径(incx≠1)：incx=2/3/5/7/11、负步长incx=-1/-2/-3、alpha=0/负/小 |
+
 ## 编译运行
 
 在仓库根目录下执行如下步骤，编译并运行算子测试。
@@ -201,5 +228,5 @@ int aclblasCscal(aclblasHandle handle, std::complex<float> *x, const std::comple
 
   执行结果如下，说明精度对比成功。
   ```bash
-  [Success] Case accuracy is verification passed.
+  [PASS] sscal_test
   ```

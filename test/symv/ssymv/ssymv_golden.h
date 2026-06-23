@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
@@ -17,22 +18,25 @@
 #include "cann_ops_blas.h"
 #include "cblas_compat.h"
 
-inline aclblasStatus_t aclblasSasum_cpu(
-    aclblasHandle_t handle,
-    int n,
-    const float* x,
-    int incx,
-    float* result)
+inline aclblasStatus_t aclblasSsymv_cpu(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* a, int lda,
+    const float* x, int incx, const float* beta, float* y, int incy)
 {
-    if (handle == nullptr) return ACLBLAS_STATUS_NOT_INITIALIZED;
-    if (n < 0 || incx == 0) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (x == nullptr || result == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (n == 0) {
-        *result = 0.0f;
+    if (handle == nullptr)
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    if (n < 0)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (uplo != ACLBLAS_UPPER && uplo != ACLBLAS_LOWER)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (lda < std::max(1, n))
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (incx == 0 || incy == 0)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (alpha == nullptr || beta == nullptr)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (n == 0)
         return ACLBLAS_STATUS_SUCCESS;
-    }
 
-    *result = cblas_sasum(n, x, incx);
+    cblas_ssymv(CblasColMajor, ToCblasUplo(uplo), n, *alpha, a, lda, x, incx, *beta, y, incy);
     return ACLBLAS_STATUS_SUCCESS;
 }
-

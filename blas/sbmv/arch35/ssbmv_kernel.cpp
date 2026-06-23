@@ -119,74 +119,67 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsbmvUb(
 // ==========================================================================
 //  Kernel dispatcher — choose GM or UB path per launch
 // ==========================================================================
-__global__ __aicore__ void ssbmv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void ssbmv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace,
+                                        const SsbmvTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
-    const auto* __restrict tdata = reinterpret_cast<__gm__ SsbmvTilingData*>(tilingGm);
     auto* aGm = reinterpret_cast<__gm__ float*>(a);
     auto* xGm = reinterpret_cast<__gm__ float*>(x);
     auto* yGm = reinterpret_cast<__gm__ float*>(y);
 
-    // ── Path selection ──
-    // UB path requires incx==1 (contiguous x in GM for cooperative load)
-    // and n>=32 (amortize cooperative-load + barrier overhead)
-    if (tdata->incx != 1 || tdata->n < 32) {
-        if (tdata->uplo == ACLBLAS_UPPER) {
+    if (tiling.incx != 1 || tiling.n < 32) {
+        if (tiling.uplo == ACLBLAS_UPPER) {
             asc_vf_call<SsbmvGm<true>>(
-                dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
-                tdata->incy, aGm, xGm, yGm);
+                dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.k, tiling.lda, tiling.alpha, tiling.beta, tiling.incx,
+                tiling.incy, aGm, xGm, yGm);
         } else {
             asc_vf_call<SsbmvGm<false>>(
-                dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
-                tdata->incy, aGm, xGm, yGm);
+                dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.k, tiling.lda, tiling.alpha, tiling.beta, tiling.incx,
+                tiling.incy, aGm, xGm, yGm);
         }
         return;
     }
 
-    // ── UB path: per-block row range ──
-    // Each block handles a contiguous slice of rows: [rowStart, rowEnd).
     int32_t blkIdx = AscendC::GetBlockIdx();
-    uint32_t rowsPerBlk = tdata->rowsPerBlock;
+    uint32_t rowsPerBlk = tiling.rowsPerBlock;
     uint32_t rowStart = static_cast<uint32_t>(blkIdx) * rowsPerBlk;
-    uint32_t rowEnd = (rowStart + rowsPerBlk < tdata->n) ? (rowStart + rowsPerBlk) : tdata->n;
+    uint32_t rowEnd = (rowStart + rowsPerBlk < tiling.n) ? (rowStart + rowsPerBlk) : tiling.n;
     if (rowStart >= rowEnd) {
         return;
     }
 
-    // x range needed for this block: [rowStart-k, rowEnd+k), clamped to [0,n)
-    int32_t xBase = (rowStart >= tdata->k) ? static_cast<int32_t>(rowStart - tdata->k) : 0;
-    uint32_t xEnd = (tdata->n < rowEnd + tdata->k) ? tdata->n : (rowEnd + tdata->k);
+    int32_t xBase = (rowStart >= tiling.k) ? static_cast<int32_t>(rowStart - tiling.k) : 0;
+    uint32_t xEnd = (tiling.n < rowEnd + tiling.k) ? tiling.n : (rowEnd + tiling.k);
     uint32_t xLen = xEnd - static_cast<uint32_t>(xBase);
 
     if (xLen == 0 || xLen > UB_X_FLOATS) {
-        // x tile too large for UB — fall back to GM path
-        if (tdata->uplo == ACLBLAS_UPPER) {
+        if (tiling.uplo == ACLBLAS_UPPER) {
             asc_vf_call<SsbmvGm<true>>(
-                dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
-                tdata->incy, aGm, xGm, yGm);
+                dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.k, tiling.lda, tiling.alpha, tiling.beta, tiling.incx,
+                tiling.incy, aGm, xGm, yGm);
         } else {
             asc_vf_call<SsbmvGm<false>>(
-                dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incx,
-                tdata->incy, aGm, xGm, yGm);
+                dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.k, tiling.lda, tiling.alpha, tiling.beta, tiling.incx,
+                tiling.incy, aGm, xGm, yGm);
         }
         return;
     }
 
-    // Launch SIMT VF with UB x-caching
-    if (tdata->uplo == ACLBLAS_UPPER) {
+    if (tiling.uplo == ACLBLAS_UPPER) {
         asc_vf_call<SsbmvUb<true>>(
-            dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incy, aGm,
+            dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.k, tiling.lda, tiling.alpha, tiling.beta, tiling.incy, aGm,
             xGm, yGm, rowStart, rowEnd, xBase, xLen);
     } else {
         asc_vf_call<SsbmvUb<false>>(
-            dim3{tdata->numThreads, 1, 1}, tdata->n, tdata->k, tdata->lda, tdata->alpha, tdata->beta, tdata->incy, aGm,
+            dim3{tiling.numThreads, 1, 1}, tiling.n, tiling.k, tiling.lda, tiling.alpha, tiling.beta, tiling.incy, aGm,
             xGm, yGm, rowStart, rowEnd, xBase, xLen);
     }
 }
 
 void ssbmv_kernel_do(
-    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace,
+    uint32_t numBlocks, const SsbmvTilingData& tiling, void* stream)
 {
-    ssbmv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tilingGm);
+    ssbmv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tiling);
 }

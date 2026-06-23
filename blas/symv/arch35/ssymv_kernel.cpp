@@ -17,6 +17,7 @@
 #include "simt_api/asc_simt.h"
 #include "ssymv_tiling_data.h"
 #include "cann_ops_blas_common.h"
+#include "common/helper/kernel_constant.h"
 
 template<bool UPLO_IS_UPPER>
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsymvSimtCompute(
@@ -55,23 +56,22 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsymvSimtCo
     }
 }
 
-__global__ __aicore__ void ssymv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void ssymv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace,
+                                        const SsymvTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
-    const auto* __restrict tdata = reinterpret_cast<__gm__ SsymvTilingData*>(tilingGm);
-
-    if (tdata->uplo == ACLBLAS_UPPER) {
+    if (tiling.uplo == ACLBLAS_UPPER) {
         asc_vf_call<SsymvSimtCompute<true>>(
-            dim3{tdata->nthreads, 1, 1}, tdata->n, tdata->lda,
-            tdata->alpha, tdata->beta, tdata->incx, tdata->incy,
+            dim3{tiling.nthreads, 1, 1}, tiling.n, tiling.lda,
+            tiling.alpha, tiling.beta, tiling.incx, tiling.incy,
             reinterpret_cast<__gm__ const float*>(a),
             reinterpret_cast<__gm__ const float*>(x),
             reinterpret_cast<__gm__ float*>(y));
     } else {
         asc_vf_call<SsymvSimtCompute<false>>(
-            dim3{tdata->nthreads, 1, 1}, tdata->n, tdata->lda,
-            tdata->alpha, tdata->beta, tdata->incx, tdata->incy,
+            dim3{tiling.nthreads, 1, 1}, tiling.n, tiling.lda,
+            tiling.alpha, tiling.beta, tiling.incx, tiling.incy,
             reinterpret_cast<__gm__ const float*>(a),
             reinterpret_cast<__gm__ const float*>(x),
             reinterpret_cast<__gm__ float*>(y));
@@ -79,7 +79,8 @@ __global__ __aicore__ void ssymv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR
 }
 
 void ssymv_kernel_do(
-    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace,
+    uint32_t numBlocks, const SsymvTilingData& tiling, void* stream)
 {
-    ssymv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tilingGm);
+    ssymv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tiling);
 }

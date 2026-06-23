@@ -57,27 +57,27 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SspmvSimtCo
     }
 }
 
-__global__ __aicore__ void sspmv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm)
+__global__ __aicore__ void sspmv_kernel(GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace,
+                                        const SspmvTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
-    const auto* __restrict tdata = reinterpret_cast<__gm__ SspmvTilingData*>(tilingGm);
-
-    if (tdata->uplo == ACLBLAS_UPPER) {
+    if (tiling.uplo == ACLBLAS_UPPER) {
         asc_vf_call<SspmvSimtCompute<true>>(
-            dim3{tdata->nthreads, 1, 1}, tdata->n, tdata->alpha, tdata->beta, tdata->incx, tdata->incy,
+            dim3{tiling.nthreads, 1, 1}, tiling.n, tiling.alpha, tiling.beta, tiling.incx, tiling.incy,
             reinterpret_cast<__gm__ const float*>(a), reinterpret_cast<__gm__ const float*>(x),
             reinterpret_cast<__gm__ float*>(y));
     } else {
         asc_vf_call<SspmvSimtCompute<false>>(
-            dim3{tdata->nthreads, 1, 1}, tdata->n, tdata->alpha, tdata->beta, tdata->incx, tdata->incy,
+            dim3{tiling.nthreads, 1, 1}, tiling.n, tiling.alpha, tiling.beta, tiling.incx, tiling.incy,
             reinterpret_cast<__gm__ const float*>(a), reinterpret_cast<__gm__ const float*>(x),
             reinterpret_cast<__gm__ float*>(y));
     }
 }
 
 void sspmv_kernel_do(
-    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, GM_ADDR tilingGm, uint32_t numBlocks, void* stream)
+    GM_ADDR a, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace,
+    uint32_t numBlocks, const SspmvTilingData& tiling, void* stream)
 {
-    sspmv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tilingGm);
+    sspmv_kernel<<<numBlocks, nullptr, stream>>>(a, x, y, workSpace, tiling);
 }

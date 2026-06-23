@@ -25,6 +25,15 @@ blas/sbmv/
     ├── ssbmv_host.cpp              // Host 侧实现（arch35）
     ├── ssbmv_kernel.cpp            // Kernel 侧实现（arch35）
     └── ssbmv_tiling_data.h         // Tiling 数据结构（arch35）
+
+test/sbmv/ssbmv/
+├── CMakeLists.txt                  // 测试构建文件
+├── ssbmv_param.h                   // CSV 参数解析结构体
+├── ssbmv_golden.h                  // CPU golden（cblas_ssbmv）
+└── arch35/
+    ├── ssbmv_test.cpp              // 测试代码（arch35，GTest 参数化）
+    ├── ssbmv_test.csv              // CSV 测试用例
+    └── ssbmv_npu_wrapper.h         // NPU wrapper
 ```
 
 ## 算子描述
@@ -32,7 +41,7 @@ blas/sbmv/
 对应的接口为：
 
 ```c
-aclblasStatus_t aclblasSsbmv(aclblasHandle handle,
+aclblasStatus_t aclblasSsbmv(aclblasHandle_t handle,
                  aclblasFillMode uplo, int n, int k, const float *alpha,
                  const float *A, int lda, const float *x, int incx, const float *beta,
                  float *y, int incy);
@@ -54,6 +63,14 @@ aclblasStatus_t aclblasSsbmv(aclblasHandle handle,
 | incy | in | host | y 的步长，incy ≠ 0（可正可负） |
 
 **注意**：A、x、y 必须为 device 侧指针，由调用者在调用前通过 `aclrtMalloc` 分配并通过 `aclrtMemcpy` 拷入数据。alpha、beta 为 host 侧指针。stream 通过 `aclblasSetStream(handle, stream)` 绑定到 handle。
+
+## 实现说明
+
+**arch35 (SIMT)**：采用 SIMT 编程模型，支持两条执行路径：
+- **GM 路径**：grid-stride loop，适用于 incx≠1 或 n<32 的场景
+- **UB 路径**：将 x 向量缓存到 `__ubuf__` 共享内存，适用于 incx=1 且 n≥32 的场景，提升数据复用率
+
+Tiling 数据通过传值方式（by value）从 host 传入 kernel，无需分配 GM 设备内存。Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，异步 launch kernel 后直接返回。
 
 ## 编译运行
 

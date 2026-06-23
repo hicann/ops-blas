@@ -19,31 +19,12 @@
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
+#include "common/helper/kernel_constant.h"
 #include "ssymv_tiling_data.h"
 
-void ssymv_kernel_do(uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* workSpace, uint8_t* tilingGm,
-                      uint32_t numBlocks, void *stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-template <typename R, typename T1, typename T2>
-static inline R CeilDiv(T1 a, T2 b)
-{
-    R ra = static_cast<R>(a);
-    R rb = static_cast<R>(b);
-    return (ra + rb - 1) / rb;
-}
-
-template <typename R, typename T1, typename T2>
-static inline R CeilAlign(T1 val, T2 align)
-{
-    return CeilDiv<R>(val, align) * static_cast<R>(align);
-}
+void ssymv_kernel_do(uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* workSpace,
+                      uint32_t numBlocks, const SsymvTilingData& tiling, void* stream);
 
 static aclblasStatus_t ValidateSsymvParams(
     aclblasFillMode_t uplo, int n, int lda, int incx, int incy, const float* alpha, const float* beta, const float* A,
@@ -68,17 +49,6 @@ static aclblasStatus_t ValidateSsymvParams(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-}
-
 static SsymvTilingData CalSsymvTilingData(
     uint32_t useNumBlocks, int n, int lda, aclblasFillMode_t uplo, float alpha, float beta, int incx, int incy)
 {
@@ -99,30 +69,26 @@ aclblasStatus_t aclblasSsymv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* A, int lda, const float* x,
     int incx, const float* beta, float* y, int incy)
 {
-    // 1. n < 0 check
     CHECK_RET(n >= 0, OP_LOGE("aclblasSsymv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
-    // 2. n == 0 quick return (must be before other validations)
+    CHECK_RET(handle != nullptr, OP_LOGE("aclblasSsymv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-    // 3. handle non-null check
-    CHECK_RET(handle != nullptr, OP_LOGE("aclblasSsymv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
-    // 4. parameter validation
     aclblasStatus_t st = ValidateSsymvParams(uplo, n, lda, incx, incy, alpha, beta, A, x, y);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
     }
-    // 5. get vector core count
-    uint32_t aivCoreNum = GetVectorCoreCount();
+
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSsymv", "vector core count is 0");
+        OP_LOGE("aclblasSsymv", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
-    // 6. extract stream from handle
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    aclrtStream useStream = h->stream;
-    // 7. fill tiling data
+
     SsymvTilingData tiling = CalSsymvTilingData(useNumBlocks, n, lda, uplo, *alpha, *beta, incx, incy);
 
     OP_LOGD(
@@ -130,31 +96,11 @@ aclblasStatus_t aclblasSsymv(
         tiling.nthreads, useNumBlocks);
     OP_LOGI("aclblasSsymv", "launching kernel");
 
-    // 8. allocate tiling device memory
-    uint8_t* tilingDevice = nullptr;
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SsymvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsymv", "aclrtMalloc failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-    // 9. copy tiling to device
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(SsymvTilingData), &tiling, sizeof(SsymvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsymv", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-    // 10. launch kernel
     ssymv_kernel_do(
         reinterpret_cast<uint8_t*>(const_cast<float*>(A)),
         reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
-        reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice,
-        useNumBlocks, useStream);
-    // 11. synchronize stream
-    aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsymv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-    // 12. cleanup
-    aclrtFree(tilingDevice);
+        reinterpret_cast<uint8_t*>(y), nullptr,
+        useNumBlocks, tiling, useStream);
+
     return ACLBLAS_STATUS_SUCCESS;
 }

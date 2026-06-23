@@ -35,6 +35,15 @@ blas/dot/
     ├── sdot_host.cpp               // Sdot Host 侧实现（arch35）
     ├── sdot_kernel.cpp             // Sdot Kernel 侧实现（arch35）
     └── sdot_tiling_data.h          // Sdot Tiling 数据结构（arch35）
+
+test/dot/sdot/
+├── CMakeLists.txt                  // 测试构建文件
+├── sdot_param.h                    // CSV 参数解析结构体
+├── sdot_golden.h                   // CPU golden（cblas_sdot）
+└── arch35/
+    ├── sdot_test.cpp               // 测试代码（arch35，GTest 参数化）
+    ├── sdot_test.csv               // CSV 测试用例
+    └── sdot_npu_wrapper.h          // NPU wrapper
 ```
 
 ## 算子描述
@@ -51,8 +60,8 @@ result = x · y = Σ(x[i] * y[i])  for i = 0 to n-1
 
 - 对应的接口为：
 ```cpp
-aclblasStatus_t aclblasSdot(aclblasHandle handle, const int64_t n, uint8_t *x, const int64_t incx,
-                              uint8_t *y, const int64_t incy, uint8_t *result);
+aclblasStatus_t aclblasSdot(aclblasHandle_t handle, const int64_t n, const float *x, const int64_t incx,
+                              const float *y, const int64_t incy, float *result);
 ```
 
 <table>
@@ -83,31 +92,31 @@ aclblasStatus_t aclblasSdot(aclblasHandle handle, const int64_t n, uint8_t *x, c
       <td align="center">x</td>
       <td align="center">device</td>
       <td align="center">in</td>
-      <td align="center">实数向量指针（device侧uint8_t*），包含 n 个float元素。</td>
+      <td align="center">实数向量 float 指针（device侧），包含 n 个float元素。</td>
    </tr>
    <tr>
       <td align="center">incx</td>
       <td align="center"></td>
       <td align="center">in</td>
-      <td align="center">向量x的步长。</td>
+      <td align="center">向量x的步长，不可为0。</td>
    </tr>
    <tr>
       <td align="center">y</td>
       <td align="center">device</td>
       <td align="center">in</td>
-      <td align="center">实数向量指针（device侧uint8_t*），包含 n 个float元素。</td>
+      <td align="center">实数向量 float 指针（device侧），包含 n 个float元素。</td>
    </tr>
    <tr>
       <td align="center">incy</td>
       <td align="center"></td>
       <td align="center">in</td>
-      <td align="center">向量y的步长。</td>
+      <td align="center">向量y的步长，不可为0。</td>
    </tr>
    <tr>
       <td align="center">result</td>
       <td align="center">device</td>
       <td align="center">out</td>
-      <td align="center">实数结果指针（device侧uint8_t*），包含 1 个float元素。</td>
+      <td align="center">实数结果 float 指针（device侧），包含 1 个float元素。</td>
    </tr>
 </table>
 
@@ -132,6 +141,8 @@ aclblasStatus_t aclblasSdot(aclblasHandle handle, const int64_t n, uint8_t *x, c
     - 使用`mul_v`和`cadd_v`向量化指令进行乘法和累加，提升性能
     - 采用ping-pong流水线，实现数据搬运和计算的重叠
     - 支持多核并行计算，提升大规模数据处理能力
+
+    **arch35 实现说明**：Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，workspace 从 handle 获取（`aclblasGetEffectiveWorkspace`），异步 launch kernel 后直接返回。Tiling 数据通过值传递给 kernel（结构体仅含 4 个字段，适合传值）。
 
 ### Cdot（复数点积）
 
@@ -214,9 +225,9 @@ int aclblasCdotc(const float *x, const float *y, float *result, const int64_t n,
   bash build.sh --ops=cdot --run
   ```
 
-  执行结果如下，说明精度对比成功。
+  执行结果如下，说明所有测试用例通过。
   ```bash
-  [Success] Case accuracy is verification passed.
+  [  PASSED  ] N tests.
   ```
 
 ## 算子特性

@@ -82,28 +82,18 @@ aclblasStatus_t aclblasSrotm(
     if (flag == -2.0f) { return ACLBLAS_STATUS_SUCCESS; }
 
     auto *h = reinterpret_cast<_aclblas_handle *>(handle);
-    aclrtStream useStream = h->stream;
 
-    uint32_t numBlocks = 8;
-    int32_t deviceId = 0;
-    aclError aclRet = aclrtGetDevice(&deviceId);
-    if (aclRet == ACL_SUCCESS) {
-        int64_t coreCount = 0;
-        aclRet = aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_AICORE_CORE_NUM, &coreCount);
-        if (aclRet == ACL_SUCCESS && coreCount > 0) {
-            numBlocks = static_cast<uint32_t>(coreCount);
-        }
+    uint32_t numBlocks = GetAivCoreCount();
+    if (numBlocks == 0) {
+        OP_LOGE("aclblasSrotm", "GetAivCoreCount failed");
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
     SrotmTilingData tilingData;
     BuildTilingData(n, incx, incy, param, numBlocks, tilingData);
 
     srotm_kernel_do_arch35(reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y),
-                    tilingData, numBlocks, useStream);
-    aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(aclRet == ACL_SUCCESS,
-        OP_LOGE("aclblasSrotm", "aclrtSynchronizeStream failed. ERROR: %d\n", aclRet);
-        return ACLBLAS_STATUS_INTERNAL_ERROR);
+                    tilingData, numBlocks, h->stream);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

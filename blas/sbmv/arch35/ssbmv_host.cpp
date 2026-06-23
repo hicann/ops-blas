@@ -8,11 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/* !
- * \file ssbmv_host.cpp
- * \brief single-precision sbmv host-side implementation
- */
-
 #include <algorithm>
 #include <cstdint>
 #include "acl/acl.h"
@@ -24,15 +19,8 @@
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
 
-void ssbmv_kernel_do(uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* workSpace, uint8_t* tilingGm,
-                      uint32_t numBlocks, void *stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
+void ssbmv_kernel_do(uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* workSpace,
+                      uint32_t numBlocks, const SsbmvTilingData& tiling, void* stream);
 
 static aclblasStatus_t ValidateSbmvParams(
     aclblasFillMode_t uplo, int k, int lda, int incx, int incy, const float* alpha, const float* beta, const float* A,
@@ -55,17 +43,6 @@ static aclblasStatus_t ValidateSbmvParams(
     CHECK_RET(x != nullptr, OP_LOGE("aclblasSsbmv", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(y != nullptr, OP_LOGE("aclblasSsbmv", "y must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
-}
-
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
 }
 
 static SsbmvTilingData CalSsbmvTilingData(
@@ -93,10 +70,8 @@ aclblasStatus_t aclblasSsbmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, int k, const float* alpha, const float* A, int lda,
     const float* x, int incx, const float* beta, float* y, int incy)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    CHECK_RET(h != nullptr, OP_LOGE("aclblasSsbmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
-
     CHECK_RET(n >= 0, OP_LOGE("aclblasSsbmv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(handle != nullptr, OP_LOGE("aclblasSsbmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     if (n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
@@ -105,9 +80,12 @@ aclblasStatus_t aclblasSsbmv(
         return st;
     }
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSsbmv", "vector core count is 0");
+        OP_LOGE("aclblasSsbmv", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     uint32_t useNumBlocks = std::min(CeilDiv<uint32_t>(n, SIMT_MIN_THREAD_NUM), aivCoreNum);
@@ -119,31 +97,11 @@ aclblasStatus_t aclblasSsbmv(
         tiling.uplo, tiling.numBlocks, tiling.numThreads);
     OP_LOGI("aclblasSsbmv", "launching kernel");
 
-    uint8_t* tilingDevice = nullptr;
-    aclError aclRet =
-        aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SsbmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsbmv", "aclrtMalloc failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(SsbmvTilingData), &tiling, sizeof(SsbmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsbmv", "aclrtMemcpy H2D failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
     ssbmv_kernel_do(
         reinterpret_cast<uint8_t*>(const_cast<float*>(A)),
         reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
-        reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice,
-        useNumBlocks, h->stream);
-
-    aclRet = aclrtSynchronizeStream(h->stream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, OP_LOGE("aclblasSsbmv", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        aclrtFree(tilingDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    aclrtFree(tilingDevice);
+        reinterpret_cast<uint8_t*>(y), nullptr,
+        useNumBlocks, tiling, useStream);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

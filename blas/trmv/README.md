@@ -32,6 +32,22 @@ blas/trmv/
     ├── strmv_common.h              // Strmv Tiling 数据结构与 kernel 声明（arch35）
     ├── strmv_host.cpp              // Strmv Host 侧实现（arch35）
     └── strmv_kernel.cpp            // Strmv Kernel 侧实现（arch35）
+
+test/trmv/strmv/
+├── CMakeLists.txt                  // 测试构建文件
+├── strmv_param.h                   // CSV 参数解析结构体
+├── strmv_golden.h                  // CPU golden（cblas_strmv）
+├── arch22/
+│   └── strmv_test.cpp              // 测试代码（arch22）
+└── arch35/
+    ├── strmv_test.cpp              // 测试代码（arch35，GTest 参数化）
+    ├── strmv_test.csv              // CSV 测试用例
+    └── strmv_npu_wrapper.h         // NPU wrapper
+
+test/trmv/ctrmv/
+├── CMakeLists.txt                  // 测试构建文件
+└── arch22/
+    └── ctrmv_test.cpp              // 测试代码（arch22）
 ```
 
 ## 算子描述
@@ -149,7 +165,7 @@ aclblasStatus_t aclblasStrmv(
 
   - **arch35**（Ascend 950）：
 
-    采用两阶段SIMT kernel实现。第一阶段`strmv_compute_kernel`通过SIMT多线程并行，每个线程负责计算输出向量的若干行：根据uplo/trans确定每行的有效列范围，从GM读取矩阵A和向量x的元素，在寄存器中完成乘加累加，将中间结果写入workspace。第二阶段`strmv_copy_kernel`将workspace中的连续结果按incx步长写回x向量。通过模板参数`<UPLO_IS_UPPER, TRANS_IS_N, DIAG_IS_UNIT>`编译期分发8种组合，消除运行时分支。
+    采用两阶段SIMT kernel实现。第一阶段`strmv_compute_kernel`通过SIMT多线程并行，每个线程负责计算输出向量的若干行：根据uplo/trans确定每行的有效列范围，从GM读取矩阵A和向量x的元素，在寄存器中完成乘加累加，将中间结果写入workspace。第二阶段`strmv_copy_kernel`将workspace中的连续结果按incx步长写回x向量。通过模板参数`<UPLO_IS_UPPER, TRANS_IS_N, DIAG_IS_UNIT>`编译期分发8种组合，消除运行时分支。Tiling 数据通过传值方式（by value）从 host 传入 kernel，无需分配 GM 设备内存。Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，workspace 从 handle 获取（`aclblasGetEffectiveWorkspace`），异步 launch kernel 后直接返回。
 
 ### Ctrmv（复数三角矩阵-向量乘法）
 
@@ -282,8 +298,7 @@ int aclblasCtrmv(aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_
   | Atlas A3 训练系列产品 / Atlas A3 推理系列产品 | `ascend910_93` | arch22 |
   | Atlas A2 训练系列产品 / Atlas A2 推理系列产品 | `ascend910b` | arch22 |
 
-  执行结果如下，说明精度对比成功。
+  执行结果如下，说明所有测试用例通过。
   ```bash
-  [PASS] strmv_test
-  [PASS] ctrmv_test
+  [  PASSED  ] N tests.
   ```

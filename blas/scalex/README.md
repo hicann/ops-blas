@@ -84,9 +84,34 @@ aclblasStatus_t aclblasScalex(
 | `xType` 非法 | `ACLBLAS_STATUS_NOT_SUPPORTED` |
 | Kernel 执行失败 | `ACLBLAS_STATUS_EXECUTION_FAILED` |
 
+## 目录结构
+
+```
+blas/scalex/
+├── README.md                       // 说明文档
+└── arch35/
+    ├── scalex_host.cpp             // Host 侧实现
+    ├── scalex_kernel.cpp           // Kernel 侧实现
+    ├── scalex_kernel.h             // Kernel 声明
+    └── scalex_tiling_data.h        // Tiling 数据结构
+```
+
+测试代码位于 `test/scalex/`：
+
+```
+test/scalex/
+├── CMakeLists.txt                  // 编译工程文件
+├── scalex_param.h                  // CSV 参数解析
+├── scalex_golden.h                 // CPU golden（FP32 调用 cblas_sscal，FP16/BF16 手动 cast）
+└── arch35/
+    ├── scalex_test.cpp             // GTest 精度测试
+    ├── scalex_test.csv             // CSV 测试用例
+    └── scalex_npu_wrapper.h        // NPU 调用封装
+```
+
 ## 实现架构
 
-算子采用双路径实现，Host 侧根据 `incx` 值在 `scalex_kernel_do()` 中自动分发：
+算子采用双路径实现，Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，根据 `incx` 值在 `scalex_kernel_do()` 中自动分发：
 
 | 路径 | 条件 | Kernel | 说明 |
 |------|------|--------|------|
@@ -98,6 +123,20 @@ aclblasStatus_t aclblasScalex(
 **多核切分**：
 - SIMD 路径：每核处理 `perCoreN` 个元素，尾核多处理余数
 - SIMT 路径：所有线程交错遍历 `totalN` 个元素，线程 `i` 从 `i` 号元素开始、步长为 `blockDim × numBlocks`；`incx < 0` 时通过 `isReverse` 标志反转索引映射 (`idx = (totalN - 1 - i) × |incx|`)
+
+Tiling 数据通过值传递给 kernel（无需 GM 分配）。Host 侧为异步执行，不包含流同步操作，由调用方负责同步。
+
+## 测试用例覆盖
+
+测试基于 GTest + CSV 驱动框架，golden 实现 FP32 路径调用 Netlib BLAS `cblas_sscal`，FP16/BF16 路径保留手动 cast round-trip 模拟硬件精度行为。
+
+| 分组 | 用例数 | 覆盖场景 |
+|------|--------|----------|
+| 异常 | 7 | n<0、x空指针、incx=0、alphaType/xType/executionType不支持、n=0提前退出 |
+| L0 | 10 | FP32/FP16/BF16 incx=1 n=1~128；FP32/FP16/BF16 incx=2 n=32；FP32 incx=-1 |
+| L1 | 53 | FP32/FP16/BF16 incx=1 n=256~1M；多步长 incx=2/3/5/7/11；负步长 incx=-1/-2/-3/-5；alpha=0/1/-1/小/大；全零/全一/INF/NaN/Extreme |
+| L2 | 8 | 大规模 n=500K~5M，FP32/FP16/BF16 incx=1/2/-2/3 |
+| Host | 2 | Host 端 alpha（非 Device）FP32/FP16 |
 
 ## 编译
 

@@ -50,6 +50,13 @@ inline aclblasStatus_t aclblasSrotm_npu(
         static_cast<float*>(dX), incx,
         static_cast<float*>(dY), incy, param);
 
+    aclError syncRet = aclrtSynchronizeDevice();
+    if (syncRet != ACL_SUCCESS) {
+        if (dX) aclrtFree(dX);
+        if (dY) aclrtFree(dY);
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+
     if (ret == ACLBLAS_STATUS_SUCCESS) {
         if (x != nullptr && dX != nullptr) {
             aclrtMemcpy(x, xBytes, dX, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);

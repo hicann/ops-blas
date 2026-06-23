@@ -17,6 +17,7 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cblas_compat.h"
 #include "scalex_param.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -138,12 +139,16 @@ inline aclblasStatus_t aclblasScalex_cpu(
     float alphaVal = *static_cast<const float*>(alpha);
     float* xFloat  = static_cast<float*>(x);
 
-    int absIncx = std::abs(incx);
-    for (int i = 0; i < n; i++) {
-        int idx = (incx > 0) ? (i * incx) : ((n - 1 - i) * absIncx);
-        float val    = xFloat[idx];
-        float result = alphaVal * val;           // compute in FP32
-        xFloat[idx]  = castToDtype(result, static_cast<int32_t>(xType)); // quantise to target dtype
+    if (xType == ACL_FLOAT) {
+        cblas_sscal(n, alphaVal, xFloat, incx);
+    } else {
+        int absIncx = std::abs(incx);
+        for (int i = 0; i < n; i++) {
+            int idx = (incx > 0) ? (i * incx) : ((n - 1 - i) * absIncx);
+            float val    = xFloat[idx];
+            float result = alphaVal * val;
+            xFloat[idx]  = castToDtype(result, static_cast<int32_t>(xType));
+        }
     }
     return ACLBLAS_STATUS_SUCCESS;
 }

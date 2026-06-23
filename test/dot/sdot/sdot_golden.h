@@ -13,22 +13,12 @@
 #include <cstdint>
 #include <vector>
 
+#include "cblas_compat.h"
+
 inline float aclblasSdot_cpu(int n, const float* x, int incx, const float* y, int incy)
 {
     if (n <= 0) {
         return 0.0f;
     }
-
-    int absIncx = std::abs(incx);
-    int absIncy = std::abs(incy);
-
-    const float* xStart = (incx < 0) ? (x + (n - 1) * absIncx) : x;
-    const float* yStart = (incy < 0) ? (y + (n - 1) * absIncy) : y;
-
-    double sum = 0.0;
-    for (int i = 0; i < n; i++) {
-        sum += static_cast<double>(xStart[i * incx]) * static_cast<double>(yStart[i * incy]);
-    }
-    return static_cast<float>(sum);
+    return cblas_sdot(n, x, incx, y, incy);
 }
-

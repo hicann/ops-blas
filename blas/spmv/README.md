@@ -28,6 +28,15 @@ blas/spmv/
     ├── sspmv_host.cpp              // Host 侧实现（arch35）
     ├── sspmv_kernel.cpp            // Kernel 侧实现（arch35）
     └── sspmv_tiling_data.h         // Tiling 数据结构（arch35）
+
+test/spmv/sspmv/
+├── CMakeLists.txt                  // 测试构建文件
+├── sspmv_param.h                   // CSV 参数解析结构体
+├── sspmv_golden.h                  // CPU golden（cblas_sspmv）
+└── arch35/
+    ├── sspmv_test.cpp              // 测试代码（arch35，GTest 参数化）
+    ├── sspmv_test.csv              // CSV 测试用例
+    └── sspmv_npu_wrapper.h         // NPU wrapper
 ```
 
 ## 算子描述
@@ -146,7 +155,7 @@ y = alpha * A * x + beta * y
 
 对应的接口为：
 ```cpp
-aclblasStatus_t aclblasSspmv(aclblasHandle handle,
+aclblasStatus_t aclblasSspmv(aclblasHandle_t handle,
                  aclblasFillMode uplo, int n, const float *alpha,
                  const float *AP, const float *x, int incx, const float *beta,
                  float *y, int incy);
@@ -180,6 +189,10 @@ aclblasStatus_t aclblasSspmv(aclblasHandle handle,
 - 调用实现
     使用内核调用符<<<>>>调用核函数。
 
+## 实现说明
+
+**arch35 (SIMT)**：采用 SIMT 编程模型，使用 grid-stride loop 实现线程级并行。每个线程计算输出向量 y 的一个或多个元素，通过 `asc_vf_call` 分发到不同模板特化（按 uplo 区分 UPPER/LOWER）。Tiling 数据通过传值方式（by value）从 host 传入 kernel，无需分配 GM 设备内存。Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，异步 launch kernel 后直接返回。
+
 ## 编译运行
 
 在仓库根目录下执行如下步骤，编译并运行算子测试。
@@ -195,7 +208,7 @@ aclblasStatus_t aclblasSspmv(aclblasHandle handle,
   bash build.sh --ops=spmv --soc=ascend950 --run
   ```
 
-  执行结果如下，说明精度对比成功。
+  执行结果如下，说明所有测试用例通过。
   ```bash
-  [Success] Case accuracy is verification passed.
+  [  PASSED  ] 30 tests.
   ```

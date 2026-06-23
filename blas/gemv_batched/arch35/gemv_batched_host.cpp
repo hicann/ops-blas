@@ -20,15 +20,14 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "log/log.h"
 #include "gemv_batched_tiling_data.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
 
 void gemv_batched_kernel_do(uint8_t* A, uint8_t* x, uint8_t* y,
-                            uint8_t* workSpace, uint8_t* tilingGm,
+                            const GemvBatchedTilingData& tiling,
                             uint32_t numBlocks, void *stream);
-
-constexpr uint32_t WORKSPACE_SIZE = 16 * 1024 * 1024;
 
 // Per-batch UB usage with all buffers 256B-aligned.
 // VEC_SCOPE loads 64 floats ⇒ inxBuf widened to VL when nCol<64.
@@ -152,39 +151,19 @@ static void CalTilingParamsHss(bool isTrans, uint32_t m, uint32_t n,
     CalTilingTranspose(GemvType::HSS, m, n, batchGroupSize, dotTile, outTile);
 }
 
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId),
-                       ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum);
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-}
-
 static void LogTilingParams(const GemvBatchedTilingData &td)
 {
-    LOG_PRINT("========== [gemv_batched] TilingData ==========\n");
-    LOG_PRINT("  dtype=%u trans=%u alpha=%.3f beta=%.3f\n",
-              td.dtype, td.trans, td.alpha, td.beta);
-    LOG_PRINT("  m=%u n=%u lda=%d incx=%d incy=%d\n", td.m, td.n, td.lda, td.incx, td.incy);
-    LOG_PRINT("  outSize=%u dotSize=%u outTile=%u dotTile=%u\n",
-              td.outSize, td.dotSize, td.outTile, td.dotTile);
-    LOG_PRINT("  batchCount=%u batchGroupSize=%u\n",
-              td.batchCount, td.batchGroupSize);
-    LOG_PRINT("  coreNum=%u usedCoreNum=%u\n",
-              td.coreNum, td.usedCoreNum);
-    LOG_PRINT("  batchPerCore=%u batchTail=%u\n",
-              td.batchPerCore, td.batchTail);
-    LOG_PRINT("  sizeof(TilingData)=%zu\n", sizeof(GemvBatchedTilingData));
-    LOG_PRINT("  --- UB sizes (bytes) ---\n");
     uint32_t ubTotal = td.bufInA + td.bufInx + td.bufInY + td.bufOut + td.bufMatTmp + td.bufVecTmp;
-    LOG_PRINT("  inA=%u inx=%u inY=%u out=%u mat=%u vec=%u total=%u (%.1f%%)\n",
-              td.bufInA, td.bufInx, td.bufInY, td.bufOut, td.bufMatTmp, td.bufVecTmp,
-              ubTotal, 100.0f * ubTotal / GEMV_BATCHED_UBUF_SIZE);
-    LOG_PRINT("==============================================\n");
+    OP_LOGD("aclblasGemvBatched",
+            "tiling: dtype=%u trans=%u alpha=%.3f beta=%.3f m=%u n=%u lda=%d incx=%d incy=%d "
+            "outSize=%u dotSize=%u outTile=%u dotTile=%u batchCount=%u batchGroupSize=%u "
+            "coreNum=%u usedCoreNum=%u batchPerCore=%u batchTail=%u "
+            "ub[inA=%u inx=%u inY=%u out=%u mat=%u vec=%u total=%u (%.1f%%)]",
+            td.dtype, td.trans, td.alpha, td.beta, td.m, td.n, td.lda, td.incx, td.incy,
+            td.outSize, td.dotSize, td.outTile, td.dotTile, td.batchCount, td.batchGroupSize,
+            td.coreNum, td.usedCoreNum, td.batchPerCore, td.batchTail,
+            td.bufInA, td.bufInx, td.bufInY, td.bufOut, td.bufMatTmp, td.bufVecTmp,
+            ubTotal, 100.0f * ubTotal / GEMV_BATCHED_UBUF_SIZE);
 }
 
 static GemvBatchedTilingData CalTilingData(uint32_t batchCount, uint32_t m, uint32_t n,
@@ -248,9 +227,9 @@ static aclblasStatus_t GemvBatchedImpl(aclblasHandle_t handle, aclblasOperation_
     if (trans != ACLBLAS_OP_N && trans != ACLBLAS_OP_T) return ACLBLAS_STATUS_INVALID_ENUM;
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
-    uint32_t coreNum = GetVectorCoreCount();
+    uint32_t coreNum = GetAivCoreCount();
     if (coreNum == 0) {
-        LOG_PRINT("[gemv_batched] ERROR: GetVectorCoreCount returned 0\n");
+        OP_LOGE("aclblasGemvBatched", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
     uint32_t maxPerCore  = (batchCount + coreNum - 1) / coreNum;
@@ -259,19 +238,9 @@ static aclblasStatus_t GemvBatchedImpl(aclblasHandle_t handle, aclblasOperation_
     GemvBatchedTilingData tiling = CalTilingData((uint32_t)batchCount, (uint32_t)m, (uint32_t)n,
         dtype, transUint, *alpha, *beta, coreNum, usedCoreNum, maxPerCore,
         (int32_t)lda, (int32_t)incx, (int32_t)incy);
-    size_t workSpaceSize = WORKSPACE_SIZE;
-    uint8_t *workSpaceDevice = nullptr;
-    uint8_t *tilingDevice = nullptr;
-    aclError aclRet = aclrtMalloc((void **)&workSpaceDevice, workSpaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); return ACLBLAS_STATUS_ALLOC_FAILED);
-    aclRet = aclrtMalloc((void **)&tilingDevice, sizeof(GemvBatchedTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_ALLOC_FAILED);
-    aclRet = aclrtMemcpy(tilingDevice, sizeof(GemvBatchedTilingData), &tiling, sizeof(GemvBatchedTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice); aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
+
     gemv_batched_kernel_do((uint8_t*)A, (uint8_t*)x, (uint8_t*)y,
-        workSpaceDevice, tilingDevice, usedCoreNum, useStream);
-    aclrtFree(workSpaceDevice);
-    aclrtFree(tilingDevice);
+        tiling, usedCoreNum, useStream);
     return ACLBLAS_STATUS_SUCCESS;
 }
 

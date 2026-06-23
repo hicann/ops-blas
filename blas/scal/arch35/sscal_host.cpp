@@ -20,31 +20,13 @@
 #include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
-#include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
 #include "common/helper/kernel_constant.h"
 #include "sscal_tiling_data.h"
 
-// arch35-style: tiling passed by value
 void sscal_kernel_do(uint8_t* x, uint8_t* workSpace, const SscalTilingData& tiling,
                      uint32_t numBlocks, void *stream);
-// arch22-style: tiling passed as GM pointer (for backward compatibility)
-void sscal_kernel_do(uint8_t* x, uint8_t* workSpace, uint8_t* tilingGm,
-                     uint32_t numBlocks, void *stream);
-
-static uint32_t GetVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-    if (aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId), ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum) != ACL_SUCCESS) {
-        return 0;
-    }
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-}
 
 static aclblasStatus_t ValidateSscalParams(aclblasHandle_t handle, const float* x, int incx)
 {
@@ -145,9 +127,9 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
         return status;
     }
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSscal", "vector core count is 0");
+        OP_LOGE("aclblasSscal", "GetAivCoreCount failed");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
@@ -170,12 +152,6 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
         static_cast<double>(*alpha));
 
     sscal_kernel_do(reinterpret_cast<uint8_t*>(x), nullptr, tiling, numBlocks, h->stream);
-
-    aclError aclRet = aclrtSynchronizeStream(h->stream);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSscal", "aclrtSynchronizeStream failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_EXECUTION_FAILED;
-    }
 
     return ACLBLAS_STATUS_SUCCESS;
 }

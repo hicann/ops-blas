@@ -35,15 +35,16 @@ blas/tbmv/
 
 ```
 test/tbmv/
-├── CMakeLists.txt                         // 编译工程文件
-├── stbmv_param.h                          // 参数结构体（继承 BlasTestParamBase）
-├── stbmv_golden.h                         // CPU golden（签名与 BLAS API 一致）
-├── arch35/
-│   ├── stbmv_npu_wrapper.h                // NPU wrapper（封装 aclrtMalloc/H2D/kernel/D2H/free）
-│   ├── stbmv_test.cpp                     // 精度测试（GTest 入口）
-│   └── stbmv_test.csv                     // 精度测试用例表
-└── arch22/
-    └── stbmv_test.cpp                     // 精度测试
+└── stbmv/
+    ├── CMakeLists.txt                     // 编译工程文件
+    ├── stbmv_param.h                      // 参数结构体（继承 BlasTestParamBase）
+    ├── stbmv_golden.h                     // CPU golden（调用 cblas_stbmv）
+    ├── arch35/
+    │   ├── stbmv_npu_wrapper.h            // NPU wrapper（封装 aclrtMalloc/H2D/kernel/D2H/free）
+    │   ├── stbmv_test.cpp                 // 精度测试（GTest 入口）
+    │   └── stbmv_test.csv                 // 精度测试用例表
+    └── arch22/
+        └── stbmv_test.cpp                 // 精度测试
 ```
 
 ## 算子描述
@@ -143,6 +144,8 @@ aclblasStatus_t aclblasStbmv(
 
     - **SIMT通用路径**（`stbmv_fallback_kernel.cpp`）：适用于任意参数组合。当k=0时走`stbmv_diag_kernel`直接处理纯对角线缩放；否则`stbmv_compute_kernel`通过SIMT多线程并行，每个线程负责计算输出向量的若干行，将中间结果写入workspace；`stbmv_copy_kernel`将结果按incx步长写回x向量。
 
+    Tiling 数据通过传值方式（by value）从 host 传入 kernel，无需分配 GM 设备内存。Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，workspace 从 handle 获取（`aclblasGetEffectiveWorkspace`），异步 launch kernel 后直接返回。
+
 - 调用实现：
     使用内核调用符<<<>>>调用核函数。
   - **arch22**：调用单个 tbmv_kernel。
@@ -192,7 +195,7 @@ aclblasStatus_t aclblasStbmv(
   | Atlas A3 训练系列产品 / Atlas A3 推理系列产品 | `ascend910_93` | arch22 |
   | Atlas A2 训练系列产品 / Atlas A2 推理系列产品 | `ascend910b` | arch22 |
 
-  执行结果如下，说明精度对比成功。
+  执行结果如下，说明所有测试用例通过。
   ```bash
-  [PASS] stbmv_test
+  [  PASSED  ] N tests.
   ```
