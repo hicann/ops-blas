@@ -139,7 +139,7 @@ private:
             return;
 
         static const std::map<Method, std::pair<float, float>> defaults = {
-            {M_INDEX, {1.0f, 1.0f}}, {M_RANDOM, {-1.0f, -1.0f}}, {M_VALUE, {0.0f, 0.0f}}};
+            {M_INDEX, {1.0f, 1.0f}}, {M_RANDOM, {1.0f, 1.0f}}, {M_VALUE, {0.0f, 0.0f}}};
         auto dIt = defaults.find(method);
         if (dIt != defaults.end()) {
             val1 = dIt->second.first;
