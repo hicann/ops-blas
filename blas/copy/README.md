@@ -1,115 +1,218 @@
-## Scopy算子实现
+# aclblasScopy
 
-## 概述
+## 接口
 
-BLAS Scopy算子实现，同时支持Ccopy复数向量复制。
-
-### 支持的接口
-
-- **aclblasScopy**: 实数向量复制，将x的数据拷贝到y
-- **aclblasCcopy**: 复数向量复制，复用scopy kernel实现
-
-## 支持的产品
-
-- Atlas A3 训练系列产品/Atlas A3 推理系列产品
-- Atlas A2 训练系列产品/Atlas A2 推理系列产品
-
-## 目录结构介绍
-
-```
-blas/copy/
-├── README.md                       // 说明文档
-├── scopy_host.cpp                  // Host 侧实现
-└── scopy_kernel.cpp                // Kernel 侧实现
+```c
+aclblasStatus_t aclblasScopy(
+    aclblasHandle_t handle,
+    int n,
+    const float *x,
+    int incx,
+    float *y,
+    int incy);
 ```
 
-## 算子描述
+## 数学定义
 
-- 算子功能：  
-scopy算子实现了将x上的数据拷贝到y。对应的数学表达式为：  
+scopy 实现向量拷贝操作：
+
 ```
-y = x
+Y_i = X_i,   for i = 0, 1, ..., N-1
 ```
 
-### aclblasScopy接口
+其中 X 和 Y 为长度为 N 的 float 类型向量。
 
-实数向量复制：
+## 支持规格
+
+| 项目 | 内容 |
+|------|------|
+| 数据类型 | FP32 (S) |
+| 目标芯片 | Ascend950 |
+| 目标架构 | arch35 (DAV_3510) |
+
+## 参数说明
+
+| 参数 | 内存位置 | 方向 | 类型 | 说明 |
+|------|---------|------|------|------|
+| handle | Host | 输入 | aclblasHandle_t | ops-blas 上下文句柄，包含 stream 和 workspace 管理 |
+| n | Host | 输入 | int | 向量长度（元素个数）。n == 0 时直接返回成功（空操作），n < 0 时返回 INVALID_VALUE |
+| x | Device | 输入 | const float* | 源向量 X 的 device 侧指针，只读 |
+| incx | Host | 输入 | int | X 元素的步长（以 float 元素为单位），不可为 0 |
+| y | Device | 输出 | float* | 目标向量 Y 的 device 侧指针，可写 |
+| incy | Host | 输入 | int | Y 元素的步长（以 float 元素为单位），不可为 0 |
+
+## 功能特性
+
+| 特性 | 说明 |
+|------|------|
+| 连续拷贝 (incx=1, incy=1) | DataCopy 整块搬运 + DataCopyPad 尾部，双缓冲 Prime-Pump-Drain |
+| 混合路径 (仅一侧离散) | 连续侧 DataCopy 不限量，离散侧 DataCopyPad Compact 分批（每批 ≤4088） |
+| 纯离散步长 (两侧均≠1) | 双侧 DataCopyPad Compact，受 blockCount ≤ 4095 硬件约束 |
+| 负步长 | Kernel 正向读 + Gather 全局逆序重排（含多 tile/多核场景） |
+| 同号负步长 | 两次负方向抵消，无需 Gather |
+| 多核并行 | GetAivCoreCount 动态获取核数，均匀分配（extraBlockCores + tailElements） |
+| 逆序偏移表 | 优先从 handle workspace 加载（DataCopy 一次搬运），不可用时 Kernel Init 自算 |
+| 异步执行 | Host 侧 launch 后直接返回，无 sync |
+
+## 精度标准
+
+scopy 为纯数据搬移操作，不涉及数值计算，精度标准为**位精确（Bit-exact）**，NPU 输出与 CPU 参考输出逐位一致（MARE=0, MERE=0）。
+
+## 错误码
+
+| 错误码 | 触发条件 |
+|--------|---------|
+| ACLBLAS_STATUS_SUCCESS | 执行成功，或 n == 0 时空操作直接返回 |
+| ACLBLAS_STATUS_HANDLE_IS_NULLPTR | handle 为 nullptr |
+| ACLBLAS_STATUS_INVALID_VALUE | x 或 y 为 nullptr；n 为负数；incx 或 incy 为 0 |
+| ACLBLAS_STATUS_ALLOC_FAILED | 内部内存分配失败 |
+| ACLBLAS_STATUS_INTERNAL_ERROR | 内存传输或 Kernel 执行内部错误 |
+| ACLBLAS_STATUS_EXECUTION_FAILED | Kernel 执行失败或 VectorCore 数为 0 |
+
+## 编译与测试
+
+```bash
+bash build.sh --ops=scopy                    # 仅编译算子
+bash build.sh --ops=scopy --soc=ascend950    # 指定 SOC
+bash build.sh --ops=scopy --run              # 编译 + 运行测试
+bash build.sh --ops=scopy --pkg              # 编译 + 打包
+```
+
+## 调用示例
+
+### 基础示例：连续拷贝
+
 ```cpp
-int aclblasScopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const int64_t n, const int64_t incx, const int64_t incy);
+#include <iostream>
+#include <vector>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    // 1. 初始化 ACL
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    // 2. 创建 handle
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+    // 如需绑定自定义 stream，调用 aclblasSetStream(handle, stream)
+
+    // 3. 准备数据
+    const int n = 128;
+    const int incx = 1;
+    const int incy = 1;
+
+    std::vector<float> xHost(n);
+    std::vector<float> yHost(n, 0.0f);
+    for (int i = 0; i < n; i++) {
+        xHost[i] = static_cast<float>(i);
+    }
+
+    float *dX = nullptr;
+    float *dY = nullptr;
+    aclrtMalloc(&dX, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dY, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dX, n * sizeof(float), xHost.data(),
+                n * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+
+    // 4. 调用 aclblasScopy
+    aclblasStatus_t ret = aclblasScopy(handle, n, dX, incx, dY, incy);
+    if (ret != ACLBLAS_STATUS_SUCCESS) {
+        std::cerr << "aclblasScopy failed: " << ret << std::endl;
+        return 1;
+    }
+
+    // 5. 同步并回拷结果
+    aclrtSynchronizeDevice();
+    aclrtMemcpy(yHost.data(), n * sizeof(float), dY,
+                n * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
+
+    // 6. 验证
+    for (int i = 0; i < n; i++) {
+        if (yHost[i] != xHost[i]) {
+            std::cerr << "Mismatch at " << i << std::endl;
+            return 1;
+        }
+    }
+    std::cout << "PASS" << std::endl;
+
+    // 7. 清理
+    aclrtFree(dX);
+    aclrtFree(dY);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
 ```
 
-**参数说明：**
-- handle: aclblas句柄，用于管理stream和workspace
-- x: 输入向量x的device侧指针（uint8_t*类型）
-- y: 输出向量y的device侧指针（uint8_t*类型）
-- n: 向量长度
-- incx: x的步长
-- incy: y的步长
+### 离散步长示例
 
-### aclblasCcopy接口
-
-复数向量复制（复用scopy kernel）：
 ```cpp
-int aclblasCcopy(aclblasHandle handle, uint8_t *x, uint8_t *y, const int64_t n, const int64_t incx, const int64_t incy);
+#include <iostream>
+#include <vector>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    // 离散步长：incx=2, incy=3
+    const int n = 8;
+    const int incx = 2;
+    const int incy = 3;
+
+    // 内存跨度 = abs(stride) * (n-1) + 1
+    int xSpan = 2 * (n - 1) + 1;  // = 15
+    int ySpan = 3 * (n - 1) + 1;  // = 22
+
+    std::vector<float> xHost(xSpan, 0.0f);
+    std::vector<float> yHost(ySpan, 0.0f);
+    for (int i = 0; i < n; i++) {
+        xHost[i * incx] = static_cast<float>(i);  // 位置 0, 2, 4, ..., 14
+    }
+
+    float *dX = nullptr;
+    float *dY = nullptr;
+    aclrtMalloc(&dX, xSpan * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dY, ySpan * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dX, xSpan * sizeof(float), xHost.data(),
+                xSpan * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasScopy(handle, n, dX, incx, dY, incy);
+    aclrtSynchronizeDevice();
+    aclrtMemcpy(yHost.data(), ySpan * sizeof(float), dY,
+                ySpan * sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
+
+    for (int i = 0; i < n; i++) {
+        if (yHost[i * incy] != static_cast<float>(i)) {
+            std::cerr << "Mismatch at i=" << i << std::endl;
+            return 1;
+        }
+    }
+    std::cout << "PASS (discrete)" << std::endl;
+
+    aclrtFree(dX);
+    aclrtFree(dY);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
 ```
 
-**参数说明：**
-- handle: aclblas句柄，用于管理stream和workspace
-- x: 输入复数向量x的device侧指针（uint8_t*类型，实际存储为连续的实部、虚部交替的float数组，2*n个float元素）
-- y: 输出复数向量y的device侧指针（uint8_t*类型，实际存储为连续的实部、虚部交替的float数组，2*n个float元素）
-- n: 复数向量长度
-- incx: x的步长
-- incy: y的步长
+## 目录结构
 
-复数向量存储为连续的实部、虚部交替的float数组（2*n个float元素），直接调用scopy kernel处理2*n个float元素即可完成复数向量复制。
-
-**注意：** 接口参数x和y为device侧指针，调用前需要通过aclrtMalloc分配device内存，并通过aclrtMemcpy将数据从host侧拷贝到device侧。计算完成后需要通过aclrtMemcpy将结果从device侧拷回到host侧。
-- 算子规格：
-  <table>
-  <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="4" align="center">Add</td></tr>
-  </tr>
-  <tr><td rowspan="3" align="center">算子输入</td><td align="center">name</td><td align="center">shape</td><td align="center">data type</td><td align="center">format</td></tr>
-  <tr><td align="center">x</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
-  <tr><td align="center">y</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  </tr>
-  <tr><td rowspan="1" align="center">算子输出</td><td align="center">z</td><td align="center">8 * 2048</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">scopy_kernel</td></tr>
-  </table>
-
-- 算子实现： 
-
-    将输入数据从输入x的GM地址搬运到UB，再搬出到输入y所在的GM地址。
-
-- 调用实现  
-    使用内核调用符<<<>>>调用核函数。
-
-## 编译运行
-
-在本样例根目录下执行如下步骤，编译并执行算子。
-- 配置环境变量  
-  请根据当前环境上CANN开发套件包的安装方式，选择对应配置环境变量的命令。
-  - 默认路径，root用户安装CANN软件包
-    ```bash
-    source /usr/local/Ascend/cann/set_env.sh
-    ```
-
-  - 默认路径，非root用户安装CANN软件包
-    ```bash
-    source $HOME/Ascend/cann/set_env.sh
-    ```
-
-  - 指定路径install_path，安装CANN软件包
-    ```bash
-    source ${install_path}/cann/set_env.sh
-    ```
-
-- 样例执行
-  ```bash
-  bash build.sh --ops=scopy --run # --ops=<算子名> --run可选参数，执行测试样例
-  ```
-  执行结果如下，说明精度对比成功。
-  ```bash
-  [Success] Case accuracy is verification passed.
-  ```
+| 路径 | 架构 | 说明 |
+|------|------|------|
+| arch35 | DAV_3510 | 主线实现：三路径（连续/混合/离散）+ 正负步长 + 异步 + workspace |
+| arch22 | DAV_200 | Legacy：仅连续拷贝，接口 `aclblasScopy_legacy` |

@@ -106,7 +106,7 @@ CopyTilingData CalTilingData(uint32_t totalEleNum, uint32_t vecCoreNum)
     return tilingData;
 }
 
-aclblasStatus_t aclblasScopy(
+aclblasStatus_t aclblasScopy_legacy(
     aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy)
 {
     if (n <= 0) {
