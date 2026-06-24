@@ -375,6 +375,14 @@ aclblasStatus_t aclblasSgetrsBatched(
     aclblasHandle_t handle, aclblasOperation_t trans, int n, int nrhs, const float* const Aarray[], int lda,
     const int* devIpiv, float* const Barray[], int ldb, int* info, int batchCount);
 
+aclblasStatus_t aclblasGemmGroupedBatchedEx(
+    aclblasHandle_t handle, const aclblasOperation_t transaArray[], const aclblasOperation_t transbArray[],
+    const int mArray[], const int nArray[], const int kArray[], const void* alphaArray,
+    const void* const Aarray[], aclDataType Atype, const int ldaArray[],
+    const void* const Barray[], aclDataType Btype, const int ldbArray[],
+    const void* betaArray, void* const Carray[], aclDataType Ctype, const int ldcArray[],
+    int groupCount, const int groupSize[], aclblasComputeType_t computeType);
+
 #ifdef __cplusplus
 }
 #endif

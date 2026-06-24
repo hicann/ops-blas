@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <securec.h>
 
 #include "acl/acl.h"
 #include "dtype_cast.h"

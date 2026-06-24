@@ -73,8 +73,16 @@ inline std::vector<T> GetCasesFromCsv(const std::string& csvPath)
     }
 
     std::string headerLine;
-    if (!std::getline(ifs, headerLine)) {
-        throw std::runtime_error("CSV file is empty: " + csvPath);
+    bool hasHeader = false;
+    while (std::getline(ifs, headerLine)) {
+        size_t first = headerLine.find_first_not_of(" \t\r\n");
+        if (first != std::string::npos && headerLine[first] != '#') {
+            hasHeader = true;
+            break;
+        }
+    }
+    if (!hasHeader) {
+        throw std::runtime_error("CSV file has no header: " + csvPath);
     }
     auto keys = CsvSplitLine(headerLine);
 

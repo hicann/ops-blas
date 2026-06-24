@@ -123,13 +123,13 @@ __aicore__ __attribute__((always_inline)) inline uint64_t L0HalfSize()
     return 32 * 1024 / sizeof(Dtype);
 }
 
-#ifndef KERNEL_UTILS_LITE
-
 /* ========== Pipe / sync utilities ========== */
 
 #define SET_FLAG(trigger, waiter, e) AscendC::SetFlag<AscendC::HardEvent::trigger##_##waiter>((e))
 #define WAIT_FLAG(trigger, waiter, e) AscendC::WaitFlag<AscendC::HardEvent::trigger##_##waiter>((e))
 #define PIPE_BARRIER(pipe) AscendC::PipeBarrier<PIPE_##pipe>()
+
+#ifndef KERNEL_UTILS_LITE
 
 template <typename IN_DTYPE>
 __aicore__ inline void CreateCaMatrix(
