@@ -9,9 +9,3 @@
 # ----------------------------------------------------------------------------------------------------------
 
 ops_blas_add_gtest_tests(${OPS_BLAS} gemm_ex_test)
-
-# gemm uses matmul_tiling::MultiCoreMatmulTiling which requires tiling_api (static) and
-# platform (shared) symbols. Since tiling_api is a static library, its symbols are not
-# transitively available from libops_blas.so, so we need to link them explicitly.
-target_link_directories(gemm_ex_test PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/lib64")
-target_link_libraries(gemm_ex_test PRIVATE tiling_api platform register c_sec)

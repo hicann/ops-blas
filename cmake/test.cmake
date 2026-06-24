@@ -264,8 +264,12 @@ function(_ops_blas_register_gtest_target target link_lib)
         $ENV{LINUX_INCLUDE_PATH}
         ${GTEST_INCLUDE_DIR}
         ${REFBLAS_INCLUDE_DIR}
+        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/op_common/
+        ${ASCEND_CANN_PACKAGE_PATH}/include/op_common/
+        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base/
     )
     target_compile_features(${target} PRIVATE cxx_std_17)
+    target_link_directories(${target} PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/lib64")
     target_link_libraries(${target} PRIVATE
         ${link_lib}
         $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
@@ -273,6 +277,10 @@ function(_ops_blas_register_gtest_target target link_lib)
         ${REFBLAS_LIB}
         ${REFLAPACK_LIB}
         pthread
+        tiling_api
+        platform
+        register
+        c_sec
     )
 
     _ops_blas_copy_test_config_files(${target})
