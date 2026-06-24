@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Version 2.0 (the "License").
+ * CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
@@ -15,6 +15,7 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
+#include "fill.h"
 
 // Pivot mode: whether PivotArray is allocated or nullptr
 enum class GetriPivotMode {
@@ -76,6 +77,22 @@ inline GetriMatrixType parseGetriMatrixType(const std::string& s)
     if (s == "NULLPTR_HANDLE" || s == "nullptr_handle")
         return GetriMatrixType::NULLPTR_HANDLE;
     return GetriMatrixType::RANDOM_NONSINGULAR;
+}
+
+inline BlasLapackMatrixType toBlasLapackMatrixType(GetriMatrixType t)
+{
+    switch (t) {
+        case GetriMatrixType::IDENTITY: return BlasLapackMatrixType::IDENTITY;
+        case GetriMatrixType::DIAGONALLY_DOMINANT: return BlasLapackMatrixType::DIAGONALLY_DOMINANT;
+        case GetriMatrixType::ILL_CONDITIONED: return BlasLapackMatrixType::ILL_CONDITIONED;
+        case GetriMatrixType::DIAGONAL: return BlasLapackMatrixType::DIAGONAL;
+        case GetriMatrixType::UPPER_TRIANGULAR: return BlasLapackMatrixType::UPPER_TRIANGULAR;
+        case GetriMatrixType::LOWER_TRIANGULAR: return BlasLapackMatrixType::LOWER_TRIANGULAR;
+        case GetriMatrixType::SINGULAR_ZERO_COL: return BlasLapackMatrixType::SINGULAR_ZERO_COL;
+        case GetriMatrixType::SINGULAR_DEPENDENT_ROW: return BlasLapackMatrixType::SINGULAR_DEPENDENT_ROW;
+        case GetriMatrixType::MIXED: return BlasLapackMatrixType::MIXED;
+        default: return BlasLapackMatrixType::RANDOM_NONSINGULAR;
+    }
 }
 
 struct SgetriBatchedParam : public BlasTestParamBase {

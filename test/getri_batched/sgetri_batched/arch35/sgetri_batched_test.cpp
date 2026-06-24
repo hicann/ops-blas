@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Version 2.0 (the "License").
+ * CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
@@ -18,170 +18,9 @@
 #include "verify.h"
 #include "blas_test.h"
 #include "csv_loader.h"
-#include "getri_batched_param.h"
-#include "getri_batched_golden.h"
-#include "getri_batched_npu_wrapper.h"
-
-// ---------------------------------------------------------------------------
-// Matrix generation helpers
-// ---------------------------------------------------------------------------
-
-static void GenerateRandomNonsingular(
-    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist)
-{
-    for (int j = 0; j < n; j++) {
-        for (int i = 0; i < n; i++) {
-            mat[j * lda + i] = dist(rng);
-        }
-        mat[j * lda + j] += static_cast<float>(n);
-    }
-}
-
-static void GenerateSingularZeroCol(
-    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist)
-{
-    GenerateRandomNonsingular(mat, n, lda, rng, dist);
-    // Zero out first column to make matrix singular
-    for (int i = 0; i < n; i++) {
-        mat[0 * lda + i] = 0.0f;
-    }
-}
-
-static void GenerateIdentity(std::vector<float>& mat, int n, int lda)
-{
-    for (int j = 0; j < n; j++) {
-        for (int i = 0; i < n; i++) {
-            mat[j * lda + i] = (i == j) ? 1.0f : 0.0f;
-        }
-    }
-}
-
-static void GenerateDiagonallyDominant(
-    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist)
-{
-    for (int j = 0; j < n; j++) {
-        for (int i = 0; i < n; i++) {
-            mat[j * lda + i] = dist(rng);
-        }
-        mat[j * lda + j] = static_cast<float>(n);
-    }
-}
-
-static void GenerateIllConditioned(std::vector<float>& mat, int n, int lda)
-{
-    // Hilbert matrix: H(i,j) = 1/(i+j+1)
-    for (int j = 0; j < n; j++) {
-        for (int i = 0; i < n; i++) {
-            mat[j * lda + i] = 1.0f / static_cast<float>(i + j + 1);
-        }
-    }
-}
-
-static void GenerateSingularDependentRow(
-    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist)
-{
-    GenerateRandomNonsingular(mat, n, lda, rng, dist);
-    int depRow = std::min(n - 1, 2);
-    if (depRow > 0) {
-        for (int j = 0; j < n; j++) {
-            mat[j * lda + depRow] = 2.0f * mat[j * lda + 0];
-        }
-    }
-}
-
-static void GenerateMixed(
-    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist,
-    int batchIdx)
-{
-    GenerateRandomNonsingular(mat, n, lda, rng, dist);
-    if (batchIdx % 2 == 1) {
-        // Make odd-indexed batches singular
-        for (int i = 0; i < n; i++) {
-            mat[0 * lda + i] = 0.0f;
-        }
-    }
-}
-
-static void GenerateDiagonal(std::vector<float>& mat, int n, int lda, std::mt19937& rng)
-{
-    std::uniform_real_distribution<float> diagDist(0.1f, 10.0f);
-    for (int j = 0; j < n; j++) {
-        for (int i = 0; i < n; i++) {
-            mat[j * lda + i] = 0.0f;
-        }
-        mat[j * lda + j] = diagDist(rng);
-    }
-}
-
-static void GenerateTriangular(std::vector<float>& mat, int n, int lda, std::mt19937& rng, bool upper)
-{
-    std::uniform_real_distribution<float> diagDist(0.5f, 2.0f);
-    std::uniform_real_distribution<float> offDist(0.0f, 1.0f);
-    for (int j = 0; j < n; j++) {
-        for (int i = 0; i < n; i++) {
-            bool isOff = upper ? (i < j) : (i > j);
-            if (isOff) {
-                mat[j * lda + i] = offDist(rng);
-            } else if (i == j) {
-                mat[j * lda + i] = diagDist(rng);
-            } else {
-                mat[j * lda + i] = 0.0f;
-            }
-        }
-    }
-}
-
-/**
- * Generate a single n×n matrix in column-major storage (lda stride).
- * Returns a vector of size lda * n.
- */
-static std::vector<float> generateMatrix(int n, int lda, GetriMatrixType type, uint32_t seed, int batchIdx = 0)
-{
-    const size_t matSize = static_cast<size_t>(lda) * std::max(1, n);
-    std::vector<float> mat(matSize, 0.0f);
-    if (n <= 0)
-        return mat;
-
-    std::mt19937 rng(seed + batchIdx * 1000);
-    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-
-    switch (type) {
-        case GetriMatrixType::RANDOM_NONSINGULAR:
-            GenerateRandomNonsingular(mat, n, lda, rng, dist);
-            break;
-        case GetriMatrixType::SINGULAR_ZERO_COL:
-            GenerateSingularZeroCol(mat, n, lda, rng, dist);
-            break;
-        case GetriMatrixType::IDENTITY:
-            GenerateIdentity(mat, n, lda);
-            break;
-        case GetriMatrixType::DIAGONALLY_DOMINANT:
-            GenerateDiagonallyDominant(mat, n, lda, rng, dist);
-            break;
-        case GetriMatrixType::ILL_CONDITIONED:
-            GenerateIllConditioned(mat, n, lda);
-            break;
-        case GetriMatrixType::SINGULAR_DEPENDENT_ROW:
-            GenerateSingularDependentRow(mat, n, lda, rng, dist);
-            break;
-        case GetriMatrixType::MIXED:
-            GenerateMixed(mat, n, lda, rng, dist, batchIdx);
-            break;
-        case GetriMatrixType::DIAGONAL:
-            GenerateDiagonal(mat, n, lda, rng);
-            break;
-        case GetriMatrixType::UPPER_TRIANGULAR:
-            GenerateTriangular(mat, n, lda, rng, true);
-            break;
-        case GetriMatrixType::LOWER_TRIANGULAR:
-            GenerateTriangular(mat, n, lda, rng, false);
-            break;
-        default:
-            GenerateRandomNonsingular(mat, n, lda, rng, dist);
-            break;
-    }
-    return mat;
-}
+#include "sgetri_batched_param.h"
+#include "sgetri_batched_golden.h"
+#include "sgetri_batched_npu_wrapper.h"
 
 // ---------------------------------------------------------------------------
 // Test fixture
@@ -192,7 +31,7 @@ class SgetriBatchedArch35Test : public BlasTest<SgetriBatchedParam> {};
 // Null handle test (TEST_F, not in CSV)
 TEST_F(SgetriBatchedArch35Test, NullHandle)
 {
-    aclblasStatus_t ret = aclblasSgetriBatched_npu(nullptr, 32, nullptr, 32, nullptr, nullptr, 32, nullptr, 4);
+    aclblasStatus_t ret = aclblasSgetriBatched_npu(nullptr, 32, nullptr, 32, nullptr, nullptr, 32, nullptr, 4, nullptr);
     EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 }
 
@@ -204,7 +43,7 @@ INSTANTIATE_TEST_SUITE_P(
 // ---------------------------------------------------------------------------
 // Error path test
 // ---------------------------------------------------------------------------
-static void TestErrorPath(const SgetriBatchedParam& p, aclblasHandle_t handle)
+static void TestErrorPath(const SgetriBatchedParam& p, aclblasHandle_t handle, aclrtStream stream)
 {
     bool nullAarray = (p.matrixType == GetriMatrixType::NULLPTR_AARRAY);
     bool nullCarray = (p.matrixType == GetriMatrixType::NULLPTR_CARRAY);
@@ -249,14 +88,14 @@ static void TestErrorPath(const SgetriBatchedParam& p, aclblasHandle_t handle)
     int* pivPtr = usePivot ? errPivot.data() : nullptr;
     int* infoPtr = nullInfo ? nullptr : errInfo.data();
 
-    aclblasStatus_t ret = aclblasSgetriBatched_npu(h, p.n, aPtr, p.lda, pivPtr, cPtr, p.ldc, infoPtr, p.batchSize);
+    aclblasStatus_t ret = aclblasSgetriBatched_npu(h, p.n, aPtr, p.lda, pivPtr, cPtr, p.ldc, infoPtr, p.batchSize, stream);
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
 }
 
 // ---------------------------------------------------------------------------
 // No-op path test (n=0 or batchSize=0)
 // ---------------------------------------------------------------------------
-static void TestNoOpPath(const SgetriBatchedParam& p, aclblasHandle_t handle)
+static void TestNoOpPath(const SgetriBatchedParam& p, aclblasHandle_t handle, aclrtStream stream)
 {
     int safeBatch = std::max(0, p.batchSize);
     std::vector<const float*> dummyA(safeBatch, nullptr);
@@ -268,7 +107,7 @@ static void TestNoOpPath(const SgetriBatchedParam& p, aclblasHandle_t handle)
     int* infoPtr = dummyInfo.empty() ? nullptr : dummyInfo.data();
 
     aclblasStatus_t ret =
-        aclblasSgetriBatched_npu(handle, p.n, aPtr, p.lda, nullptr, cPtr, p.ldc, infoPtr, p.batchSize);
+        aclblasSgetriBatched_npu(handle, p.n, aPtr, p.lda, nullptr, cPtr, p.ldc, infoPtr, p.batchSize, stream);
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
 }
 
@@ -350,7 +189,7 @@ static void PrepareGetriTestData(
     data.luPtrs.resize(batchSize);
 
     for (int b = 0; b < batchSize; b++) {
-        data.originalMatrices[b] = generateMatrix(n, lda, p.matrixType, p.randomSeed, b);
+        data.originalMatrices[b] = makeBlasLapackMatrix(n, lda, toBlasLapackMatrixType(p.matrixType), p.randomSeed, b);
         data.luMatrices[b] = data.originalMatrices[b]; // copy for LU factorization
         data.luPtrs[b] = data.luMatrices[b].data();
     }
@@ -422,7 +261,7 @@ static void RunCpuGetri(
 // Normal path test helper
 // ---------------------------------------------------------------------------
 static void TestNormalPath(
-    const SgetriBatchedParam& p, int n, int lda, int ldc, int batchSize, bool usePivot, aclblasHandle_t handle)
+    const SgetriBatchedParam& p, int n, int lda, int ldc, int batchSize, bool usePivot, aclblasHandle_t handle, aclrtStream stream)
 {
     GetriTestData data;
     PrepareGetriTestData(data, p, n, lda, ldc, batchSize, usePivot);
@@ -434,7 +273,7 @@ static void TestNormalPath(
 
     aclblasStatus_t ret = aclblasSgetriBatched_npu(
         handle, n, data.luPtrs.data(), lda, usePivot ? data.pivotArray.data() : nullptr, data.npuInversePtrs.data(),
-        ldc, data.riInfoArray.data(), batchSize);
+        ldc, data.riInfoArray.data(), batchSize, stream);
 
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
     if (ret != ACLBLAS_STATUS_SUCCESS)
@@ -459,10 +298,10 @@ TEST_P(SgetriBatchedArch35Test, CsvDriven)
     const bool usePivot = (p.pivotMode == GetriPivotMode::PIVOT);
 
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS) {
-        TestErrorPath(p, SgetriBatchedArch35Test::handle_);
+        TestErrorPath(p, SgetriBatchedArch35Test::handle_, SgetriBatchedArch35Test::stream_);
     } else if (n <= 0 || batchSize <= 0) {
-        TestNoOpPath(p, SgetriBatchedArch35Test::handle_);
+        TestNoOpPath(p, SgetriBatchedArch35Test::handle_, SgetriBatchedArch35Test::stream_);
     } else {
-        TestNormalPath(p, n, p.lda, p.ldc, batchSize, usePivot, SgetriBatchedArch35Test::handle_);
+        TestNormalPath(p, n, p.lda, p.ldc, batchSize, usePivot, SgetriBatchedArch35Test::handle_, SgetriBatchedArch35Test::stream_);
     }
 }

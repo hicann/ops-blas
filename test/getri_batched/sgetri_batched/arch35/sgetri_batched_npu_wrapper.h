@@ -1,7 +1,7 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Version 2.0 (the "License").
+ * CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
@@ -16,7 +16,6 @@
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "aclblas_handle_internal.h"
 
 /**
  * NPU wrapper for aclblasSgetriBatched.
@@ -207,7 +206,7 @@ static aclblasStatus_t AllocateAllDeviceBuffers(
 
 inline aclblasStatus_t aclblasSgetriBatched_npu(
     aclblasHandle_t handle, int n, const float* const Aarray[], int lda, const int* PivotArray, float* const Carray[],
-    int ldc, int* infoArray, int batchSize)
+    int ldc, int* infoArray, int batchSize, aclrtStream stream)
 {
     if (handle == nullptr || n <= 0 || batchSize <= 0 || Aarray == nullptr || Carray == nullptr ||
         infoArray == nullptr) {
@@ -230,8 +229,7 @@ inline aclblasStatus_t aclblasSgetriBatched_npu(
         handle, n, reinterpret_cast<const float* const*>(bufs.dAPtrArray), lda, static_cast<const int*>(bufs.dPivot),
         reinterpret_cast<float* const*>(bufs.dCPtrArray), ldc, static_cast<int*>(bufs.dInfo), batchSize);
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    aclrtSynchronizeStream(h->stream);
+    aclrtSynchronizeStream(stream);
 
     if (ret == ACLBLAS_STATUS_SUCCESS) {
         GetriCopyResultsD2H(Carray, infoArray, bufs, batchSize, cMatBytes, infoBytes);
