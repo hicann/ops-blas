@@ -1,121 +1,54 @@
-## Sger算子实现
+# Ger算子
 
-## 概述
+## 算子概述
 
-本样例展示 `aclblasSger` 在 Ascend 平台上的基本使用流程。
+Ger（Rank-1 Update）算子实现了矩阵的秩-1更新操作。
 
-Sger (Rank-1 Update) 实现矩阵的秩-1更新操作，数学表达式为：
+数学表达式：
 
 ```
 A = A + alpha * x * y^T
 ```
 
-其中：
-- `x`：长度为 `m` 的列向量
-- `y`：长度为 `n` 的列向量
-- `alpha`：标量
-- `A`：`m x n` 矩阵
+包含以下接口：
 
-## 支持的产品
+| 接口名 | 功能简述 |
+|--------|---------|
+| aclblasSger | 单精度浮点矩阵秩-1更新 |
 
-- Atlas A5 训练系列产品/Atlas A5 推理系列产品
-- Atlas A3 训练系列产品/Atlas A3 推理系列产品
-- Atlas A2 训练系列产品/Atlas A2 推理系列产品
+## 算子执行接口
 
-## 目录结构介绍
+### aclblasSger
 
-```
-blas/ger/
-├── README.md                   // 说明文档
-├── arch22/
-│   ├── sger_host.cpp           // Host 侧实现（arch22）
-│   └── sger_kernel.cpp         // Kernel 侧实现（arch22）
-└── arch35/
-    ├── sger_host.cpp           // Host 侧实现（arch35）
-    ├── sger_kernel.cpp         // Kernel 侧实现（arch35，SIMT）
-    └── sger_tiling_data.h      // Tiling 数据结构（arch35）
+#### 产品支持情况
 
-test/ger/sger/
-├── CMakeLists.txt              // 测试构建文件
-├── sger_param.h                // CSV 参数解析结构体
-├── sger_golden.h               // CPU golden（cblas_sger）
-└── arch35/
-    ├── sger_test.cpp           // 测试代码（arch35，GTest 参数化）
-    ├── sger_test.csv           // CSV 测试用例
-    └── sger_npu_wrapper.h      // NPU wrapper
+- Ascend 950PR / Ascend 950DT：支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasSger(aclblasHandle_t handle, int m, int n, const float *alpha, const float *x, int incx, const float *y, int incy, float *A, int lda);
 ```
 
-## 算子描述
+#### 参数说明
 
-- 算子功能：
-  Sger算子实现了秩-1更新操作，将 `alpha * x * y^T` 加到矩阵 `A` 上。
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
+| m | 输入 | int | 矩阵 A 的行数，Host 内存 |
+| n | 输入 | int | 矩阵 A 的列数，Host 内存 |
+| alpha | 输入 | const float*（FP32） | 标量乘数，Host 内存 |
+| x | 输入 | const float*（FP32） | 长度为 m 的列向量，Device 内存 |
+| incx | 输入 | int | 向量 x 的步长，Host 内存 |
+| y | 输入 | const float*（FP32） | 长度为 n 的列向量，Device 内存 |
+| incy | 输入 | int | 向量 y 的步长，Host 内存 |
+| A | 输入/输出 | float*（FP32） | m x n 矩阵，原地更新，Device 内存 |
+| lda | 输入 | int | 矩阵 A 的主维，Host 内存 |
 
-- 算子规格：
-  <table>
-  <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="4" align="center">Sger</td></tr>
-  <tr><td rowspan="4" align="center">算子输入</td><td align="center">name</td><td align="center">shape</td><td align="center">data type</td><td align="center">format</td></tr>
-  <tr><td align="center">x</td><td align="center">m</td><td align="center">float32</td><td align="center">ND</td></tr>
-  <tr><td align="center">y</td><td align="center">n</td><td align="center">float32</td><td align="center">ND</td></tr>
-  <tr><td align="center">A</td><td align="center">m x n</td><td align="center">float32</td><td align="center">ND</td></tr>
-  <tr><td rowspan="1" align="center">算子输出</td><td align="center">A</td><td align="center">m x n</td><td align="center">float32</td><td align="center">ND</td></tr>
-  <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">sger_kernel</td></tr>
-  </table>
+#### 约束说明
 
-- 调用实现：
-  本样例为 Host API 调用示例，使用 `aclblasSger` 接口完成算子配置与执行。
-
-- 实现说明：
-
-  **arch35 (SIMT)**：采用 SIMT 编程模型，支持两条执行路径：
-  - **UB-x 路径**：当 incx=1 且 m≤16384 时，将 x 向量缓存到 `__ubuf__` 共享内存，所有列共享同一份 x 数据，提升数据复用率
-  - **GM 路径**：grid-stride loop 遍历所有列，适用于任意 incx 或 m>16384 的场景
-
-  Tiling 数据通过传值方式（by value）从 host 传入 kernel，无需分配 GM 设备内存。Host 侧通过 `GetAivCoreCount()` 获取 AIV 核数，异步 launch kernel 后直接返回。
-
-- 接口定义：
-
-```c
-aclblasStatus_t aclblasSger(aclblasHandle_t handle,
-                             int m, int n,
-                             const float *alpha,
-                             const float *x, int incx,
-                             const float *y, int incy,
-                             float *A, int lda);
-```
-
-## 编译运行
-
-在本样例根目录下执行如下步骤，编译并执行算子。
-
-- 配置环境变量
-  请根据当前环境上 CANN 开发套件包的安装方式，选择对应配置环境变量的命令。
-
-  - 默认路径，root 用户安装 CANN 软件包
-
-```bash
-source /usr/local/Ascend/cann/set_env.sh
-```
-
-  - 默认路径，非 root 用户安装 CANN 软件包
-
-```bash
-source $HOME/Ascend/cann/set_env.sh
-```
-
-  - 指定路径 install_path，安装 CANN 软件包
-
-```bash
-source ${install_path}/cann/set_env.sh
-```
-
-- 样例执行
-
-```bash
-bash build.sh --ops=sger --soc=ascend950 --run
-```
-
-执行结果如下，说明所有测试用例通过。
-
-```bash
-[  PASSED  ] N tests.
-```
+- m >= 0, n >= 0
+- incx != 0, incy != 0
+- lda >= max(1, m)

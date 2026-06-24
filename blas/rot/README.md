@@ -1,132 +1,51 @@
-## Csrot算子实现
+# Rot算子
 
-## 概述
+## 算子概述
 
-BLAS Csrot算子实现。
+向量旋转算子，实现对两个向量的平面旋转（Givens 旋转），常用于 QR 分解、求解线性方程组和特征值计算等数值算法中。
 
-Csrot(复数向量旋转)算子实现了对两个复数向量的平面旋转运算，是BLAS基础线性代数库中的核心算子之一。
+数学表达式：
 
-该算子实现了Givens旋转，常用于QR分解、求解线性方程组和特征值计算等数值算法中。
-
-## 支持的产品
-
-- Atlas A3 训练系列产品/Atlas A3 推理系列产品
-- Atlas A2 训练系列产品/Atlas A2 推理系列产品
-
-## 目录结构介绍
-
-```
-blas/rot/
-├── README.md                       // 说明文档
-└── arch22/
-    ├── csrot_host.cpp              // Host 侧实现（arch22）
-    └── csrot_kernel.cpp            // Kernel 侧实现（arch22）
-```
-
-## 算子描述
-
-- 算子功能：  
-Csrot算子实现了对两个复数向量的平面旋转。对应的数学表达式为：  
 ```
 x[i] = c * x[i] + s * y[i]
-y[i] = c * y[i] - s * x[i] (使用原始x[i])
+y[i] = c * y[i] - s * x[i] (使用原始 x[i])
 ```
-其中 c = cos(θ)，s = sin(θ)，θ为旋转角度
 
-对应的接口为：
+包含以下接口：
+
+| 接口名 | 功能简述 |
+|--------|---------|
+| aclblasCsrot | 复数向量平面旋转 |
+
+## 算子执行接口
+
+### aclblasCsrot
+
+#### 产品支持情况
+
+- Ascend 950PR / Ascend 950DT：不支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasCsrot(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy, const float c, const float s);
 ```
-int aclblasCsrot(float *x, float *y, const int64_t n, const float c, const float s, void *stream);
-```
-<table>
-   <tr>
-      <td rowspan="1" align="center">参数</td>
-      <td colspan="4" align="center">csrot 参数说明</td>
-   </tr>
-   <tr>
-      <td rowspan="6" align="center">参数列表</td>
-      <td align="center">Param.</td>
-      <td align="center">Memory</td>
-      <td align="center">in/out</td>
-      <td align="center">含义</td>
-   </tr>
-   <tr>
-      <td align="center">n</td>
-      <td align="center"></td>
-      <td align="center">in</td>
-      <td align="center">向量元素个数。</td>
-   </tr>
-   <tr>
-      <td align="center">c</td>
-      <td align="center">host/device</td>
-      <td align="center">in</td>
-      <td align="center">旋转角度的余弦值。</td>
-   </tr>
-   <tr>
-      <td align="center">s</td>
-      <td align="center">host/device</td>
-      <td align="center">in</td>
-      <td align="center">旋转角度的正弦值。</td>
-   </tr>
-   <tr>
-      <td align="center">x</td>
-      <td align="center">device</td>
-      <td align="center">in/out</td>
-      <td align="center">向量，包含 n 个元素，原地修改。</td>
-   </tr>
-   <tr>
-      <td align="center">y</td>
-      <td align="center">device</td>
-      <td align="center">in/out</td>
-      <td align="center">向量，包含 n 个元素，原地修改。</td>
-   </tr>
-</table>
 
+#### 参数说明
 
-- 算子规格：
-  <table>
-  <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="4" align="center">Csrot</td></tr>
-  </tr>
-  <tr><td rowspan="2" align="center">算子输入</td><td align="center">name</td><td align="center">shape</td><td align="center">data type</td><td align="center">format</td></tr>
-  <tr><td align="center">x, y</td><td align="center">n</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  </tr>
-  <tr><td rowspan="1" align="center">算子输出</td><td align="center">x, y</td><td align="center">n</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">csrot_kernel</td></tr>
-  </table>
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
+| n | 输入 | int64_t | 向量元素个数，Host 内存 |
+| x | 输入/输出 | uint8_t*（FP32 complex） | 向量，包含 n 个元素，原地修改，Device 内存 |
+| incx | 输入 | int64_t | x 中连续元素之间的步长，Host 内存 |
+| y | 输入/输出 | uint8_t*（FP32 complex） | 向量，包含 n 个元素，原地修改，Device 内存 |
+| incy | 输入 | int64_t | y 中连续元素之间的步长，Host 内存 |
+| c | 输入 | float | 旋转角度的余弦值，Host 内存 |
+| s | 输入 | float | 旋转角度的正弦值，Host 内存 |
 
-- 算子实现： 
+#### 约束说明
 
-    将输入数据从x和y的GM地址分块搬运到UB，进行旋转计算后再搬出到x和y所在的GM地址。
-
-- 调用实现  
-    使用内核调用符<<<>>>调用核函数。 
-
-## 编译运行
-
-在本样例根目录下执行如下步骤，编译并执行算子。
-- 配置环境变量  
-  请根据当前环境上CANN开发套件包的安装方式，选择对应配置环境变量的命令。
-  - 默认路径，root用户安装CANN软件包
-    ```bash
-    source /usr/local/Ascend/cann/set_env.sh
-    ```
-
-  - 默认路径，非root用户安装CANN软件包
-    ```bash
-    source $HOME/Ascend/cann/set_env.sh
-    ```
-
-  - 指定路径install_path，安装CANN软件包
-    ```bash
-    source ${install_path}/cann/set_env.sh
-    ```
-
-- 样例执行
-  ```bash
-  bash build.sh --ops=csrot --run # --ops=<算子名> --run可选参数，执行测试样例
-  ```
-  执行结果如下，说明精度对比成功。
-  ```bash
-  [Success] Case accuracy is verification passed.
-  ```
+- n >= 0

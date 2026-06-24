@@ -1,133 +1,49 @@
-## Iamax算子实现
+# Iamax算子
 
-## 概述
+## 算子概述
 
-BLAS Iamax算子实现。
+BLAS Iamax（最大绝对值元素索引）算子实现了查找向量中绝对值最大的元素索引，是 BLAS 基础线性代数库中的核心算子之一。该算子返回 1-based 索引，遵循 BLAS 惯例，常用于主元选择和迭代算法中。
 
-Iamax(最大绝对值元素索引)算子实现了查找向量中绝对值最大的元素索引，是BLAS基础线性代数库中的核心算子之一。
+数学表达式：
 
-该算子返回1-based索引，遵循BLAS惯例，常用于主元选择和迭代算法中。
-
-## 支持的产品
-
-- Atlas A3 训练系列产品/Atlas A3 推理系列产品
-- Atlas A2 训练系列产品/Atlas A2 推理系列产品
-
-## 目录结构介绍
-
-```
-blas/iamax/
-├── README.md                       // 说明文档
-└── arch22/
-    ├── iamax_host.cpp              // Host 侧实现（arch22）
-    ├── iamax_kernel.cpp            // Kernel 侧实现（arch22）
-    └── iamax_kernel_impl.h         // Kernel 实现细节（arch22）
-```
-
-## 算子描述
-
-- 算子功能：  
-Iamax算子实现了查找向量中绝对值最大的元素索引。对应的数学表达式为：  
 ```
 result = argmax_i |x[i]|
 ```
-返回1-based索引
 
-对应的接口为：
+包含以下接口：
+
+| 接口名 | 功能简述 |
+|--------|---------|
+| aclblasIamax | 查找向量中绝对值最大元素的索引 |
+
+## 算子执行接口
+
+### aclblasIamax
+
+#### 产品支持情况
+
+- Ascend 950PR / Ascend 950DT：不支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
+
+#### 函数原型
+
+```cpp
+int aclblasIamax(const float *x, int32_t *result, const int64_t n, const int64_t incx, const uint32_t dtypeFlag, void *stream);
 ```
-int aclblasIamax(const float *x, int32_t *result, const int64_t n, const int64_t incx, 
-                 const uint32_t dtypeFlag, void *stream);
-```
-<table>
-   <tr>
-      <td rowspan="1" align="center">参数</td>
-      <td colspan="4" align="center">iamax 参数说明</td>
-   </tr>
-   <tr>
-      <td rowspan="6" align="center">参数列表</td>
-      <td align="center">Param.</td>
-      <td align="center">Memory</td>
-      <td align="center">in/out</td>
-      <td align="center">含义</td>
-   </tr>
-   <tr>
-      <td align="center">n</td>
-      <td align="center"></td>
-      <td align="center">in</td>
-      <td align="center">向量元素个数。</td>
-   </tr>
-   <tr>
-      <td align="center">x</td>
-      <td align="center">device</td>
-      <td align="center">in</td>
-      <td align="center">向量，包含 n 个元素。</td>
-   </tr>
-   <tr>
-      <td align="center">incx</td>
-      <td align="center"></td>
-      <td align="center">in</td>
-      <td align="center">x 中连续元素之间的步长。</td>
-   </tr>
-   <tr>
-      <td align="center">dtypeFlag</td>
-      <td align="center"></td>
-      <td align="center">in</td>
-      <td align="center">数据类型标志，0表示实数float，1表示复数float。</td>
-   </tr>
-   <tr>
-      <td align="center">result</td>
-      <td align="center">device</td>
-      <td align="center">out</td>
-      <td align="center">最大绝对值元素的索引（1-based）。</td>
-   </tr>
-</table>
 
+#### 参数说明
 
-- 算子规格：
-  <table>
-  <tr><td rowspan="1" align="center">算子类型(OpType)</td><td colspan="4" align="center">Iamax</td></tr>
-  </tr>
-  <tr><td rowspan="1" align="center">算子输入</td><td align="center">name</td><td align="center">shape</td><td align="center">data type</td><td align="center">format</td></tr>
-  <tr><td align="center">x</td><td align="center">n</td><td align="center">float</td><td align="center">ND</td></tr>
-  </tr>
-  </tr>
-  <tr><td rowspan="1" align="center">算子输出</td><td align="center">result</td><td align="center">1</td><td align="center">int32</td><td align="center">ND</td></tr>
-  </tr>
-  <tr><td rowspan="1" align="center">核函数名</td><td colspan="4" align="center">iamax_kernel</td></tr>
-  </table>
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| x | 输入 | const float*（FP32） | 向量，包含 n 个元素，Device 内存 |
+| result | 输出 | int32_t* | 最大绝对值元素的索引（1-based），Device 内存 |
+| n | 输入 | int64_t | 向量元素个数，Host 内存 |
+| incx | 输入 | int64_t | x 中连续元素之间的步长，Host 内存 |
+| dtypeFlag | 输入 | uint32_t | 数据类型标志，0 表示实数 float，1 表示复数 float，Host 内存 |
+| stream | 输入 | void* | ACL 流，Host 内存 |
 
-- 算子实现： 
+#### 约束说明
 
-    将输入数据从x的GM地址分块搬运到UB，并行计算各核的局部最大值，最后归约得到全局最大值索引。
-
-- 调用实现  
-    使用内核调用符<<<>>>调用核函数。 
-
-## 编译运行
-
-在本样例根目录下执行如下步骤，编译并执行算子。
-- 配置环境变量  
-  请根据当前环境上CANN开发套件包的安装方式，选择对应配置环境变量的命令。
-  - 默认路径，root用户安装CANN软件包
-    ```bash
-    source /usr/local/Ascend/cann/set_env.sh
-    ```
-
-  - 默认路径，非root用户安装CANN软件包
-    ```bash
-    source $HOME/Ascend/cann/set_env.sh
-    ```
-
-  - 指定路径install_path，安装CANN软件包
-    ```bash
-    source ${install_path}/cann/set_env.sh
-    ```
-
-- 样例执行
-  ```bash
-  bash build.sh --ops=iamax --run # --ops=<算子名> --run可选参数，执行测试样例
-  ```
-  执行结果如下，说明精度对比成功。
-  ```bash
-  [Success] Case accuracy is verification passed.
-  ```
+- n >= 0
+- incx != 0
