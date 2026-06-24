@@ -361,6 +361,16 @@ aclblasStatus_t aclblasGemmEx(
     const void* alpha, const void* A, aclDataType Atype, int lda, const void* B, aclDataType Btype, int ldb,
     const void* beta, void* C, aclDataType Ctype, int ldc, aclblasComputeType_t computeType, aclblasGemmAlgo_t algo);
 
+aclblasStatus_t aclblasSgemmGroupedBatched(
+    aclblasHandle_t handle, int groupCount,
+    const aclblasOperation_t* transaArray, const aclblasOperation_t* transbArray,
+    const int* mArray, const int* nArray, const int* kArray,
+    const float* alphaArray, const float* const* Aarray, const int* ldaArray,
+    const float* const* Barray, const int* ldbArray,
+    const float* betaArray, float* const* Carray, const int* ldcArray,
+    const int* groupSizeArray);
+
+
 aclblasStatus_t aclblasSgetrsBatched(
     aclblasHandle_t handle, aclblasOperation_t trans, int n, int nrhs, const float* const Aarray[], int lda,
     const int* devIpiv, float* const Barray[], int ldb, int* info, int batchCount);

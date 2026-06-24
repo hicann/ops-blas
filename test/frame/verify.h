@@ -11,6 +11,7 @@
 #pragma once
 
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
@@ -290,6 +291,31 @@ public:
         std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << std::endl;
         return pass;
     }
+
+    // ── Complex Float MERE/MARE verification (real/imag separately) ──
+    static bool verifyMereMareComplexFloat(const std::complex<float>* output,
+                                             const std::complex<float>* golden,
+                                             size_t count, double threshold, double multiplier,
+                                             double epsilon,
+                                             const std::string& caseId)
+    {
+        // Split into real and imaginary parts
+        std::vector<float> outReal(count), outImag(count);
+        std::vector<float> goldReal(count), goldImag(count);
+        for (size_t i = 0; i < count; i++) {
+            outReal[i] = output[i].real();
+            outImag[i] = output[i].imag();
+            goldReal[i] = golden[i].real();
+            goldImag[i] = golden[i].imag();
+        }
+
+        MereMareStrategy realStrategy(threshold, multiplier);
+        MereMareStrategy imagStrategy(threshold, multiplier);
+        bool realPass = realStrategy.verify(outReal.data(), goldReal.data(), count, 1, caseId + "_real");
+        bool imagPass = imagStrategy.verify(outImag.data(), goldImag.data(), count, 1, caseId + "_imag");
+        return realPass && imagPass;
+    }
+
 
 private:
     static std::unique_ptr<PrecisionStrategy> createStrategy(const VerifyConfig& cfg)

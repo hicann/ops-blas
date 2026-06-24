@@ -12,6 +12,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -317,3 +318,42 @@ inline aclblasComputeType_t parseComputeType(const std::string& s)
     return parseEnum(s, t, ACLBLAS_COMPUTE_32F);
 }
 
+// ── Array parsers: semicolon-separated values for grouped batched operators ──
+
+inline std::vector<std::string> splitBySemicolon(const std::string& s)
+{
+    std::vector<std::string> parts;
+    std::istringstream iss(s);
+    std::string token;
+    while (std::getline(iss, token, ';'))
+        if (!token.empty())
+            parts.push_back(token);
+    return parts;
+}
+
+inline std::vector<int> parseIntArray(const std::string& s)
+{
+    auto parts = splitBySemicolon(s);
+    std::vector<int> result;
+    for (const auto& p : parts)
+        result.push_back(parseInt(p));
+    return result;
+}
+
+inline std::vector<float> parseFloatArray(const std::string& s)
+{
+    auto parts = splitBySemicolon(s);
+    std::vector<float> result;
+    for (const auto& p : parts)
+        result.push_back(parseFloat(p));
+    return result;
+}
+
+inline std::vector<aclblasOperation_t> parseTransArray(const std::string& s)
+{
+    auto parts = splitBySemicolon(s);
+    std::vector<aclblasOperation_t> result;
+    for (const auto& p : parts)
+        result.push_back(parseOpTrans(p));
+    return result;
+}
