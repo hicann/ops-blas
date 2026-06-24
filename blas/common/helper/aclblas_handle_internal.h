@@ -17,6 +17,7 @@
 
 #include <acl/acl.h>
 #include <cstddef>
+#include "log/log.h"
 
 #include "cann_ops_blas_common.h"
 
@@ -68,6 +69,19 @@ inline size_t aclblasGetEffectiveWorkspaceSize(const _aclblas_handle* h)
     }
     return h->use_user_workspace ? h->user_workspace_size : h->default_workspace_size;
 }
+
+/**
+ * @brief check the size in bytes of the currently active workspace.
+ */
+ inline bool aclblasCheckEffectiveWorkspaceSize(const _aclblas_handle* h, size_t workSize)
+ {
+    size_t availableBytes = aclblasGetEffectiveWorkspaceSize(h);
+    OP_CHECK_IF(availableBytes < workSize, OP_LOGE("aclblasHandle",
+        "workspace required %zu bytes, but only %zu bytes available. "
+        "Please call aclblasSetWorkspace with size >= %zu bytes",
+        workSize, availableBytes, workSize), return false);
+    return true;
+ }
 
 /**
  * @brief Switches back to the default workspace without clearing cached user workspace fields.

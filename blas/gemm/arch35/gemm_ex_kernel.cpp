@@ -265,7 +265,7 @@ __aicore__ inline void WriteFixpipeBlock(
             uint32_t cTileIdx = (mi - mStart) * st.nBlockSize + (ni - nStart);
             AscendC::LocalTensor<float> c0(AscendC::TPosition::CO1, cTileIdx * C0_TILE_BYTES, BASE_M * BASE_N);
             uint64_t cOffset = st.cBaseOffset + static_cast<uint64_t>(mi) * BASE_M * st.tiling.ldc +
-                               static_cast<uint64_t>(ni) * BASE_N;
+                static_cast<uint64_t>(ni) * BASE_N;
             AscendC::FixpipeParamsArch3510<AscendC::CO2Layout::ROW_MAJOR> fp;
             fp.mSize = curM;
             fp.nSize = curN;
@@ -281,7 +281,7 @@ __aicore__ inline void WriteFixpipeBlock(
 // GEMM_CUBE_KERNEL — Macro generating all BlockMmad cube kernel variants
 // ============================================================================
 #define GEMM_CUBE_KERNEL(FUNC_NAME, A_TYPE, B_TYPE, C_GM_TYPE, BM, BK, BN, C0_VAL, QUANT_MODE)                     \
-    __cube__ __global__ void FUNC_NAME(                                                                            \
+    extern "C" __global__ __cube__ void FUNC_NAME(                                                                            \
         __gm__ uint8_t* a, __gm__ uint8_t* b, __gm__ uint8_t* c, GemmExTilingData tiling)                          \
     {                                                                                                              \
         AscendC::InitSocState();                                                                                   \
@@ -303,16 +303,16 @@ __aicore__ inline void WriteFixpipeBlock(
         for (uint32_t mb = 0; mb < st.mBlockCount; mb++) {                                                         \
             for (uint32_t nb = 0; nb < st.nBlockCount; nb++) {                                                     \
                 uint32_t mStart = mb * st.mBlockSize;                                                              \
-                uint32_t mEnd = (mStart + st.mBlockSize < st.mLoopCount) ? mStart + st.mBlockSize : st.mLoopCount; \
+            uint32_t mEnd = (mStart + st.mBlockSize < st.mLoopCount) ? mStart + st.mBlockSize : st.mLoopCount; \
                 uint32_t nStart = nb * st.nBlockSize;                                                              \
-                uint32_t nEnd = (nStart + st.nBlockSize < st.nLoopCount) ? nStart + st.nBlockSize : st.nLoopCount; \
+            uint32_t nEnd = (nStart + st.nBlockSize < st.nLoopCount) ? nStart + st.nBlockSize : st.nLoopCount; \
                 for (uint32_t kIdx = 0; kIdx < st.kLoopCount; kIdx++) {                                            \
                     uint32_t curK =                                                                                \
                         (kIdx == st.kLoopCount - 1) ? (static_cast<uint32_t>(st.tiling.k) - kIdx * (BK)) : (BK);   \
                     for (uint32_t mi = mStart; mi < mEnd; mi++) {                                                  \
                         uint32_t curM = (mi != st.baseMCount) ? (BM) : st.tailM;                                   \
                         uint32_t curMAlign = (mi != st.baseMCount) ? (BM) : st.tailMAlign;                         \
-                        LoadATile<A_TYPE, (BM), (BK), (C0_VAL)>(st, aGM, a1, a2, mi, kIdx, curM, curK, curMAlign); \
+                    LoadATile<A_TYPE, (BM), (BK), (C0_VAL)>(st, aGM, a1, a2, mi, kIdx, curM, curK, curMAlign); \
                         for (uint32_t ni = nStart; ni < nEnd; ni++) {                                              \
                             ProcessNTile<A_TYPE, B_TYPE, (BM), (BK), (BN), (C0_VAL)>(                              \
                                 st, bGM, a2, b1, b2, mi, ni, kIdx, mStart, nStart, curM, curK);                    \
@@ -324,7 +324,7 @@ __aicore__ inline void WriteFixpipeBlock(
             }                                                                                                      \
         }                                                                                                          \
         AscendC::PipeBarrier<PIPE_ALL>();                                                                          \
-    }
+}
 
 // ── Kernel instantiations ──
 GEMM_CUBE_KERNEL(gemm_ex_kernel_fp16, half, half, half, 128, 16, 128, 16, QuantMode_t::F322F16)
@@ -580,45 +580,50 @@ private:
 
 // ── Kernel entry points (one per dtype variant) ──
 
-__aicore__ __global__ void gemm_ex_alpha_beta_kernel_fp32(
+extern "C" __global__ __aicore__ void gemm_ex_alpha_beta_kernel_fp32(
     __gm__ uint8_t* tempAB, __gm__ uint8_t* cOrig, __gm__ uint8_t* cOut, GemmExTilingData tiling)
 {
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     AlphaBetaKernel<float, float, RoundMode::CAST_NONE> op;
     op.Init(tempAB, cOrig, cOut, tiling, &pipe);
     op.Process();
 }
 
-__aicore__ __global__ void gemm_ex_alpha_beta_kernel_fp16(
+extern "C" __global__ __aicore__ void gemm_ex_alpha_beta_kernel_fp16(
     __gm__ uint8_t* tempAB, __gm__ uint8_t* cOrig, __gm__ uint8_t* cOut, GemmExTilingData tiling)
 {
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     AlphaBetaKernel<half, half, RoundMode::CAST_NONE> op;
     op.Init(tempAB, cOrig, cOut, tiling, &pipe);
     op.Process();
 }
 
-__aicore__ __global__ void gemm_ex_alpha_beta_kernel_bf16(
+extern "C" __global__ __aicore__ void gemm_ex_alpha_beta_kernel_bf16(
     __gm__ uint8_t* tempAB, __gm__ uint8_t* cOrig, __gm__ uint8_t* cOut, GemmExTilingData tiling)
 {
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     AlphaBetaKernel<bfloat16_t, bfloat16_t, RoundMode::CAST_RINT> op;
     op.Init(tempAB, cOrig, cOut, tiling, &pipe);
     op.Process();
 }
 
-__aicore__ __global__ void gemm_ex_alpha_beta_kernel_f32_to_f16(
+extern "C" __global__ __aicore__ void gemm_ex_alpha_beta_kernel_f32_to_f16(
     __gm__ uint8_t* tempAB, __gm__ uint8_t* cOrig, __gm__ uint8_t* cOut, GemmExTilingData tiling)
 {
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     AlphaBetaKernel<float, half, RoundMode::CAST_NONE> op;
     op.Init(tempAB, cOrig, cOut, tiling, &pipe);
     op.Process();
 }
 
-__aicore__ __global__ void gemm_ex_alpha_beta_kernel_f32_to_bf16(
+extern "C" __global__ __aicore__ void gemm_ex_alpha_beta_kernel_f32_to_bf16(
     __gm__ uint8_t* tempAB, __gm__ uint8_t* cOrig, __gm__ uint8_t* cOut, GemmExTilingData tiling)
 {
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
     AlphaBetaKernel<float, bfloat16_t, RoundMode::CAST_RINT> op;
     op.Init(tempAB, cOrig, cOut, tiling, &pipe);
