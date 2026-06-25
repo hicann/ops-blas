@@ -52,7 +52,3 @@ aclblasStatus_t aclblasScalex(aclblasHandle_t handle, int n, const void *alpha, 
 - alphaType 固定为 ACL_FLOAT
 - executionType 固定为 ACL_FLOAT
 - xType 必须为 ACL_FLOAT、ACL_FLOAT16 或 ACL_BF16
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

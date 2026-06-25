@@ -49,7 +49,3 @@ aclblasStatus_t aclblasSrotm(aclblasHandle_t handle, int n, float *x, int incx, 
 - n >= 0
 - incx != 0
 - incy != 0
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

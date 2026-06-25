@@ -46,7 +46,3 @@ aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float *x, int 
 
 - n >= 0（n < 0 时返回错误）
 - incx != 0
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

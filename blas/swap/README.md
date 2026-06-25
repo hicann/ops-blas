@@ -50,11 +50,6 @@ aclblasStatus_t aclblasSswap(aclblasHandle_t handle, const int64_t n, uint8_t* x
 - handle 不可为 nullptr
 - x、y 不可为 nullptr
 - incx != 0, incy != 0
-
-#### 调用示例
-
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ### aclblasCswap
 
 #### 产品支持情况
@@ -84,7 +79,3 @@ aclblasStatus_t aclblasCswap(aclblasHandle_t handle, const int64_t n, uint8_t* x
 
 - n <= 0 时直接返回成功，不执行任何操作
 - incx != 0, incy != 0
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

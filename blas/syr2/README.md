@@ -55,7 +55,3 @@ aclblasStatus_t aclblasSsyr2(aclblasHandle_t handle, aclblasFillMode_t uplo, int
 - 算子输入 shape 为 [n]、[n]、[n, n]，输出 shape 为 [n, n]
 - 算子实际计算时，不支持 ND 高维度运算（不支持维度 >= 3 的运算）
 - Host 侧不做流同步，调用方需自行管理同步
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

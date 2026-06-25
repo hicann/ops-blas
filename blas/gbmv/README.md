@@ -55,7 +55,3 @@ aclblasStatus_t aclblasSgbmv(aclblasHandle_t handle, aclblasOperation_t trans, i
 
 - lda >= kl + ku + 1
 - incx != 0, incy != 0
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

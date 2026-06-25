@@ -46,7 +46,3 @@ int aclblasComplexMatDot(const float *matx, const float *maty, float *result, co
 #### 约束说明
 
 无
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

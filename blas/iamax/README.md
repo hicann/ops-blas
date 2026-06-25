@@ -47,7 +47,3 @@ int aclblasIamax(const float *x, int32_t *result, const int64_t n, const int64_t
 
 - n >= 0
 - incx != 0
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

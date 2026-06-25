@@ -53,7 +53,3 @@ aclblasStatus_t aclblasStpsv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 - diag 必须为 ACLBLAS_NON_UNIT 或 ACLBLAS_UNIT
 - incx != 0（可正可负）
 - AP、x 不可为 nullptr
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

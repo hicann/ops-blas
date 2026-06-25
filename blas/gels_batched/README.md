@@ -63,7 +63,3 @@ aclblasStatus_t aclblasSgelsBatched(aclblasHandle_t handle, aclblasOperation_t t
 - ldc >= max(1, m, n)
 - trans 必须为 ACLBLAS_OP_N 或 ACLBLAS_OP_T
 - m==0 或 n==0 或 nrhs==0 或 batchSize==0 时直接返回成功
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

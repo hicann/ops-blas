@@ -56,7 +56,3 @@ aclblasStatus_t aclblasSgetrsBatched(aclblasHandle_t handle, aclblasOperation_t 
 - n == 0 或 nrhs == 0 或 batchCount == 0 时直接返回成功，不启动 Kernel
 - 矩阵以列主序（Column-major）存储，与 LAPACK 标准一致
 - 调用前必须先使用 aclblasSgetrfBatched 对 Aarray[i] 完成 LU 分解
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

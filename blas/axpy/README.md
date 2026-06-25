@@ -51,14 +51,6 @@ aclblasStatus_t aclblasSaxpy(aclblasHandle_t handle, int n, const float* alpha, 
 - incx != 0
 - incy != 0
 
-#### 调用示例
-
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
-```cpp
-// 待补齐
-```
-
 ### aclblasCaxpy
 
 #### 产品支持情况
@@ -91,7 +83,7 @@ int aclblasCaxpy(aclblasHandle handle, const std::complex<float> *x, std::comple
 
 #### 调用示例
 
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](../../docs/zh/develop/compile_and_run_example.md)。
 
 ```cpp
 #include "acl/acl.h"

@@ -51,7 +51,3 @@ aclblasStatus_t aclblasSgetrfBatched(aclblasHandle_t handle, int n, float *const
 - n == 0 或 batchSize == 0 时直接返回成功，不启动 Kernel
 - PivotArray != NULL 时 infoArray 不可为 NULL
 - PivotArray == NULL 合法（禁用主元选取，执行非主元 LU 分解）
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

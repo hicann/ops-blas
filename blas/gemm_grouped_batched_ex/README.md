@@ -80,7 +80,3 @@ aclblasStatus_t aclblasGemmGroupedBatchedEx(aclblasHandle_t handle, const aclbla
 | ACL_FLOAT8_E5M2 | ACL_FLOAT8_E5M2 | ACL_FLOAT16 | ACLBLAS_COMPUTE_32F |
 | ACL_FLOAT8_E4M3FN | ACL_FLOAT8_E5M2 | ACL_FLOAT16 | ACLBLAS_COMPUTE_32F |
 | ACL_FLOAT8_E5M2 | ACL_FLOAT8_E4M3FN | ACL_FLOAT16 | ACLBLAS_COMPUTE_32F |
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

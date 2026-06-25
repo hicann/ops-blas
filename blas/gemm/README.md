@@ -63,7 +63,3 @@ aclblasStatus_t aclblasGemmEx(aclblasHandle_t handle, aclblasOperation_t transA,
 - transA = N 时 lda >= max(1, m)；transA = T/C 时 lda >= max(1, k)
 - transB = N 时 ldb >= max(1, k)；transB = T/C 时 ldb >= max(1, n)
 - algo 当前仅支持 ACLBLAS_GEMM_DEFAULT
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

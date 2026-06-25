@@ -52,10 +52,6 @@ aclblasStatus_t aclblasSdot(aclblasHandle_t handle, const int64_t n, const float
 - incx != 0
 - incy != 0
 
-#### 调用示例
-
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ### aclblasCdotu
 
 #### 产品支持情况
@@ -84,10 +80,6 @@ int aclblasCdotu(const float *x, const float *y, float *result, const int64_t n,
 
 - n >= 0
 
-#### 调用示例
-
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ### aclblasCdotc
 
 #### 产品支持情况
@@ -115,7 +107,3 @@ int aclblasCdotc(const float *x, const float *y, float *result, const int64_t n,
 #### 约束说明
 
 - n >= 0
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

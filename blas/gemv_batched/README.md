@@ -60,11 +60,6 @@ aclblasStatus_t aclblasSgemvBatched(aclblasHandle_t handle, aclblasOperation_t t
 - incx != 0, incy != 0
 - batchCount >= 0
 - trans 必须为 ACLBLAS_OP_N 或 ACLBLAS_OP_T
-
-#### 调用示例
-
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ### aclblasHSHgemvBatched
 
 #### 产品支持情况
@@ -104,11 +99,6 @@ aclblasStatus_t aclblasHSHgemvBatched(aclblasHandle_t handle, aclblasOperation_t
 - incx != 0, incy != 0
 - batchCount >= 0
 - trans 必须为 ACLBLAS_OP_N 或 ACLBLAS_OP_T
-
-#### 调用示例
-
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ### aclblasHSSgemvBatched
 
 #### 产品支持情况
@@ -148,11 +138,6 @@ aclblasStatus_t aclblasHSSgemvBatched(aclblasHandle_t handle, aclblasOperation_t
 - incx != 0, incy != 0
 - batchCount >= 0
 - trans 必须为 ACLBLAS_OP_N 或 ACLBLAS_OP_T
-
-#### 调用示例
-
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ### aclblasCgemvBatched
 
 #### 产品支持情况
@@ -189,7 +174,3 @@ aclblasStatus_t aclblasCgemvBatched(aclblasHandle_t handle, aclblasOperation tra
 
 - batchCount >= 0, m >= 0, n >= 0
 - trans 必须为 ACLBLAS_OP_N、ACLBLAS_OP_T 或 ACLBLAS_OP_C
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

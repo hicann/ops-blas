@@ -84,7 +84,7 @@ aclblasStatus_t aclblasGemmBatchedEx(aclblasHandle_t handle, aclblasOperation_t 
 
 #### 调用示例
 
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](../../docs/zh/develop/compile_and_run_example.md)。
 
 以下示例演示列主序（Column-Major）下的批量矩阵乘法调用。计算 `C[i] = 1.0 * A[i] * B[i] + 0.0 * C[i]`，其中 A 为 M×K，B 为 K×N，C 为 M×N，共 batchCount 个批次。
 

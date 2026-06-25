@@ -59,7 +59,3 @@ aclblasStatus_t aclblasSsymm(aclblasHandle handle, aclblasSideMode_t side, aclbl
 - ldb >= max(1, n)
 - ldc >= max(1, n)
 - alpha、beta 不可为 nullptr
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

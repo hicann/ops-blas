@@ -52,7 +52,3 @@ aclblasStatus_t aclblasSger(aclblasHandle_t handle, int m, int n, const float *a
 - m >= 0, n >= 0
 - incx != 0, incy != 0
 - lda >= max(1, m)
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

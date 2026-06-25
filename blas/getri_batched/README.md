@@ -53,7 +53,3 @@ aclblasStatus_t aclblasSgetriBatched(aclblasHandle_t handle, int n, const float 
 - n == 0 或 batchSize == 0 时直接返回成功，不启动 Kernel
 - Carray[i] 的内存空间不可与 Aarray[i] 重叠
 - 调用前必须先使用 aclblasSgetrfBatched 完成 LU 分解
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

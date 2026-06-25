@@ -58,7 +58,3 @@ aclblasStatus_t aclblasSrotmg(aclblasHandle_t handle, float *d1, float *d2, floa
 - d1, d2, x1, y1, param 必须全部位于 Host 侧或全部位于 Device 侧；混合 Host/Device 指针将返回 ACLBLAS_STATUS_INVALID_VALUE
 - Host 路径：直接 CPU 计算，无 kernel 开销，无数据搬运
 - Device 路径：启动 device kernel（1 block SIMT），计算和结果都留在 device 上
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

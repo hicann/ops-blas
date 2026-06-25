@@ -95,11 +95,6 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n, const float* x, int 
 - **汇总阶段**：各核将部分和写入 workspace，单核执行 ReduceSum + Sqrt 得到最终结果。
 
 多核并行策略：元素维度均匀分配到多个 AIV Core，余数核多处理 1 个元素。使用内核调用符 <<<>>> 调用核函数。
-
-#### 调用示例
-
-示例代码仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ### aclblasScnrm2
 
 #### 产品支持情况
@@ -142,11 +137,6 @@ aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* 
 #### 算子实现
 
 将复数向量的 2*n 个 float 元素直接传入 snrm2 kernel，复用实数向量范数计算逻辑。arch22 仅支持 incx == 1 的 SIMD 路径：按 32 元素块分配到多个 AIV Core，每核在 UB 内计算 local 平方和，通过 `SetAtomicAdd` 原子累积到 workspace，最后由 core 0 汇总计算 Sqrt。使用内核调用符 <<<>>> 调用核函数。
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ## 编译运行
 
 在仓库根目录下执行如下步骤，编译并运行算子测试。

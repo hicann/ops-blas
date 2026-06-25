@@ -49,7 +49,3 @@ aclblasStatus_t aclblasCsrot(aclblasHandle_t handle, const int64_t n, uint8_t* x
 #### 约束说明
 
 - n >= 0
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

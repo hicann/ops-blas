@@ -3,7 +3,6 @@
 ## 前提说明
 
 - 请确保基础环境已搭建完成，包括 NPU 驱动与固件、CANN 软件包（toolkit + ops）等。环境搭建请参考[环境部署](../install/quick_install.md)。
-- ops-blas 库需根据实际硬件 SOC 编译，编译时通过 `--soc` 参数指定目标芯片（如 `bash build.sh --soc=ascend950`）。若编译的 SOC 与运行设备不匹配，kernel 执行时会报错（如内核层 `EZ9999`、ACL 运行时层 `507035`）。
 
 ## 步骤一：编译并安装 ops-blas
 
@@ -307,8 +306,3 @@
         return ret;
     }
     ```
-
-## 常见问题
-
-- 若运行时出现内核层 `EZ9999` 或 ACL 运行时层 `507035` 错误，通常是 ops-blas 编译时的 `--soc` 参数与运行设备不匹配，请确认编译目标 SOC 与硬件一致后重新编译 ops-blas。
-- 若链接时报 `undefined reference to aclblasXxx`，请确认链接的是正确编译产物 `libops_blas.so`（`--ops` 参数仅控制测试程序的编译，不影响库中包含的算子，正常编译的 `libops_blas.so` 包含全部算子符号）。可通过 `nm -D libops_blas.so | grep aclblasXxx` 确认目标符号是否存在。若符号缺失，请检查是否误链接了旧版本或不完整的库文件。

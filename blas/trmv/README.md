@@ -52,11 +52,6 @@ aclblasStatus_t aclblasStrmv(aclblasHandle_t handle, aclblasFillMode uplo, aclbl
 - n >= 0
 - incx != 0
 - lda >= n
-
-#### 调用示例
-
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
-
 ### aclblasCtrmv
 
 #### 产品支持情况
@@ -91,7 +86,3 @@ aclblasStatus_t aclblasCtrmv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 - 仅支持 complex<float> 数据类型
 - incx > 0
 - lda > 0
-
-#### 调用示例
-
-暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。
