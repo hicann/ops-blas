@@ -153,3 +153,6 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
 | 错误处理指南 | [references/error-handling.md](references/error-handling.md) | 常见错误类型、重试阈值与回退策略 |
 | Issue 模板 | [assets/ISSUE_TEMPLATE.md](assets/ISSUE_TEMPLATE.md) | 问题记录模板 |
 | 文档与问卷模板 | [assets/](assets/) | 所有产出物的模板文件 |
+| README 标准模板 | [assets/README.md](assets/README.md) | 算子 README 统一模板（占位符体系、章节结构、参数表规范），4.1 编写文档时使用。规范原文见 [docs/zh/develop/readme_develop_guide.md](../../../docs/zh/develop/readme_develop_guide.md) |
+| ST 测试开发指南 | [docs/zh/develop/st_develop_guide.md](../../../docs/zh/develop/st_develop_guide.md) | GTest + CSV 精度 ST 框架设计与编码规范，2.1.1.B / 2.2.1.B 测试开发时参考 |
+| 算子代码模板库 | [agent/skills/blas-op-templates/SKILL.md](../../../agent/skills/blas-op-templates/SKILL.md) | 按编程模型（SIMD membase/regbase/SIMT）分类的标准化代码骨架，2.1.1.A / 2.2.1.A 算子开发时使用 |
