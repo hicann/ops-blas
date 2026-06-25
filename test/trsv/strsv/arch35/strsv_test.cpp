@@ -43,9 +43,10 @@ TEST_P(TrsvArch35Test, CsvDriven)
     // ── Generate A matrix ──
     auto aHost = makeBlasArray(allocLda * allocN, p.A, p.randomSeed);
     if (!aHost.empty()) {
+        float boost = std::max(5.0f, static_cast<float>(allocN));
         for (int64_t i = 0; i < allocN; i++) {
             float& diag = aHost[i + i * allocLda];
-            diag += (diag >= 0.0f ? 5.0f : -5.0f);
+            diag += (diag >= 0.0f ? boost : -boost);
         }
     }
 

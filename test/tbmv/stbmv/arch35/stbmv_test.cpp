@@ -35,8 +35,8 @@ TEST_P(StbmvArch35Test, CsvDriven) {
     int kl = (p.uplo == ACLBLAS_UPPER) ? 0 : p.k;
     int ku = (p.uplo == ACLBLAS_UPPER) ? p.k : 0;
 
-    auto a = makeBlasBanded(p.n, p.n, kl, ku, p.lda, "RANDOM", p.randomSeed);
-    auto x = makeBlasStrided(p.n, p.incx, "RANDOM", p.randomSeed + 1);
+    auto a = makeBlasBanded(p.n, p.n, kl, ku, p.lda, "RANDOM_0_1", p.randomSeed);
+    auto x = makeBlasStrided(p.n, p.incx, "RANDOM_0_1", p.randomSeed + 1);
     std::vector<float> golden = x;
 
     aclblasStatus_t ret = aclblasStbmv_npu(
