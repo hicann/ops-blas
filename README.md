@@ -1,8 +1,8 @@
 # ops-blas
 
 ## 🔥Latest News
-
-- [2026/05] blas目录新增[cgemv_batched](blas/gemv_batched/cgemv_batched/)、[complex_mat_dot](blas/complex_mat_dot/complex_mat_dot/)、[colwise_mul](blas/colwise_mul/colwise_mul/)、[trsv](blas/trsv/)等计算接口。
+- [2026/06] blas 目录新增 Level-3 混合精度 GEMM 接口：[aclblasGemmEx](blas/gemm/)、[aclblasGemmBatchedEx](blas/gemm_batched_ex/)、[aclblasSgemmGroupedBatched](blas/gemm_grouped_batched/) 等。补齐 A5 批量 LAPACK 求解链路：[aclblasSgetrfBatched](blas/getrf_batched/)、[aclblasSgetriBatched](blas/getri_batched/)、[aclblasSgelsBatched](blas/gels_batched/)、[aclblasSgetrsBatched](blas/getrs_batched/) 等。
+- [2026/05] blas目录新增[aclblasSgbmv](blas/gbmv/)、[aclblasSsbmv](blas/sbmv/)、[aclblasSspmv](blas/spmv/)、[aclblasStpsv](blas/tpsv/)等计算接口。
 - [2026/03] ops-blas项目上线，提供BLAS计算的API以及现代灵活接口aclBLASLt。
 
 ## 🚀概述
