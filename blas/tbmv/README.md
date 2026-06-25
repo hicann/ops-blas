@@ -31,7 +31,7 @@ y = A * x        （arch22，输入输出分离）
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasStbmv(aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k, const float *A, int lda, float *x, int incx);
+aclblasStatus_t aclblasStbmv(aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k, const float *A, int lda, float *x, int incx)
 ```
 
 #### 参数说明
@@ -56,6 +56,10 @@ aclblasStatus_t aclblasStbmv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 - lda >= k + 1
 - incx != 0
 
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ### aclblasStbmv_legacy
 
 #### 产品支持情况
@@ -67,7 +71,7 @@ aclblasStatus_t aclblasStbmv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasStbmv_legacy(aclblasHandle_t handle, const float *a, const int64_t lda, const float *x, float *y, const int64_t n, const int64_t k, const int64_t incx);
+aclblasStatus_t aclblasStbmv_legacy(aclblasHandle_t handle, const float *a, const int64_t lda, const float *x, float *y, const int64_t n, const int64_t k, const int64_t incx)
 ```
 
 #### 参数说明
@@ -89,3 +93,7 @@ aclblasStatus_t aclblasStbmv_legacy(aclblasHandle_t handle, const float *a, cons
 - k >= 0
 - lda >= k + 1
 - incx != 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

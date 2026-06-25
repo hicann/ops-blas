@@ -29,7 +29,7 @@ result[i, j] = matx[i, j] * maty[i, j]
 #### 函数原型
 
 ```cpp
-int aclblasComplexMatDot(const float *matx, const float *maty, float *result, const int64_t m, const int64_t n, void *stream);
+int aclblasComplexMatDot(const float *matx, const float *maty, float *result, const int64_t m, const int64_t n, void *stream)
 ```
 
 #### 参数说明
@@ -46,3 +46,7 @@ int aclblasComplexMatDot(const float *matx, const float *maty, float *result, co
 #### 约束说明
 
 无
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

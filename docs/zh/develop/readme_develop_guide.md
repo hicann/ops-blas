@@ -6,8 +6,9 @@
 2. 按实际包含的接口增删子章节（### 节）。如仅有单精度接口则只保留一个 ### 节；如有更多接口（如 aclblasH{op}、aclblasC{op}）则继续添加。
 3. 参数说明列必须写清楚参数含义和内存位置（Host 内存/Device 内存）。
 4. 约束说明如无约束则写"无"，不允许留空。
-5. 调用示例须由开发者在本地跑通后再上库。
-6. 完成文档后删除本使用说明注释块。
+5. 函数原型必须写在同一行内，不允许换行，且末尾不加 `;`。
+6. 调用示例须由开发者在本地跑通后再上库。
+7. 完成文档后删除本使用说明注释块。
 
 占位符约定：
 
@@ -71,6 +72,8 @@ aclblasStatus_t aclblasS{op}(aclblasHandle_t handle, int n, const float *x, floa
 
 #### 调用示例
 
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ```cpp
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
@@ -124,6 +127,8 @@ aclblasStatus_t aclblasD{op}(aclblasHandle_t handle, int n, const double *x, dou
 {如无约束则写"无"，不允许留空。}
 
 #### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
 
 ```cpp
 #include "acl/acl.h"

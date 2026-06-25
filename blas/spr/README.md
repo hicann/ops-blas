@@ -29,7 +29,7 @@ A := alpha * x * x^T + A
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSspr(aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float *alpha, const float *x, int incx, float *ap);
+aclblasStatus_t aclblasSspr(aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float *alpha, const float *x, int incx, float *ap)
 ```
 
 #### 参数说明
@@ -48,3 +48,7 @@ aclblasStatus_t aclblasSspr(aclblasHandle_t handle, aclblasFillMode_t uplo, int 
 
 - n >= 0
 - incx != 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

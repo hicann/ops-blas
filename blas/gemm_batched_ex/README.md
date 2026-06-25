@@ -1,84 +1,76 @@
-# aclblasGemmBatchedEx
+# GemmBatchedEx算子
 
-## 接口
+## 算子概述
 
-```c
-aclblasStatus_t aclblasGemmBatchedEx(
-    aclblasHandle_t handle,
-    aclblasOperation_t transa,
-    aclblasOperation_t transb,
-    int m,
-    int n,
-    int k,
-    const void* alpha,
-    const void* const Aarray[],
-    aclDataType Atype,
-    int lda,
-    const void* const Barray[],
-    aclDataType Btype,
-    int ldb,
-    const void* beta,
-    void* const Carray[],
-    aclDataType Ctype,
-    int ldc,
-    int batchCount,
-    aclblasComputeType_t computeType,
-    aclblasGemmAlgo_t algo);
-```
+通用矩阵乘法扩展接口（GEMM Batched Ex），执行批量矩阵乘法运算，支持 A、B、C 矩阵使用独立数据类型。所有批次共享相同的维度 (m, n, k)、leading dimensions (lda, ldb, ldc) 和转置标志 (transa, transb)，每个批次的矩阵指针通过设备侧指针数组独立指定。
 
-### 功能说明
-
-执行批量矩阵乘法运算：
+数学表达式：
 
 ```
 C[i] = alpha * op(A[i]) * op(B[i]) + beta * C[i],  for i ∈ [0, batchCount - 1]
 ```
 
-其中 `op(X)` 根据转置标志决定：`N` 为不转置，`T` 为转置，`C` 为共轭转置。所有矩阵以列主序（Column-Major）存储。所有批次共享相同的维度 (m, n, k)、leading dimensions (lda, ldb, ldc) 和转置标志 (transa, transb)，每个批次的矩阵指针通过设备侧指针数组独立指定。
+其中 `op(X)` 根据转置标志决定：`N` 为不转置，`T` 为转置，`C` 为共轭转置。所有矩阵以列主序（Column-Major）存储。
 
-### 参数说明
+包含以下接口：
 
-| 参数 | 位置 | 方向 | 类型 | 说明 |
-|------|------|------|------|------|
-| handle | Host | 输入 | aclblasHandle_t | 库上下文句柄 |
-| transa | Host | 输入 | aclblasOperation_t | 矩阵 A 的转置操作（N / T / C） |
-| transb | Host | 输入 | aclblasOperation_t | 矩阵 B 的转置操作（N / T / C） |
-| m | Host | 输入 | int | op(A[i]) 的行数，也是 C[i] 的行数，须 ≥ 0 |
-| n | Host | 输入 | int | op(B[i]) 的列数，也是 C[i] 的列数，须 ≥ 0 |
-| k | Host | 输入 | int | op(A[i]) 的列数，也是 op(B[i]) 的行数，须 ≥ 0 |
-| alpha | Host | 输入 | const void\* | 标量缩放因子，类型由 computeType 决定 |
-| Aarray | Device | 输入 | const void\* const [] | 设备侧指针数组，每个元素指向 Atype 类型的矩阵 A[i] |
-| Atype | Host | 输入 | aclDataType | 矩阵 A 的数据类型 |
-| lda | Host | 输入 | int | 矩阵 A[i] 的 leading dimension |
-| Barray | Device | 输入 | const void\* const [] | 设备侧指针数组，每个元素指向 Btype 类型的矩阵 B[i] |
-| Btype | Host | 输入 | aclDataType | 矩阵 B 的数据类型 |
-| ldb | Host | 输入 | int | 矩阵 B[i] 的 leading dimension |
-| beta | Host | 输入 | const void\* | 标量缩放因子，类型由 computeType 决定 |
-| Carray | Device | 输入/输出 | void\* const [] | 设备侧指针数组，每个元素指向 Ctype 类型的矩阵 C[i] |
-| Ctype | Host | 输入 | aclDataType | 矩阵 C 的数据类型 |
-| ldc | Host | 输入 | int | 矩阵 C[i] 的 leading dimension |
-| batchCount | Host | 输入 | int | 批次数量，须 ≥ 0 |
-| computeType | Host | 输入 | aclblasComputeType_t | 计算精度类型 |
-| algo | Host | 输入 | aclblasGemmAlgo_t | GEMM 算法选择（当前仅支持 ACLBLAS_GEMM_DEFAULT） |
+| 接口名 | 功能简述 |
+|--------|---------|
+| aclblasGemmBatchedEx | 通用矩阵乘法批量扩展接口 |
 
-### Leading Dimension 约束
+## 算子执行接口
 
-| 条件 | 约束 |
-|------|------|
-| transa == N | lda ≥ max(1, m) |
-| transa == T 或 C | lda ≥ max(1, k) |
-| transb == N | ldb ≥ max(1, k) |
-| transb == T 或 C | ldb ≥ max(1, n) |
-| 任意 | ldc ≥ max(1, m) |
+### aclblasGemmBatchedEx
 
-## 支持规格
+#### 产品支持情况
 
-| 项目 | 内容 |
-|------|------|
-| 目标芯片 | Ascend950 (PR/DT) |
-| 目标架构 | arch35 (DAV_3510) |
+- Ascend 950PR / Ascend 950DT：支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
 
-### 支持的数据类型组合
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasGemmBatchedEx(aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k, const void* alpha, const void* const Aarray[], aclDataType Atype, int lda, const void* const Barray[], aclDataType Btype, int ldb, const void* beta, void* const Carray[], aclDataType Ctype, int ldc, int batchCount, aclblasComputeType_t computeType, aclblasGemmAlgo_t algo)
+```
+
+#### 参数说明
+
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，Host 内存 |
+| transa | 输入 | aclblasOperation_t | 矩阵 A 的转置操作（N / T / C），Host 内存 |
+| transb | 输入 | aclblasOperation_t | 矩阵 B 的转置操作（N / T / C），Host 内存 |
+| m | 输入 | int | op(A[i]) 的行数，也是 C[i] 的行数，Host 内存 |
+| n | 输入 | int | op(B[i]) 的列数，也是 C[i] 的列数，Host 内存 |
+| k | 输入 | int | op(A[i]) 的列数，也是 op(B[i]) 的行数，Host 内存 |
+| alpha | 输入 | const void* | 标量缩放因子，类型由 computeType 决定，Host 内存 |
+| Aarray | 输入 | const void* const [] | 设备侧指针数组，每个元素指向 Atype 类型的矩阵 A[i]，Device 内存 |
+| Atype | 输入 | aclDataType | 矩阵 A 的数据类型，Host 内存 |
+| lda | 输入 | int | 矩阵 A[i] 的 leading dimension，Host 内存 |
+| Barray | 输入 | const void* const [] | 设备侧指针数组，每个元素指向 Btype 类型的矩阵 B[i]，Device 内存 |
+| Btype | 输入 | aclDataType | 矩阵 B 的数据类型，Host 内存 |
+| ldb | 输入 | int | 矩阵 B[i] 的 leading dimension，Host 内存 |
+| beta | 输入 | const void* | 标量缩放因子，类型由 computeType 决定，Host 内存 |
+| Carray | 输入/输出 | void* const [] | 设备侧指针数组，每个元素指向 Ctype 类型的矩阵 C[i]，Device 内存 |
+| Ctype | 输入 | aclDataType | 矩阵 C 的数据类型，Host 内存 |
+| ldc | 输入 | int | 矩阵 C[i] 的 leading dimension，Host 内存 |
+| batchCount | 输入 | int | 批次数量，Host 内存 |
+| computeType | 输入 | aclblasComputeType_t | 计算精度类型，Host 内存 |
+| algo | 输入 | aclblasGemmAlgo_t | GEMM 算法选择（当前仅支持 ACLBLAS_GEMM_DEFAULT），Host 内存 |
+
+#### 约束说明
+
+- m, n, k >= 0
+- batchCount >= 0
+- transa == N 时 lda >= max(1, m)；transa == T 或 C 时 lda >= max(1, k)
+- transb == N 时 ldb >= max(1, k)；transb == T 或 C 时 ldb >= max(1, n)
+- ldc >= max(1, m)
+- algo 当前仅支持 ACLBLAS_GEMM_DEFAULT
+- FP8 输入必须使用 ACLBLAS_COMPUTE_32F，否则返回 ACLBLAS_STATUS_NOT_SUPPORTED
+- 不在支持表中的 Atype/Btype/Ctype/computeType 组合将返回 ACLBLAS_STATUS_NOT_SUPPORTED
+
+支持的数据类型组合：
 
 | 序号 | Atype | Btype | Ctype | computeType | alpha/beta 宿主类型 | 说明 |
 |------|-------|-------|-------|-------------|-------------------|------|
@@ -90,31 +82,9 @@ C[i] = alpha * op(A[i]) * op(B[i]) + beta * C[i],  for i ∈ [0, batchCount - 1]
 | 6 | ACL_FLOAT8_E4M3FN | ACL_FLOAT8_E5M2 | ACL_FLOAT16 | ACLBLAS_COMPUTE_32F | float (FP32) | FP8 混合输入 (E4M3×E5M2) |
 | 7 | ACL_FLOAT8_E5M2 | ACL_FLOAT8_E4M3FN | ACL_FLOAT16 | ACLBLAS_COMPUTE_32F | float (FP32) | FP8 混合输入 (E5M2×E4M3) |
 
-不在上表中的 Atype/Btype/Ctype/computeType 组合将返回 `ACLBLAS_STATUS_NOT_SUPPORTED`。
+#### 调用示例
 
-## 已知限制
-
-1. **FP8 输入必须使用 COMPUTE_32F**：当 Atype 或 Btype 为 FP8 类型（ACL_FLOAT8_E4M3FN / ACL_FLOAT8_E5M2）时，computeType 必须为 ACLBLAS_COMPUTE_32F，否则返回 `ACLBLAS_STATUS_NOT_SUPPORTED`。
-
-2. **FP8 精度受限**：FP8 数据类型本身的表示精度有限（E4M3 尾数 3 位，E5M2 尾数 2 位），输出精度低于 FP16/BF16 类型。FP8 E4M3 的 MERE 阈值约为 2^-3，FP8 E5M2 的 MERE 阈值约为 2^-2。
-
-3. **临时缓冲上限**：当 alpha ≠ 1 或 beta ≠ 0 时需要分配临时缓冲（大小 = m × n × batchCount × elemSize）。临时缓冲设有 256 MB 上限，超出时自动采用分批处理策略，可能引入额外的 kernel launch 开销。
-
-4. **算法选择**：当前仅支持 `ACLBLAS_GEMM_DEFAULT`，传入其他算法将返回 `ACLBLAS_STATUS_NOT_SUPPORTED`。
-
-## 编译
-
-```bash
-bash build.sh --ops=gemm_batched_ex
-```
-
-## 测试
-
-```bash
-bash build.sh --ops=gemm_batched_ex --run
-```
-
-## 调用示例
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
 
 以下示例演示列主序（Column-Major）下的批量矩阵乘法调用。计算 `C[i] = 1.0 * A[i] * B[i] + 0.0 * C[i]`，其中 A 为 M×K，B 为 K×N，C 为 M×N，共 batchCount 个批次。
 
@@ -205,9 +175,7 @@ aclrtResetDevice(deviceId);
 aclFinalize();
 ```
 
-### 转置调用示例
-
-当需要对 A 进行转置时（`transa = ACLBLAS_OP_T`），A 的物理存储为 K×M（列主序），lda ≥ max(1, K)：
+转置调用示例：当需要对 A 进行转置时（`transa = ACLBLAS_OP_T`），A 的物理存储为 K×M（列主序），lda >= max(1, K)：
 
 ```cpp
 // A^T * B: transa=T, A 物理存储为 K×M (lda=K)

@@ -30,7 +30,7 @@ y = alpha * op(A) * x + beta * y
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSgemv(aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float *alpha, const float *A, int lda, const float *x, int incx, const float *beta, float *y, int incy);
+aclblasStatus_t aclblasSgemv(aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float *alpha, const float *A, int lda, const float *x, int incx, const float *beta, float *y, int incy)
 ```
 
 #### 参数说明
@@ -57,6 +57,10 @@ aclblasStatus_t aclblasSgemv(aclblasHandle_t handle, aclblasOperation_t trans, i
 - incx != 0, incy != 0
 - alpha、beta 不可为 nullptr
 
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ### aclblasCgemv
 
 #### 产品支持情况
@@ -68,7 +72,7 @@ aclblasStatus_t aclblasSgemv(aclblasHandle_t handle, aclblasOperation_t trans, i
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCgemv(aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const std::complex<float>& alpha, uint8_t* A, const int64_t lda, uint8_t* x, const int64_t incx, const std::complex<float>& beta, uint8_t* y, const int64_t incy);
+aclblasStatus_t aclblasCgemv(aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const std::complex<float>& alpha, uint8_t* A, const int64_t lda, uint8_t* x, const int64_t incx, const std::complex<float>& beta, uint8_t* y, const int64_t incy)
 ```
 
 #### 参数说明
@@ -93,3 +97,7 @@ aclblasStatus_t aclblasCgemv(aclblasHandle_t handle, aclblasOperation trans, con
 - m >= 0, n >= 0
 - lda >= max(1, m)
 - incx != 0, incy != 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

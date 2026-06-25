@@ -36,7 +36,7 @@ result = sqrt(sum(|z[i]|^2)) = sqrt(sum(real[i]^2 + imag[i]^2))  for i = 0 to n-
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
+aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result)
 ```
 
 #### 参数说明
@@ -54,6 +54,10 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x
 - n >= 0
 - incx != 0
 
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ### aclblasScnrm2
 
 #### 产品支持情况
@@ -65,7 +69,7 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
+aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result)
 ```
 
 #### 参数说明
@@ -82,3 +86,7 @@ aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* 
 
 - n >= 0
 - incx != 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

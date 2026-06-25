@@ -29,7 +29,7 @@ inv(A[i]) = inv(U[i]) * inv(L[i]) * P[i],   i = 0, 1, ..., batchSize - 1
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSgetriBatched(aclblasHandle_t handle, int n, const float *const Aarray[], int lda, const int *PivotArray, float *const Carray[], int ldc, int *infoArray, int batchSize);
+aclblasStatus_t aclblasSgetriBatched(aclblasHandle_t handle, int n, const float *const Aarray[], int lda, const int *PivotArray, float *const Carray[], int ldc, int *infoArray, int batchSize)
 ```
 
 #### 参数说明
@@ -53,3 +53,7 @@ aclblasStatus_t aclblasSgetriBatched(aclblasHandle_t handle, int n, const float 
 - n == 0 或 batchSize == 0 时直接返回成功，不启动 Kernel
 - Carray[i] 的内存空间不可与 Aarray[i] 重叠
 - 调用前必须先使用 aclblasSgetrfBatched 完成 LU 分解
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

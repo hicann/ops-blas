@@ -29,7 +29,7 @@ Y[i] = X[i],   for i = 0, 1, ..., N-1
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasScopy(aclblasHandle_t handle, int n, const float *x, int incx, float *y, int incy);
+aclblasStatus_t aclblasScopy(aclblasHandle_t handle, int n, const float *x, int incx, float *y, int incy)
 ```
 
 #### 参数说明
@@ -51,6 +51,8 @@ aclblasStatus_t aclblasScopy(aclblasHandle_t handle, int n, const float *x, int 
 - x、y 不可为 nullptr
 
 #### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
 
 ```cpp
 #include "acl/acl.h"

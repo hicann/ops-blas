@@ -30,7 +30,7 @@ x = A * x
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasStpmv(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n, const float *aPacked, const float *x, float *y, int64_t incx);
+aclblasStatus_t aclblasStpmv(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n, const float *aPacked, const float *x, float *y, int64_t incx)
 ```
 
 #### 参数说明
@@ -52,6 +52,10 @@ aclblasStatus_t aclblasStpmv(aclblasHandle_t handle, aclblasFillMode uplo, aclbl
 - n >= 0
 - incx != 0
 
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ### aclblasStpmv_legacy
 
 #### 产品支持情况
@@ -63,7 +67,7 @@ aclblasStatus_t aclblasStpmv(aclblasHandle_t handle, aclblasFillMode uplo, aclbl
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasStpmv_legacy(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n, const float *aPacked, const float *x, float *y, int64_t incx);
+aclblasStatus_t aclblasStpmv_legacy(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n, const float *aPacked, const float *x, float *y, int64_t incx)
 ```
 
 #### 参数说明
@@ -84,3 +88,7 @@ aclblasStatus_t aclblasStpmv_legacy(aclblasHandle_t handle, aclblasFillMode uplo
 
 - n >= 0
 - incx != 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

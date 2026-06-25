@@ -30,7 +30,7 @@ z = alpha * A * x + beta * y
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSpmv(aclblasHandle_t handle, const float *aPacked, const float *x, const float *y, float *z, const float alpha, const float beta, const int64_t n, const int64_t incx, const int64_t incy);
+aclblasStatus_t aclblasSpmv(aclblasHandle_t handle, const float *aPacked, const float *x, const float *y, float *z, const float alpha, const float beta, const int64_t n, const int64_t incx, const int64_t incy)
 ```
 
 #### 参数说明
@@ -53,6 +53,10 @@ aclblasStatus_t aclblasSpmv(aclblasHandle_t handle, const float *aPacked, const 
 - n >= 0
 - incx != 0, incy != 0
 
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ### aclblasSspmv
 
 #### 产品支持情况
@@ -64,7 +68,7 @@ aclblasStatus_t aclblasSpmv(aclblasHandle_t handle, const float *aPacked, const 
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSspmv(aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* AP, const float* x, int incx, const float* beta, float* y, int incy);
+aclblasStatus_t aclblasSspmv(aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* AP, const float* x, int incx, const float* beta, float* y, int incy)
 ```
 
 #### 参数说明
@@ -86,3 +90,7 @@ aclblasStatus_t aclblasSspmv(aclblasHandle_t handle, aclblasFillMode uplo, int n
 
 - n >= 0
 - incx != 0, incy != 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

@@ -29,7 +29,7 @@ C = alpha * op(A) * op(B) + beta * C
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasGemmEx(aclblasHandle_t handle, aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k, const void* alpha, const void* A, aclDataType Atype, int lda, const void* B, aclDataType Btype, int ldb, const void* beta, void* C, aclDataType Ctype, int ldc, aclblasComputeType_t computeType, aclblasGemmAlgo_t algo);
+aclblasStatus_t aclblasGemmEx(aclblasHandle_t handle, aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k, const void* alpha, const void* A, aclDataType Atype, int lda, const void* B, aclDataType Btype, int ldb, const void* beta, void* C, aclDataType Ctype, int ldc, aclblasComputeType_t computeType, aclblasGemmAlgo_t algo)
 ```
 
 #### 参数说明
@@ -63,3 +63,7 @@ aclblasStatus_t aclblasGemmEx(aclblasHandle_t handle, aclblasOperation_t transA,
 - transA = N 时 lda >= max(1, m)；transA = T/C 时 lda >= max(1, k)
 - transB = N 时 ldb >= max(1, k)；transB = T/C 时 ldb >= max(1, n)
 - algo 当前仅支持 ACLBLAS_GEMM_DEFAULT
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

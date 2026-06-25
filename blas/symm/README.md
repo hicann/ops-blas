@@ -30,7 +30,7 @@ RIGHT 模式：C := alpha * B * A + beta * C
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSsymm(aclblasHandle handle, aclblasSideMode_t side, aclblasFillMode_t uplo, int64_t m, int64_t n, const float *alpha, const float *A, int64_t lda, const float *B, int64_t ldb, const float *beta, float *C, int64_t ldc);
+aclblasStatus_t aclblasSsymm(aclblasHandle handle, aclblasSideMode_t side, aclblasFillMode_t uplo, int64_t m, int64_t n, const float *alpha, const float *A, int64_t lda, const float *B, int64_t ldb, const float *beta, float *C, int64_t ldc)
 ```
 
 #### 参数说明
@@ -59,3 +59,7 @@ aclblasStatus_t aclblasSsymm(aclblasHandle handle, aclblasSideMode_t side, aclbl
 - ldb >= max(1, n)
 - ldc >= max(1, n)
 - alpha、beta 不可为 nullptr
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

@@ -29,7 +29,7 @@ x[j] = alpha * x[j], j = (i - 1) * incx, i = 1, 2, ..., n
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasScalex(aclblasHandle_t handle, int n, const void *alpha, aclDataType alphaType, void *x, aclDataType xType, int incx, aclDataType executionType);
+aclblasStatus_t aclblasScalex(aclblasHandle_t handle, int n, const void *alpha, aclDataType alphaType, void *x, aclDataType xType, int incx, aclDataType executionType)
 ```
 
 #### 参数说明
@@ -52,3 +52,7 @@ aclblasStatus_t aclblasScalex(aclblasHandle_t handle, int n, const void *alpha, 
 - alphaType 固定为 ACL_FLOAT
 - executionType 固定为 ACL_FLOAT
 - xType 必须为 ACL_FLOAT、ACL_FLOAT16 或 ACL_BF16
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

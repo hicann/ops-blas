@@ -30,7 +30,7 @@ x = op(A) * x
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasStrmv(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, const int64_t n, uint8_t *A, const int64_t lda, uint8_t *x, const int64_t incx);
+aclblasStatus_t aclblasStrmv(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, const int64_t n, uint8_t *A, const int64_t lda, uint8_t *x, const int64_t incx)
 ```
 
 #### 参数说明
@@ -53,6 +53,10 @@ aclblasStatus_t aclblasStrmv(aclblasHandle_t handle, aclblasFillMode uplo, aclbl
 - incx != 0
 - lda >= n
 
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ### aclblasCtrmv
 
 #### 产品支持情况
@@ -64,7 +68,7 @@ aclblasStatus_t aclblasStrmv(aclblasHandle_t handle, aclblasFillMode uplo, aclbl
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCtrmv(aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n, uint8_t *A, int64_t lda, uint8_t *x, int64_t incx);
+aclblasStatus_t aclblasCtrmv(aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n, uint8_t *A, int64_t lda, uint8_t *x, int64_t incx)
 ```
 
 #### 参数说明
@@ -87,3 +91,7 @@ aclblasStatus_t aclblasCtrmv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 - 仅支持 complex<float> 数据类型
 - incx > 0
 - lda > 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

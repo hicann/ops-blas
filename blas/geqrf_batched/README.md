@@ -29,7 +29,7 @@ A[j] = Q[j] * R[j],   j = 0, 1, ..., batchSize-1
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSgeqrfBatched(aclblasHandle_t handle, int m, int n, float *const Aarray[], int lda, float *const TauArray[], int *info, int batchSize);
+aclblasStatus_t aclblasSgeqrfBatched(aclblasHandle_t handle, int m, int n, float *const Aarray[], int lda, float *const TauArray[], int *info, int batchSize)
 ```
 
 #### 参数说明
@@ -49,3 +49,7 @@ aclblasStatus_t aclblasSgeqrfBatched(aclblasHandle_t handle, int m, int n, float
 
 - m >= 0, n >= 0, batchSize >= 0
 - lda >= max(1, m)
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

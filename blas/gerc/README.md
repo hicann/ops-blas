@@ -29,7 +29,7 @@ A = alpha * x * conj(y^T) + A
 #### 函数原型
 
 ```cpp
-int aclblasCgerc(const int64_t m, const int64_t n, const void *alpha, const void *x, const int64_t incx, const void *y, const int64_t incy, void *A, const int64_t lda, void *stream);
+int aclblasCgerc(const int64_t m, const int64_t n, const void *alpha, const void *x, const int64_t incx, const void *y, const int64_t incy, void *A, const int64_t lda, void *stream)
 ```
 
 #### 参数说明
@@ -58,6 +58,8 @@ int aclblasCgerc(const int64_t m, const int64_t n, const void *alpha, const void
 - 主维度 lda 当前应等于 n
 
 #### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
 
 ```cpp
 #include "acl/acl.h"

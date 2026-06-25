@@ -29,7 +29,7 @@ y = alpha * A * x + beta * y
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSsymv(aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* A, int lda, const float* x, int incx, const float* beta, float* y, int incy);
+aclblasStatus_t aclblasSsymv(aclblasHandle_t handle, aclblasFillMode uplo, int n, const float* alpha, const float* A, int lda, const float* x, int incx, const float* beta, float* y, int incy)
 ```
 
 #### 参数说明
@@ -54,3 +54,7 @@ aclblasStatus_t aclblasSsymv(aclblasHandle_t handle, aclblasFillMode uplo, int n
 - incx != 0
 - incy != 0
 - lda >= max(1, n)
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

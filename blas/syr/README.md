@@ -29,7 +29,7 @@ A := alpha * x * x^T + A
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSsyr(aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx, float* A, const int lda);
+aclblasStatus_t aclblasSsyr(aclblasHandle_t handle, aclblasFillMode uplo, const int n, const float* alpha, const float* x, const int incx, float* A, const int lda)
 ```
 
 #### 参数说明
@@ -50,3 +50,7 @@ aclblasStatus_t aclblasSsyr(aclblasHandle_t handle, aclblasFillMode uplo, const 
 - n >= 0
 - incx != 0
 - lda >= max(1, n)
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

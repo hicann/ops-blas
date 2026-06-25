@@ -29,7 +29,7 @@ A(lda x n) -> AP(n*(n+1)/2, packed format)
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float *A, int lda, float *AP);
+aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float *A, int lda, float *AP)
 ```
 
 #### 参数说明
@@ -48,3 +48,7 @@ aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo, in
 - n >= 0
 - lda >= max(1, n)
 - uplo 必须为 ACLBLAS_UPPER 或 ACLBLAS_LOWER
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

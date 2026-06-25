@@ -29,7 +29,7 @@ op(A) * x = b
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasStrsv(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n, const float *A, int64_t lda, float *x, int64_t incx);
+aclblasStatus_t aclblasStrsv(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n, const float *A, int64_t lda, float *x, int64_t incx)
 ```
 
 #### 参数说明
@@ -57,6 +57,8 @@ aclblasStatus_t aclblasStrsv(aclblasHandle_t handle, aclblasFillMode uplo, aclbl
 - A、x 不可为 nullptr
 
 #### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
 
 ```cpp
 #include "acl/acl.h"

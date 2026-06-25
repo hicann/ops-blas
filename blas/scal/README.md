@@ -30,7 +30,7 @@ x[i] = alpha * x[i]  (i = 0 .. n-1，步长为 incx)
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSscal(aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx);
+aclblasStatus_t aclblasSscal(aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx)
 ```
 
 #### 参数说明
@@ -48,6 +48,10 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, const int64_t n, const floa
 - n >= 0
 - incx != 0
 
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ### aclblasCscal
 
 #### 产品支持情况
@@ -59,7 +63,7 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, const int64_t n, const floa
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCscal(aclblasHandle_t handle, const int64_t n, const std::complex<float> alpha, uint8_t* x, const int64_t incx);
+aclblasStatus_t aclblasCscal(aclblasHandle_t handle, const int64_t n, const std::complex<float> alpha, uint8_t* x, const int64_t incx)
 ```
 
 #### 参数说明
@@ -76,3 +80,7 @@ aclblasStatus_t aclblasCscal(aclblasHandle_t handle, const int64_t n, const std:
 
 - n >= 0
 - incx != 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

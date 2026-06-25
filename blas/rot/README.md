@@ -30,7 +30,7 @@ y[i] = c * y[i] - s * x[i] (使用原始 x[i])
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCsrot(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy, const float c, const float s);
+aclblasStatus_t aclblasCsrot(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy, const float c, const float s)
 ```
 
 #### 参数说明
@@ -49,3 +49,7 @@ aclblasStatus_t aclblasCsrot(aclblasHandle_t handle, const int64_t n, uint8_t* x
 #### 约束说明
 
 - n >= 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。

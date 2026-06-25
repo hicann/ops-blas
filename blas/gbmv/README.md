@@ -29,7 +29,7 @@ y = alpha * op(A) * x + beta * y
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSgbmv(aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, int kl, int ku, const float *alpha, const float *A, int lda, const float *x, int incx, const float *beta, float *y, int incy);
+aclblasStatus_t aclblasSgbmv(aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, int kl, int ku, const float *alpha, const float *A, int lda, const float *x, int incx, const float *beta, float *y, int incy)
 ```
 
 #### 参数说明
@@ -55,3 +55,7 @@ aclblasStatus_t aclblasSgbmv(aclblasHandle_t handle, aclblasOperation_t trans, i
 
 - lda >= kl + ku + 1
 - incx != 0, incy != 0
+
+#### 调用示例
+
+暂无示例代码，编译与运行流程请参考[编译与运行样例](compile_and_run_example.md)。
