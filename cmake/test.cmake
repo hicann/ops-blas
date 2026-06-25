@@ -159,6 +159,9 @@ function(_ops_blas_register_test_target target link_lib)
         ${CMAKE_SOURCE_DIR}/test/utils
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/blas/common/helper
+        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/op_common/ 
+        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base/        
+        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/             
         $ENV{LINUX_INCLUDE_PATH}
         ${REFBLAS_INCLUDE_DIR}
     )

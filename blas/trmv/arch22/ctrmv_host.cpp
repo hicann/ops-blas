@@ -21,22 +21,11 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 
 void ctrmv_kernel_do(uint8_t* gm_A, uint8_t* gm_X, uint8_t* gm_uplo,
                      uint8_t* gm_wksp, uint8_t* tilingGm,
                      uint32_t numBlocks, void *stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
 
 constexpr int64_t BASIC_DATA_PROC_CNT = 64;
 constexpr uint32_t ELEMENTS_EACH_COMPLEX64 = 2;

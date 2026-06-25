@@ -17,6 +17,7 @@
 #include <vector>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "common/helper/host_utils.h"
 #include "../ssymm_common_types.h"
 #include "../ssymm_common_host.h"
 #include "../ssymm_common_kernel.h"
@@ -148,23 +149,6 @@ bool TryConvertWorkspaceBytes(const SsymmWorkspaceLayout &layout,
 }
 
 } // namespace
-
-// 动态获取当前设备的 Vector Core 数量。
-// 若查询失败则返回 0，调用方应据此返回错误而非使用默认值。
-static uint32_t GetSsymmVectorCoreCount()
-{
-    int32_t deviceId = 0;
-    if (aclrtGetDevice(&deviceId) != ACL_SUCCESS) {
-        return 0;
-    }
-
-    int64_t vecCoreNum = 0;
-    if (aclrtGetDeviceInfo(static_cast<uint32_t>(deviceId),
-            ACL_DEV_ATTR_VECTOR_CORE_NUM, &vecCoreNum) != ACL_SUCCESS) {
-        return 0;
-    }
-    return (vecCoreNum > 0) ? static_cast<uint32_t>(vecCoreNum) : 0;
-}
 
 // 校验公开 aclblasSsymm 入参，并识别 m/n 为 0 的 quick return。
 // 同时检查 uint32_t 下转边界和 host/device buffer 字节数是否可安全计算。
@@ -997,7 +981,7 @@ aclblasStatus_t RunSsymmHostOrchestration(aclblasHandle handle,
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    uint32_t numBlocks = GetSsymmVectorCoreCount();
+    uint32_t numBlocks = GetAivCoreCount();
     if (numBlocks == 0) return ACLBLAS_STATUS_EXECUTION_FAILED;
     if (numBlocks > SSYMM_MAX_CORE_NUM) numBlocks = SSYMM_MAX_CORE_NUM;
 

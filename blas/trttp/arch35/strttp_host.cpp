@@ -14,6 +14,7 @@
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 #include "strttp_tiling_data.h"
 
 void strttp_kernel_do(uint8_t* a, uint8_t* ap, const TrttpTilingData& tiling, uint32_t numBlocks, void* stream);
@@ -55,37 +56,14 @@ static aclblasStatus_t ValidateParams(
 }
 
 // ---------------------------------------------------------------------------
-// Query vector core count
-// ---------------------------------------------------------------------------
-static uint32_t GetVecCoreNum(int32_t deviceId, aclblasStatus_t* status)
-{
-    int64_t availableCoreNum = 0;
-    aclError ret = aclrtGetDeviceInfo(deviceId, ACL_DEV_ATTR_VECTOR_CORE_NUM, &availableCoreNum);
-    if (ret != ACL_SUCCESS) {
-        OP_LOGE("aclblasStrttp", "aclrtGetDeviceInfo failed, error=%d", ret);
-        *status = ACLBLAS_STATUS_EXECUTION_FAILED;
-        return 0;
-    }
-    *status = ACLBLAS_STATUS_SUCCESS;
-    return static_cast<uint32_t>(availableCoreNum);
-}
-
-// ---------------------------------------------------------------------------
 // Tiling data computation
 // ---------------------------------------------------------------------------
 static aclblasStatus_t CalTilingData(TrttpTilingData* tiling, uint32_t n, uint32_t lda, uint32_t uploVal)
 {
-    int32_t deviceId = 0;
-    aclError ret = aclrtGetDevice(&deviceId);
-    if (ret != ACL_SUCCESS) {
-        OP_LOGE("aclblasStrttp", "aclrtGetDevice failed, error=%d", ret);
+    uint32_t vecCoreNum = GetAivCoreCount();
+    if (vecCoreNum == 0) {
+        OP_LOGE("aclblasStrttp", "vector core count is 0");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
-    }
-
-    aclblasStatus_t gStatus;
-    uint32_t vecCoreNum = GetVecCoreNum(deviceId, &gStatus);
-    if (gStatus != ACLBLAS_STATUS_SUCCESS) {
-        return gStatus;
     }
 
     uint32_t useCoreNum = vecCoreNum;

@@ -27,13 +27,6 @@
 void sgbmv_kernel_do(uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* workSpace, const SgbmvTilingData &tiling,
                       uint32_t numBlocks, void *stream);
 
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
 static aclblasStatus_t ValidateSgbmvParams(
     aclblasOperation_t trans, int m, int n, int kl, int ku, int lda, int incx, int incy, const float* alpha,
     const float* beta, const float* A, const float* x, const float* y)

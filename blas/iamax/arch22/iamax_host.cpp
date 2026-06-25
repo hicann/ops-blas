@@ -22,21 +22,10 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 
 void iamax_kernel_do(uint8_t* x, uint8_t* y, uint8_t* workspace, uint8_t* tiling,
                      uint32_t numBlocks, void *stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
 
 // Constants from original tiling implementation
 constexpr int32_t MAXNUMF32ELEEACHCORE =

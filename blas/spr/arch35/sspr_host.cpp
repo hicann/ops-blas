@@ -19,7 +19,6 @@
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/kernel_constant.h"
 #include "common/helper/host_utils.h"
-#include "tiling/platform/platform_ascendc.h"
 
 // ---- kernel entry (local declaration, replacing aclblas_kernel_do.h) ----
 void sspr_kernel_do(uint8_t* x, uint8_t* ap, const SsprTilingData& tiling, uint32_t numBlocks, void* stream);
@@ -38,16 +37,6 @@ static aclblasStatus_t ValidateSsprParams(
     CHECK_RET(x != nullptr, OP_LOGE("aclblasSspr", "x must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(ap != nullptr, OP_LOGE("aclblasSspr", "ap must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
-}
-
-static uint32_t GetVectorCoreCount()
-{
-    auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    if (platform == nullptr) {
-        OP_LOGE("aclblasSspr", "PlatformAscendCManager::GetInstance() returned nullptr");
-        return 0;
-    }
-    return platform->GetCoreNumAiv();
 }
 
 static SsprTilingData CalSsprTilingData(uint32_t useNumBlocks, int n, aclblasFillMode_t uplo, float alpha, int incx)
@@ -87,7 +76,7 @@ aclblasStatus_t aclblasSspr(
 
     aclrtStream stream = h->stream;
 
-    uint32_t aivCoreNum = GetVectorCoreCount();
+    uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
         OP_LOGE("aclblasSspr", "vector core count is 0");
         return ACLBLAS_STATUS_EXECUTION_FAILED;

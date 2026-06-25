@@ -15,6 +15,7 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 
 void cgemv_do_trans_kernel_do(uint8_t* d_A, uint8_t* d_x, uint8_t* d_y_in, uint8_t* maskBuf, uint8_t* d_y,
                               uint8_t* workSpace, uint8_t* tilingGm,
@@ -22,18 +23,6 @@ void cgemv_do_trans_kernel_do(uint8_t* d_A, uint8_t* d_x, uint8_t* d_y_in, uint8
 void cgemv_no_trans_kernel_do(uint8_t* d_A, uint8_t* d_x, uint8_t* d_y_in, uint8_t* maskBuf, uint8_t* d_y,
                               uint8_t* workSpace, uint8_t* tilingGm,
                               uint32_t numBlocks, void *stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
 
 constexpr uint32_t MAX_CORE_CNT = 40;
 constexpr uint32_t WORKSPACE_SIZE = 16 * 1024 * 1024;

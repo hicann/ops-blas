@@ -19,7 +19,7 @@
 #include <cstdio>
 #include <limits>
 #include <type_traits>
-
+#include "log/log.h"
 #include "tiling/platform/platform_ascendc.h"
 
 #define CHECK_RET(cond, return_expr) \
@@ -67,13 +67,14 @@ static inline R CeilAlign(T1 val, T2 align)
 }
 
 // ==========================================================================
-//  GetAivCoreCount — get the number of AIV cores on current device
+//  GetAivCoreCount — get the number of AIV (vector) cores on current device
 // ==========================================================================
 
 static inline uint32_t GetAivCoreCount()
 {
     auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     if (platform == nullptr) {
+        OP_LOGE("[ERROR] GetAivCoreCount Failed", "PlatformAscendCManager is null, return 0");
         return 0;
     }
     return platform->GetCoreNumAiv();
@@ -87,6 +88,7 @@ static inline uint32_t GetAicCoreCount()
 {
     auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     if (platform == nullptr) {
+        OP_LOGE("[ERROR] GetAicCoreCount Failed", "PlatformAscendCManager is null, return 0");
         return 0;
     }
     return platform->GetCoreNumAic();

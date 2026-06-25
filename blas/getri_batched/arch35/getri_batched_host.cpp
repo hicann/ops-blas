@@ -22,17 +22,7 @@
 #include "getri_batched_tiling_data.h"
 #include "getri_batched_kernel.h"
 #include "common/helper/aclblas_handle_internal.h"
-#include "tiling/platform/platform_ascendc.h"
-
-static uint32_t GetVectorCoreCount()
-{
-    auto* platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    if (platform == nullptr) {
-        OP_LOGE("aclblasSgetriBatched", "PlatformAscendCManager::GetInstance() returned nullptr");
-        return 0;
-    }
-    return platform->GetCoreNumAiv();
-}
+#include "common/helper/host_utils.h"
 
 static aclblasStatus_t ValidateGetriBatchedParams(
     int n, int lda, int ldc, int batchSize, const float* const Aarray[], float* const Carray[], int* infoArray)
@@ -77,7 +67,7 @@ static aclblasStatus_t LaunchGetriBatchedKernel(
     aclblasHandle_t handle, int n, int lda, int ldc, int batchSize, const int* PivotArray, const float* const Aarray[],
     float* const Carray[], int* infoArray)
 {
-    uint32_t coreNum = GetVectorCoreCount();
+    uint32_t coreNum = GetAivCoreCount();
     if (coreNum == 0) {
         OP_LOGE("aclblasSgetriBatched", "vector core count is 0");
         return ACLBLAS_STATUS_INTERNAL_ERROR;

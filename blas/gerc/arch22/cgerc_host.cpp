@@ -21,21 +21,10 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 
 void cgerc_kernel_do(uint8_t* d_x, uint8_t* d_y, uint8_t* d_offset, uint8_t* d_A, uint8_t* work_space,
                      uint8_t* tiling_gm, uint32_t num_blocks, void *stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 constexpr uint32_t DEFAULT_CUBE_NUM = 20;

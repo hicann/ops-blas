@@ -19,7 +19,18 @@
 #include <cmath>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "host_utils.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
 
 inline uint32_t VerifyResult(float output, float golden)
 {

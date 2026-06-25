@@ -14,21 +14,10 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 
 void ssyr2_kernel_do(uint8_t* gm_x, uint8_t* gm_y, uint8_t* gm_A, uint8_t* workSpace, uint8_t* tilingGm,
                      uint32_t numBlocks, void *stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
 
 constexpr uint32_t DEFAULT_VECTOR_NUM = 40;
 constexpr uint32_t WORKSPACE_SIZE = 1024;

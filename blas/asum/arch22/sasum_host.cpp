@@ -21,6 +21,7 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 
 struct SasumTilingData;
 // arch35-style: tiling passed by value
@@ -29,18 +30,6 @@ void sasum_kernel_do(
 // arch22-style: tiling passed as GM pointer (for backward compatibility)
 void sasum_kernel_do(
     uint8_t* inGM, uint8_t* outGM, uint8_t* workSpace, uint8_t* tilingGm, uint32_t numBlocks, void* stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
