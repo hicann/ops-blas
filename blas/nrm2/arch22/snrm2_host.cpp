@@ -9,7 +9,7 @@
  */
 
 /* !
- * \file snrm2.asc
+ * \file nrm2_host.cpp
  * \brief
  */
 
@@ -21,21 +21,10 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
 
 void snrm2_kernel_do(uint8_t* x, uint8_t* result, uint8_t* workSpace, uint8_t* tilingGm,
                      uint32_t numBlocks, void *stream);
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -105,15 +94,11 @@ static Nrm2TilingData CalTilingData(uint32_t totalEleNum, uint32_t vecCoreNum)
     return tilingData;
 }
 
-aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result)
+static aclblasStatus_t Nrm2LaunchKernel(const Nrm2TilingData& tiling,
+                                         uint8_t* xDevice, uint8_t* resultDevice,
+                                         uint32_t numBlocks, aclrtStream stream)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    aclrtStream useStream = h->stream;
-
-    uint32_t numBlocks = 8;
-    size_t workSpaceSize = 16 * 1024 * 1024;
-
-    Nrm2TilingData tiling = CalTilingData(n, numBlocks);
+    constexpr size_t workSpaceSize = 16 * 1024 * 1024;
 
     uint8_t* workSpaceDevice = nullptr;
     uint8_t* tilingDevice = nullptr;
@@ -134,8 +119,8 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    snrm2_kernel_do(x, result, workSpaceDevice, tilingDevice, numBlocks, useStream);
-    aclRet = aclrtSynchronizeStream(useStream);
+    snrm2_kernel_do(xDevice, resultDevice, workSpaceDevice, tilingDevice, numBlocks, stream);
+    aclRet = aclrtSynchronizeStream(stream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
@@ -146,43 +131,45 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n, const float* x, int incx, float* result)
+{
+    if (handle == nullptr) {
+        return ACLBLAS_STATUS_NOT_INITIALIZED;
+    }
+    if (result == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (n <= 0 || incx <= 0) {
+        float zero = 0.0f;
+        aclError memRet = aclrtMemcpy(result, sizeof(float), &zero, sizeof(float),
+                                      ACL_MEMCPY_HOST_TO_DEVICE);
+        return (memRet == ACL_SUCCESS) ? ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
+    if (x == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+
+    uint32_t numBlocks = 8;
+
+    Nrm2TilingData tiling = CalTilingData(static_cast<uint32_t>(n), numBlocks);
+
+    return Nrm2LaunchKernel(tiling,
+                            reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+                            reinterpret_cast<uint8_t*>(result),
+                            numBlocks, useStream);
+}
+
 aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;
-    size_t workSpaceSize = 16 * 1024 * 1024;
 
     Nrm2TilingData tiling = CalTilingData(n * 2, numBlocks);
 
-    uint8_t* workSpaceDevice = nullptr;
-    uint8_t* tilingDevice = nullptr;
-
-    aclError aclRet = aclrtMalloc((void**)&workSpaceDevice, workSpaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(Nrm2TilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workSpaceDevice);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(Nrm2TilingData), &tiling, sizeof(Nrm2TilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
-        aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    snrm2_kernel_do(x, result, workSpaceDevice, tilingDevice, numBlocks, useStream);
-    aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
-        aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    aclrtFree(workSpaceDevice);
-    aclrtFree(tilingDevice);
-
-    return ACLBLAS_STATUS_SUCCESS;
+    return Nrm2LaunchKernel(tiling, x, result, numBlocks, useStream);
 }

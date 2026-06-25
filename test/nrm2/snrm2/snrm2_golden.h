@@ -11,23 +11,26 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
 
-#include "acl/acl.h"
-#include "cann_ops_blas.h"
-#include "csv_loader.h"
+#include "cblas_compat.h"
 
-struct SasumParam : public BlasTestParamBase {
-    int64_t n = 0;
-    int64_t incx = 1;
-    BlasFillMode x = parseFill("RANDOM_10");
-    bool resultIsNull = false;
-
-    SasumParam(const csv_map& map) : BlasTestParamBase(map)
-    {
-        n = parseInt64(ReadMap(map, "n", "0"));
-        incx = parseInt64(ReadMap(map, "incx", "1"));
-        x = parseFill(ReadMap(map, "x", "RANDOM_10"));
-        resultIsNull = (ReadMap(map, "result", "") == "NULLPTR");
+// Reference implementation — same signature as aclblasSnrm2
+inline aclblasStatus_t aclblasSnrm2_cpu(
+    aclblasHandle_t handle,
+    const int64_t n,
+    const float* x,
+    const int64_t incx,
+    float* result)
+{
+    if (handle == nullptr) return ACLBLAS_STATUS_NOT_INITIALIZED;
+    if (x == nullptr || result == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
+    if (n <= 0 || incx <= 0) {
+        *result = 0.0f;
+        return ACLBLAS_STATUS_SUCCESS;
     }
-};
+
+    *result = cblas_snrm2(static_cast<int>(n), x, static_cast<int>(incx));
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+

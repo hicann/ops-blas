@@ -13,6 +13,7 @@
 #include "kernel_operator.h"
 #include "simt_api/asc_simt.h"
 #include "common/helper/kernel_constant.h"
+#include "common/helper/kernel_utils.h"
 #include "sasum_tiling_data.h"
 
 using namespace AscendC;
@@ -131,7 +132,7 @@ __aicore__ inline void SasumAIV::Process()
 
     uint32_t repeatTimes = computeNum / maxDataCount;
     uint32_t remainNum = computeNum % maxDataCount;
-    uint32_t maxCopyPadNum = (UINT16_MAX + 1) / sizeof(float);
+    uint32_t maxCopyPadNum = UINT16_MAX / sizeof(float) / ELEMENTS_PER_BLOCK * ELEMENTS_PER_BLOCK;
 
     uint32_t currOffset = startOffset;
     for (uint32_t i = 0; i < repeatTimes; i++) {
@@ -210,7 +211,7 @@ __aicore__ inline void SasumAIV::CopyOut()
 
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SasumSimtCompute(
     uint32_t calNum, uint32_t startOffset, uint32_t stride,
-    __gm__ const float* xGm, __gm__ float* partialOut)
+    __gm__ const float* xGm, __gm__ float* partialOut, uint32_t blockDimPow2)
 {
     if (calNum == 0) {
         return;
@@ -227,8 +228,10 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SasumSimtCo
     ubPartialSums[threadIdx.x] = partial;
     asc_syncthreads();
 
-    for (uint32_t s = blockDim.x >> 1; s > 0; s >>= 1) {
-        if (threadIdx.x < s) {
+    uint32_t n = blockDimPow2;
+
+    for (uint32_t s = n >> 1; s > 0; s >>= 1) {
+        if (threadIdx.x < s && (threadIdx.x + s) < blockDim.x) {
             ubPartialSums[threadIdx.x] += ubPartialSums[threadIdx.x + s];
         }
         asc_syncthreads();
@@ -349,7 +352,8 @@ __global__ __aicore__ void sasum_simt_kernel(GM_ADDR inGM, GM_ADDR workSpace, Sa
             dim3{tdata.nthreads, 1, 1},
             calNum, tdata.startOffset[blockIdx], static_cast<uint32_t>(tdata.incx),
             reinterpret_cast<__gm__ const float*>(inGM),
-            reinterpret_cast<__gm__ float*>(workSpace) + blockIdx);
+            reinterpret_cast<__gm__ float*>(workSpace) + blockIdx,
+            RoundUpPow2(tdata.nthreads));
     }
 }
 

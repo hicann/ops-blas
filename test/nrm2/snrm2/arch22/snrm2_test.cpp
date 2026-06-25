@@ -21,18 +21,7 @@
 #include <cmath>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
+#include "error_check.h"
 
 uint32_t VerifyResult(float output, float golden)
 {
@@ -130,8 +119,8 @@ int32_t main(int32_t argc, char* argv[])
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* resultDevice = nullptr;
+    float* xDevice = nullptr;
+    float* resultDevice = nullptr;
     size_t inputByteSize = totalLength * sizeof(float);
     size_t outputByteSize = sizeof(float);
 

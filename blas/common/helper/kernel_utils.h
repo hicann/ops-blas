@@ -50,6 +50,28 @@ inline __aicore__ T RoundUp(const T val, const T align)
     return (val + align - 1) / align * align;
 }
 
+template <typename T>
+inline __aicore__ T RoundUpPow2(T v)
+{
+    static_assert(std::is_unsigned<T>::value, "RoundUpPow2 requires unsigned type");
+    if (v == 0) {
+        return 1;
+    }
+    v--;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    if (sizeof(T) >= 4) {
+        v |= v >> 16;
+    }
+    if (sizeof(T) >= 8) {
+        v |= v >> 32;
+    }
+    v++;
+    return v;
+}
+
 template <uint32_t DIVISOR, typename T = uint32_t>
 inline __aicore__ T CeilDiv(const T dividend)
 {

@@ -8,9 +8,6 @@
 * See LICENSE in the root of the software repository for the full text of the License.
 */
 
-#ifndef SNRM2_KERNEL_H
-#define SNRM2_KERNEL_H
-
 #include <cstdint>
 #include "kernel_operator.h"
 
@@ -302,4 +299,3 @@ void snrm2_kernel_do(GM_ADDR x, GM_ADDR result, GM_ADDR workSpace, GM_ADDR tilin
     snrm2_kernel<<<numBlocks, nullptr, stream>>>(x, result, workSpace, tilingGm);
 }
 
-#endif  // SNRM2_KERNEL_H

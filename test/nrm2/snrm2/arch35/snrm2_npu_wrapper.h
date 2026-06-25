@@ -10,7 +10,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -19,7 +18,7 @@
 #include "cann_ops_blas.h"
 #include "device.h"
 
-inline std::unique_ptr<DeviceBuffer> tryAllocAndCopySasum(const void* hostPtr, size_t bytes)
+inline std::unique_ptr<DeviceBuffer> tryAllocAndCopySnrm2(const void* hostPtr, size_t bytes)
 {
     if (hostPtr == nullptr)
         return nullptr;
@@ -28,7 +27,7 @@ inline std::unique_ptr<DeviceBuffer> tryAllocAndCopySasum(const void* hostPtr, s
     return buf;
 }
 
-inline aclblasStatus_t aclblasSasum_npu(
+inline aclblasStatus_t aclblasSnrm2_npu(
     aclblasHandle_t handle,
     const int64_t n,
     const float* x,
@@ -39,16 +38,20 @@ inline aclblasStatus_t aclblasSasum_npu(
         return ACLBLAS_STATUS_NOT_INITIALIZED;
     }
     if (n <= 0) {
-        return aclblasSasum(handle, static_cast<int>(n), x, static_cast<int>(incx), result);
+        // Early return path: ACL function sets result=0 and returns SUCCESS
+        return aclblasSnrm2(handle, static_cast<int>(n), x, static_cast<int>(incx), result);
     }
 
     const size_t dataBytes = static_cast<size_t>((n - 1) * std::abs(incx) + 1) * sizeof(float);
     const size_t resultBytes = sizeof(float);
 
-    auto dX = tryAllocAndCopySasum(x, dataBytes);
+    auto dX = tryAllocAndCopySnrm2(x, dataBytes);
 
+    // If result is nullptr, pass nullptr to ACL for parameter validation testing.
+    // Preserve the API's own return value for negative-test assertions; only fall
+    // back to INTERNAL_ERROR when validation passed but async execution failed.
     if (result == nullptr) {
-        aclblasStatus_t ret = aclblasSasum(handle, static_cast<int>(n),
+        aclblasStatus_t ret = aclblasSnrm2(handle, static_cast<int>(n),
             dX ? static_cast<const float*>(dX->ptr()) : nullptr, static_cast<int>(incx), nullptr);
         if (ret == ACL_SUCCESS && aclrtSynchronizeDevice() != ACL_SUCCESS) {
             return ACLBLAS_STATUS_INTERNAL_ERROR;
@@ -58,7 +61,7 @@ inline aclblasStatus_t aclblasSasum_npu(
 
     auto dResult = std::make_unique<DeviceBuffer>(resultBytes);
 
-    aclblasStatus_t ret = aclblasSasum(handle, static_cast<int>(n),
+    aclblasStatus_t ret = aclblasSnrm2(handle, static_cast<int>(n),
         dX ? static_cast<const float*>(dX->ptr()) : nullptr, static_cast<int>(incx),
         static_cast<float*>(dResult->ptr()));
 
@@ -70,3 +73,5 @@ inline aclblasStatus_t aclblasSasum_npu(
 
     return ret;
 }
+
+

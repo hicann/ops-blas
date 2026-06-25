@@ -10,20 +10,19 @@
 
 #pragma once
 
-#include <cstdint>
 #include <string>
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
 
-struct SasumParam : public BlasTestParamBase {
+struct Snrm2Param : public BlasTestParamBase {
     int64_t n = 0;
     int64_t incx = 1;
     BlasFillMode x = parseFill("RANDOM_10");
     bool resultIsNull = false;
 
-    SasumParam(const csv_map& map) : BlasTestParamBase(map)
+    Snrm2Param(const csv_map& map) : BlasTestParamBase(map)
     {
         n = parseInt64(ReadMap(map, "n", "0"));
         incx = parseInt64(ReadMap(map, "incx", "1"));
@@ -31,3 +30,5 @@ struct SasumParam : public BlasTestParamBase {
         resultIsNull = (ReadMap(map, "result", "") == "NULLPTR");
     }
 };
+
+
