@@ -356,6 +356,11 @@ aclblasStatus_t aclblasGemmBatchedEx(
 aclblasStatus_t aclblasSgetriBatched(
     aclblasHandle_t handle, int n, const float* const Aarray[], int lda, const int* PivotArray, float* const Carray[],
     int ldc, int* infoArray, int batchSize);
+
+aclblasStatus_t aclblasSmatinvBatched(
+    aclblasHandle_t handle, int n, const float* const A[], int lda, float* const Ainv[], int lda_inv, int* info,
+    int batchSize);
+
 aclblasStatus_t aclblasGemmEx(
     aclblasHandle_t handle, aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k,
     const void* alpha, const void* A, aclDataType Atype, int lda, const void* B, aclDataType Btype, int ldb,
