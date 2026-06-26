@@ -22,30 +22,36 @@ void sgeqrf_batched_kernel_do(
 static const char* const TAG = "aclblasSgeqrfBatched";
 
 static aclblasStatus_t ValidateGeqrfBatchedParams(
-    int m, int n, float* const Aarray[], int lda, float* const TauArray[], int batchSize)
+    int m, int n, float* const Aarray[], int lda, float* const TauArray[], int batchSize, int* info)
 {
     if (m < 0) {
         OP_LOGE(TAG, "m must be >= 0, got %d", m);
+        *info = ACLBLAS_LAPACK_INFO_ARG_1;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (n < 0) {
         OP_LOGE(TAG, "n must be >= 0, got %d", n);
+        *info = ACLBLAS_LAPACK_INFO_ARG_2;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (lda < std::max(1, m)) {
         OP_LOGE(TAG, "lda must be >= max(1, m), got lda=%d, m=%d", lda, m);
+        *info = ACLBLAS_LAPACK_INFO_ARG_4;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (batchSize < 0) {
         OP_LOGE(TAG, "batchSize must be >= 0, got %d", batchSize);
+        *info = ACLBLAS_LAPACK_INFO_ARG_6;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (batchSize > 0 && Aarray == nullptr) {
         OP_LOGE(TAG, "Aarray must not be nullptr when batchSize > 0");
+        *info = ACLBLAS_LAPACK_INFO_ARG_3;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (batchSize > 0 && m > 0 && n > 0 && TauArray == nullptr) {
         OP_LOGE(TAG, "TauArray must not be nullptr when batchSize > 0 and min(m,n) > 0");
+        *info = ACLBLAS_LAPACK_INFO_ARG_5;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     return ACLBLAS_STATUS_SUCCESS;
@@ -98,12 +104,12 @@ aclblasStatus_t aclblasSgeqrfBatched(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    aclblasStatus_t validRet = ValidateGeqrfBatchedParams(m, n, Aarray, lda, TauArray, batchSize);
+    aclblasStatus_t validRet = ValidateGeqrfBatchedParams(m, n, Aarray, lda, TauArray, batchSize, info);
     if (validRet != ACLBLAS_STATUS_SUCCESS) {
         return validRet;
     }
     if (m == 0 || n == 0 || batchSize == 0) {
-        *info = 0;
+        *info = ACLBLAS_LAPACK_INFO_OK;
         return ACLBLAS_STATUS_SUCCESS;
     }
 
@@ -130,6 +136,6 @@ aclblasStatus_t aclblasSgeqrfBatched(
     }
 
     OP_LOGI(TAG, "completed: m=%d, n=%d, batchSize=%d", m, n, batchSize);
-    *info = 0;
+    *info = ACLBLAS_LAPACK_INFO_OK;
     return ACLBLAS_STATUS_SUCCESS;
 }

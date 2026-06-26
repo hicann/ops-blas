@@ -43,26 +43,29 @@ inline aclblasStatus_t aclblasSgeqrfBatched_cpu(
         return ACLBLAS_STATUS_NOT_INITIALIZED;
     if (m < 0) {
         if (info != nullptr)
-            info[0] = -1;
+            *info = ACLBLAS_LAPACK_INFO_ARG_1;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (n < 0) {
         if (info != nullptr)
-            info[0] = -2;
+            *info = ACLBLAS_LAPACK_INFO_ARG_2;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (lda < std::max(1, m)) {
         if (info != nullptr)
-            info[0] = -4;
+            *info = ACLBLAS_LAPACK_INFO_ARG_4;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (batchSize < 0) {
         if (info != nullptr)
-            info[0] = -7;
+            *info = ACLBLAS_LAPACK_INFO_ARG_6;
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (batchSize == 0 || m == 0 || n == 0)
+    if (batchSize == 0 || m == 0 || n == 0) {
+        if (info != nullptr)
+            *info = ACLBLAS_LAPACK_INFO_OK;
         return ACLBLAS_STATUS_SUCCESS;
+    }
     if (Aarray == nullptr || TauArray == nullptr)
         return ACLBLAS_STATUS_INVALID_VALUE;
 
@@ -70,9 +73,8 @@ inline aclblasStatus_t aclblasSgeqrfBatched_cpu(
         if (Aarray[b] != nullptr && TauArray[b] != nullptr) {
             sgeqrf_single_batch(m, n, Aarray[b], lda, TauArray[b]);
         }
-        if (info != nullptr)
-            info[b] = 0;
     }
+    if (info != nullptr)
+        *info = ACLBLAS_LAPACK_INFO_OK;
     return ACLBLAS_STATUS_SUCCESS;
 }
-

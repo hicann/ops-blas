@@ -28,6 +28,13 @@ TEST_F(SgeqrfBatchedArch35Test, NullHandle)
     EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 }
 
+TEST_F(SgeqrfBatchedArch35Test, NullInfo)
+{
+    aclblasStatus_t ret =
+        aclblasSgeqrfBatched_npu(SgeqrfBatchedArch35Test::handle_, 8, 8, nullptr, 8, nullptr, nullptr, 2);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_INVALID_VALUE);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     SgeqrfBatched, SgeqrfBatchedArch35Test,
     ::testing::ValuesIn(GetCasesFromCsv<SgeqrfBatchedParam>(ReplaceFileExtension2Csv(__FILE__))),
@@ -96,15 +103,33 @@ TEST_P(SgeqrfBatchedArch35Test, CsvDriven)
     float** tauArrayPtr = p.tauArrayNull ? nullptr : (tauPtrs.empty() ? nullptr : tauPtrs.data());
     std::vector<int> infoHost(std::max(1, effectiveBatch), 0);
 
+    int expectedInfo = ACLBLAS_LAPACK_INFO_OK;
+    if (p.m < 0)
+        expectedInfo = ACLBLAS_LAPACK_INFO_ARG_1;
+    else if (p.n < 0)
+        expectedInfo = ACLBLAS_LAPACK_INFO_ARG_2;
+    else if (p.lda < std::max(1, p.m))
+        expectedInfo = ACLBLAS_LAPACK_INFO_ARG_4;
+    else if (p.batchSize < 0)
+        expectedInfo = ACLBLAS_LAPACK_INFO_ARG_6;
+    else if (p.batchSize > 0 && aArrayPtr == nullptr)
+        expectedInfo = ACLBLAS_LAPACK_INFO_ARG_3;
+    else if (p.batchSize > 0 && p.m > 0 && p.n > 0 && tauArrayPtr == nullptr)
+        expectedInfo = ACLBLAS_LAPACK_INFO_ARG_5;
+
     aclblasStatus_t ret = aclblasSgeqrfBatched_npu(
         SgeqrfBatchedArch35Test::handle_, p.m, p.n, reinterpret_cast<float* const*>(aArrayPtr), p.lda,
         reinterpret_cast<float* const*>(tauArrayPtr), infoHost.data(), p.batchSize);
 
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
+    EXPECT_EQ(infoHost[0], expectedInfo);
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS)
         return;
-    if (p.m == 0 || p.n == 0 || p.batchSize == 0)
+
+    if (p.m == 0 || p.n == 0 || p.batchSize == 0) {
+        EXPECT_EQ(infoHost[0], static_cast<int>(ACLBLAS_LAPACK_INFO_OK));
         return;
+    }
 
     std::vector<std::vector<float>> aGoldenBatch(effectiveBatch);
     std::vector<std::vector<float>> tauGoldenBatch(effectiveBatch);
@@ -116,6 +141,9 @@ TEST_P(SgeqrfBatchedArch35Test, CsvDriven)
     aclblasSgeqrfBatched_cpu(
         SgeqrfBatchedArch35Test::handle_, p.m, p.n, reinterpret_cast<float* const*>(aGoldenPtrs.data()), p.lda,
         reinterpret_cast<float* const*>(tauGoldenPtrs.data()), infoGolden.data(), p.batchSize);
+
+    EXPECT_EQ(infoGolden[0], static_cast<int>(ACLBLAS_LAPACK_INFO_OK));
+    EXPECT_EQ(infoHost[0], infoGolden[0]);
 
     VerifyConfig cfg;
     cfg.mode = PrecisionMode::MERE_MARE;
