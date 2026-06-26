@@ -19,10 +19,10 @@
 
 #include "adv_api/matmul/matmul.h"
 #include "integral_constant.h"
-#include "blaze/block/block_mmad_mx.h"
-#include "blaze/block/block_scheduler_qbmm.h"
-#include "blaze/epilogue/block_epilogue_empty.h"
-#include "blaze/kernel/kernel_qbmm_mx.h"
+#include "blaze/gemm/block/block_mmad_qbmm_mx.h"
+#include "blaze/gemm/block/block_scheduler_qbmm.h"
+#include "blaze/epilogue/block/block_epilogue_empty.h"
+#include "blaze/gemm/kernel/kernel_qbmm_mx_without_batch.h"
 #include "matmul_tiling_data.h"
 
 template <bool TransA, bool TransB>
@@ -34,12 +34,12 @@ __global__ __aicore__ __cube__ void QuantMatmulMxfp8Kernel(
     using namespace AscendC::Te;
     using namespace Blaze::Gemm;
 
-    using ProblemShape = AscendC::Te::Shape<uint64_t, uint64_t, uint64_t, uint64_t>;
+    using ProblemShape = AscendC::Te::Shape<int64_t, int64_t, int64_t, int64_t>;
     using AType = fp8_e4m3fn_t;
     using BType = fp8_e4m3fn_t;
     using CType = bfloat16_t;
     using BiasType = float;
-    using DispatchPolicy = MatmulWithScaleMx<0UL>;
+    using DispatchPolicy = MatmulWithScaleMx<0UL, false, KernelMmadWithScaleMxWithoutBatch>;
     using LayoutA = conditional_t<TransA, AscendC::Te::DNExtLayoutPtn, AscendC::Te::NDExtLayoutPtn>;
     using LayoutB = conditional_t<TransB, AscendC::Te::DNExtLayoutPtn, AscendC::Te::NDExtLayoutPtn>;
     using LayoutC = AscendC::Te::NDExtLayoutPtn;
@@ -50,8 +50,7 @@ __global__ __aicore__ __cube__ void QuantMatmulMxfp8Kernel(
     using BlockEpilogue = Blaze::Gemm::Block::BlockEpilogueEmpty;
     using BlockScheduler =
         Blaze::Gemm::Block::BlockSchedulerQuantBatchMatmulV3<ProblemShape, 0UL, LayoutA, LayoutB, AType>;
-    using KernelImpl =
-        Blaze::Gemm::Kernel::QuantBatchMmMx<ProblemShape, BlockMmad, BlockEpilogue, BlockScheduler, false>;
+    using KernelImpl = Blaze::Gemm::Kernel::GemmUniversal<ProblemShape, BlockMmad, BlockEpilogue, BlockScheduler>;
 
     using Params = typename KernelImpl::Params;
     using BlockMmadParams = typename BlockMmad::Params;
@@ -60,8 +59,8 @@ __global__ __aicore__ __cube__ void QuantMatmulMxfp8Kernel(
     using QBMMTiling = typename KernelImpl::QBMMTiling;
 
     ProblemShape problemShape{
-        static_cast<uint64_t>(quantMatmulTilingData.m), static_cast<uint64_t>(quantMatmulTilingData.n),
-        static_cast<uint64_t>(quantMatmulTilingData.k), 1UL};
+        static_cast<int64_t>(quantMatmulTilingData.m), static_cast<int64_t>(quantMatmulTilingData.n),
+        static_cast<int64_t>(quantMatmulTilingData.k), 1L};
     BlockMmadParams mmadParams{dA, dB, dC, nullptr, dScaleA, dScaleB};
     L1Params l1Params{
         static_cast<uint64_t>(quantMatmulTilingData.stepK) * quantMatmulTilingData.baseK,
@@ -76,7 +75,6 @@ __global__ __aicore__ __cube__ void QuantMatmulMxfp8Kernel(
         static_cast<int64_t>(quantMatmulTilingData.mTailMain),
         static_cast<int64_t>(quantMatmulTilingData.nTailMain)};
     QBMMTiling qbmmParams{
-        1U, 1U, 1U, 1U, 1U, 1U, 1U, 1U, 1U, 1U, 1U, 1U, 0U,
         quantMatmulTilingData.baseM, quantMatmulTilingData.baseN, quantMatmulTilingData.baseK, 0U,
         quantMatmulTilingData.dbL0c};
     Params params{problemShape, mmadParams, l1Params, schedulerParams, qbmmParams};
