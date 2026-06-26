@@ -63,10 +63,6 @@ static aclblasStatus_t ValidateScalexParams(
         OP_LOGE("aclblasScalex", "x must not be nullptr when n > 0");
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (incx == 0) {
-        OP_LOGE("aclblasScalex", "incx must not be zero, got %d", incx);
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    }
     if (alphaType != ACL_FLOAT) {
         OP_LOGE("aclblasScalex", "alphaType must be ACL_FLOAT(0), got %d",
                 static_cast<int>(alphaType));
@@ -174,6 +170,10 @@ aclblasStatus_t aclblasScalex(
         handle, n, alpha, alphaType, x, xType, incx, executionType);
     if (status != ACLBLAS_STATUS_SUCCESS) {
         return status;
+    }
+
+    if (incx <= 0) {
+        return ACLBLAS_STATUS_SUCCESS;
     }
 
     uint32_t aivCoreNum = GetAivCoreCount();

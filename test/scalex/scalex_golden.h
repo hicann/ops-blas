@@ -128,13 +128,13 @@ inline aclblasStatus_t aclblasScalex_cpu(
     if (n == 0)            return ACLBLAS_STATUS_SUCCESS;     // n=0 short-circuit
     if (alpha == nullptr)  return ACLBLAS_STATUS_INVALID_VALUE;
     if (x == nullptr)      return ACLBLAS_STATUS_INVALID_VALUE;
-    if (incx == 0)         return ACLBLAS_STATUS_INVALID_VALUE;
 
     // Type checks — only alpha=FP32 + x∈{FP16,BF16,FP32} + exec=FP32 supported
     if (alphaType != ACL_FLOAT)  return ACLBLAS_STATUS_NOT_SUPPORTED;
     if (xType != ACL_FLOAT && xType != ACL_FLOAT16 && xType != ACL_BF16)
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     if (executionType != ACL_FLOAT)  return ACLBLAS_STATUS_NOT_SUPPORTED;
+    if (incx <= 0)         return ACLBLAS_STATUS_SUCCESS;
 
     float alphaVal = *static_cast<const float*>(alpha);
     float* xFloat  = static_cast<float*>(x);
@@ -142,9 +142,8 @@ inline aclblasStatus_t aclblasScalex_cpu(
     if (xType == ACL_FLOAT) {
         cblas_sscal(n, alphaVal, xFloat, incx);
     } else {
-        int absIncx = std::abs(incx);
         for (int i = 0; i < n; i++) {
-            int idx = (incx > 0) ? (i * incx) : ((n - 1 - i) * absIncx);
+            int idx      = i * incx;
             float val    = xFloat[idx];
             float result = alphaVal * val;
             xFloat[idx]  = castToDtype(result, static_cast<int32_t>(xType));

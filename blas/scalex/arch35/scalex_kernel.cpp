@@ -200,12 +200,11 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void ScalexSimtC
     uint32_t totalN, int64_t incx, uint32_t numBlocks, __gm__ float* alphaGm,
     __gm__ XType* xGm, float alphaHost, uint32_t alphaIsDevice)
 {
-    uint32_t absInc = static_cast<uint32_t>(std::abs(incx));
-    uint32_t isReverse = (incx < 0) ? 1u : 0u;
+    uint32_t stride = static_cast<uint32_t>(incx);
     float alpha = alphaIsDevice ? *alphaGm : alphaHost;
 
     for (uint32_t i = threadIdx.x + blockIdx.x * blockDim.x; i < totalN; i += blockDim.x * numBlocks) {
-        uint32_t idx = isReverse ? ((totalN - 1 - i) * absInc) : (i * absInc);
+        uint32_t idx = i * stride;
 
         if constexpr (std::is_same<XType, float>::value) {
             xGm[idx] = alpha * xGm[idx];

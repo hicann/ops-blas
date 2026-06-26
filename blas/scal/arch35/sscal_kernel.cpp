@@ -159,11 +159,11 @@ __global__ __aicore__ void sscal_simt_kernel(GM_ADDR x, SscalTilingData tdata)
     uint32_t calNum = tdata.calCount[blockIdx];
 
     if (calNum > 0) {
-        int64_t absInc = std::abs(tdata.incx);
+        uint32_t stride = static_cast<uint32_t>(tdata.incx);
         asc_vf_call<SscalSimtCompute>(
             dim3{tdata.nthreads, 1, 1},
             calNum, tdata.startOffset[blockIdx],
-            static_cast<uint32_t>(absInc),
+            stride,
             tdata.alpha,
             reinterpret_cast<__gm__ float*>(x));
     }

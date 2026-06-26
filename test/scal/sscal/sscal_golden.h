@@ -25,8 +25,6 @@ inline aclblasStatus_t aclblasSscal_cpu(
         return ACLBLAS_STATUS_SUCCESS;
     if (x == nullptr || alpha == nullptr)
         return ACLBLAS_STATUS_INVALID_VALUE;
-    if (incx == 0)
-        return ACLBLAS_STATUS_INVALID_VALUE;
 
     cblas_sscal(n, *alpha, x, incx);
     return ACLBLAS_STATUS_SUCCESS;

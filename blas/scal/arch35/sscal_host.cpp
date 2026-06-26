@@ -38,10 +38,6 @@ static aclblasStatus_t ValidateSscalParams(aclblasHandle_t handle, const float* 
         OP_LOGE("aclblasSscal", "x must not be nullptr");
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (incx == 0) {
-        OP_LOGE("aclblasSscal", "incx must not be zero, got %d", incx);
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    }
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -125,6 +121,10 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
     aclblasStatus_t status = ValidateSscalParams(handle, x, incx);
     if (status != ACLBLAS_STATUS_SUCCESS) {
         return status;
+    }
+
+    if (incx <= 0) {
+        return ACLBLAS_STATUS_SUCCESS;
     }
 
     uint32_t aivCoreNum = GetAivCoreCount();
