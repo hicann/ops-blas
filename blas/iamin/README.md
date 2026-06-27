@@ -1,24 +1,24 @@
-# Iamax算子
+# Iamin算子
 
 ## 算子概述
 
-Iamax 算子实现了查找向量中绝对值最大元素的索引，核心运算为遍历向量取绝对值并比较大小。该算子返回 1-based 索引，遵循 BLAS 惯例，常用于主元选择和迭代算法中。
+Iamin 算子实现了查找向量中绝对值最小元素的索引，核心运算为遍历向量取绝对值并比较大小。该算子返回 1-based 索引，遵循 BLAS 惯例，常用于稀疏矩阵预处理和数值优化中。
 
 数学表达式：
 
 ```
-result = argmax_i |x[i]|
+result = argmin_i |x[i]|
 ```
 
 包含以下接口：
 
 | 接口名 | 功能简述 |
 |--------|---------|
-| aclblasIsamax | 查找 FP32 向量中绝对值最大元素的 1-based 索引 |
+| aclblasIsamin | 查找 FP32 向量中绝对值最小元素的 1-based 索引 |
 
 ## 算子执行接口
 
-### aclblasIsamax
+### aclblasIsamin
 
 #### 产品支持情况
 
@@ -29,7 +29,7 @@ result = argmax_i |x[i]|
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float *x, int incx, int *result)
+aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float *x, int incx, int *result)
 ```
 
 #### 参数说明
@@ -40,7 +40,7 @@ aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float *x, int
 | n | 输入 | int | 向量元素个数，Host 内存 |
 | x | 输入 | const float* | 指向 float 向量的 device 指针，Device 内存 |
 | incx | 输入 | int | 向量 x 中相邻元素之间的步长，Host 内存 |
-| result | 输出 | int* | 绝对值最大元素的 1-based 索引，Device 内存 |
+| result | 输出 | int* | 绝对值最小元素的 1-based 索引，Device 内存 |
 
 #### 约束说明
 

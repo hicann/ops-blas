@@ -216,6 +216,9 @@ aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float* x, int 
 
 aclblasStatus_t aclblasIamax(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
 
+aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
+aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
+
 aclblasStatus_t aclblasCsrot(
     aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
     const float c, const float s);

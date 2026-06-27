@@ -1,0 +1,123 @@
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
+
+#include <cstdint>
+#include <algorithm>
+#include "cann_ops_blas.h"
+#include "common/helper/aclblas_handle_internal.h"
+#include "common/helper/host_utils.h"
+#include "log/log.h"
+#include "common/helper/kernel_constant.h"
+#include "isamin_kernel.h"
+#include "isamin_tiling_data.h"
+
+namespace {
+
+static aclblasStatus_t ValidateIsaminParams(aclblasHandle_t handle, int n, int incx, const float* x, int* result)
+{
+    if (handle == nullptr) {
+        OP_LOGE("aclblasIsamin", "handle is nullptr");
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    }
+    if (n < 0) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (n == 0 || incx < 1) {
+        if (result != nullptr) {
+            *result = 0;
+        }
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    if (x == nullptr) {
+        OP_LOGE("aclblasIsamin", "x must not be nullptr");
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (result == nullptr) {
+        OP_LOGE("aclblasIsamin", "result must not be nullptr");
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+static IsaminTilingData CalcIsaminTiling(int n, uint32_t numBlocks, int incx)
+{
+    IsaminTilingData tiling{};
+    uint32_t totalN = static_cast<uint32_t>(n);
+    tiling.totalN = totalN;
+    tiling.useCoreNum = numBlocks;
+    tiling.incx = static_cast<uint32_t>(incx);
+
+    tiling.perCoreN = totalN / numBlocks;
+    tiling.lastCoreN = tiling.perCoreN + (totalN % numBlocks);
+
+    tiling.tileSize = FP32_MAX_DATA_COUNT;
+
+    if (incx != 1) {
+        tiling.nthreads = std::min(
+            CeilAlign<uint32_t>(CeilDiv<uint32_t>(tiling.perCoreN, SIMT_MIN_THREAD_NUM), SIMT_MIN_THREAD_NUM),
+            SIMT_MAX_THREAD_NUM);
+    } else {
+        tiling.nthreads = 0;
+    }
+
+    return tiling;
+}
+
+static aclblasStatus_t LaunchIsaminKernel(aclblasHandle_t handle, int n, const float* x, int incx, int* result)
+{
+    aclblasStatus_t vStatus = ValidateIsaminParams(handle, n, incx, x, result);
+    if (vStatus != ACLBLAS_STATUS_SUCCESS || n <= 0 || incx < 1) {
+        return vStatus;
+    }
+
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+
+    uint32_t aivCoreNum = GetAivCoreCount();
+    if (aivCoreNum == 0) {
+        OP_LOGE("aclblasIsamin", "GetAivCoreCount failed");
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+
+    uint32_t numBlocks = std::min(static_cast<uint32_t>(n), aivCoreNum);
+
+    IsaminTilingData tiling = CalcIsaminTiling(n, numBlocks, incx);
+
+    OP_LOGD(
+        "aclblasIsamin", "tiling: totalN=%u perCoreN=%u lastCoreN=%u useCoreNum=%u tileSize=%u nthreads=%u",
+        tiling.totalN, tiling.perCoreN, tiling.lastCoreN, tiling.useCoreNum, tiling.tileSize, tiling.nthreads);
+
+    void* workSpace = aclblasGetEffectiveWorkspace(h);
+    size_t workspaceBytes = aclblasGetEffectiveWorkspaceSize(h);
+    constexpr uint32_t ALIGN_FLOATS = 64;
+    uint32_t totalFloats = numBlocks * 2;
+    uint32_t alignedFloats = ((totalFloats + ALIGN_FLOATS - 1) / ALIGN_FLOATS) * ALIGN_FLOATS;
+    size_t requiredBytes = static_cast<size_t>(alignedFloats) * sizeof(float);
+    if (workspaceBytes < requiredBytes) {
+        OP_LOGE("aclblasIsamin", "workspace too small: need %zu, got %zu", requiredBytes, workspaceBytes);
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
+
+    OP_LOGI(
+        "aclblasIsamin", "launching kernel: blocks=%u, useCoreNum=%u, nthreads=%u, incx=%d", numBlocks,
+        tiling.useCoreNum, tiling.nthreads, incx);
+
+    isamin_kernel_do(
+        reinterpret_cast<GM_ADDR>(const_cast<float*>(x)), reinterpret_cast<GM_ADDR>(result),
+        reinterpret_cast<GM_ADDR>(workSpace), tiling, numBlocks, reinterpret_cast<void*>(h->stream));
+
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+} // namespace
+
+aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float* x, int incx, int* result)
+{
+    return LaunchIsaminKernel(handle, n, x, incx, result);
+}
