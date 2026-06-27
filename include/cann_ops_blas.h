@@ -394,6 +394,10 @@ aclblasStatus_t aclblasGemmGroupedBatchedEx(
     const void* betaArray, void* const Carray[], aclDataType Ctype, const int ldcArray[],
     int groupCount, const int groupSize[], aclblasComputeType_t computeType);
 
+aclblasStatus_t aclblasStbsv(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag,
+    int n, int k, const float* A, int lda, float* x, int incx);
+
 #ifdef __cplusplus
 }
 #endif
