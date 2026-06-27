@@ -331,6 +331,8 @@ aclblasStatus_t aclblasStrttp(
 
 aclblasStatus_t aclblasSrotm(aclblasHandle_t handle, int n, float* x, int incx, float* y, int incy, const float* param);
 
+aclblasStatus_t aclblasSrotg(aclblasHandle_t handle, float* a, float* b, float* c, float* s);
+
 aclblasStatus_t aclblasSrotmg(
     aclblasHandle_t handle, float* d1, float* d2, float* x1, const float* y1, float* param);
 
