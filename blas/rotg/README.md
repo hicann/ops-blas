@@ -24,6 +24,10 @@ rotg 算子实现了 Givens 旋转参数的构造，根据输入的两个标量 
 ```
 blas/rotg/
 ├── README.md                       // 说明文档
+├── arch22/
+│   ├── srotg_host.cpp              // Host 侧入口：参数校验 + Host/Device 双路径判别 + CPU 计算
+│   ├── srotg_kernel.cpp            // Device kernel：标量 Givens 旋转参数生成
+│   └── srotg_tiling_data.h         // Tiling 数据结构
 └── arch35/
     ├── srotg_host.cpp              // Host 侧入口：参数校验 + Host/Device 双路径判别 + CPU 计算
     ├── srotg_kernel.cpp            // Device SIMT kernel：标量 Givens 旋转参数生成
@@ -33,6 +37,10 @@ test/rotg/srotg/
 ├── CMakeLists.txt
 ├── srotg_param.h                   // CSV 用例参数结构
 ├── srotg_golden.h                  // CPU golden（cblas_srotg）
+├── arch22/
+│   ├── srotg_test.cpp              // GTest：arch22 测试用例
+│   ├── srotg_test.csv              // 用例数据
+│   └── srotg_npu_wrapper.h         // NPU device 指针路径 wrapper
 └── arch35/
     ├── srotg_test.cpp              // GTest：错误路径 + Device/Host 双路径 CSV 驱动
     ├── srotg_test.csv              // 用例数据（含 NaN/Inf/denormal）

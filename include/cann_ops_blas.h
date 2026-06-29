@@ -217,6 +217,9 @@ aclblasStatus_t aclblasIamax(aclblasHandle_t handle, const int64_t n, uint8_t* x
 aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
 aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
 
+aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
+aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
+
 aclblasStatus_t aclblasCsrot(
     aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
     const float c, const float s);
@@ -351,9 +354,10 @@ aclblasStatus_t aclblasStpttr(
 aclblasStatus_t aclblasStrttp(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* A, int lda, float* AP);
 
-aclblasStatus_t aclblasSrotm(aclblasHandle_t handle, int n, float* x, int incx, float* y, int incy, const float* param);
-
 aclblasStatus_t aclblasSrotg(aclblasHandle_t handle, float* a, float* b, float* c, float* s);
+
+aclblasStatus_t aclblasSrotm(
+    aclblasHandle_t handle, int n, float* x, int incx, float* y, int incy, const float* param);
 
 aclblasStatus_t aclblasSrotmg(
     aclblasHandle_t handle, float* d1, float* d2, float* x1, const float* y1, float* param);
@@ -402,7 +406,6 @@ aclblasStatus_t aclblasSgemmGroupedBatched(
     const float* const* Barray, const int* ldbArray,
     const float* betaArray, float* const* Carray, const int* ldcArray,
     const int* groupSizeArray);
-
 
 aclblasStatus_t aclblasSgetrsBatched(
     aclblasHandle_t handle, aclblasOperation_t trans, int n, int nrhs, const float* const Aarray[], int lda,

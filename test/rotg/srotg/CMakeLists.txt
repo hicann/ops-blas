@@ -11,5 +11,5 @@
 if(SOC_VERSION STREQUAL "ascend950")
     ops_blas_add_gtest_tests(${OPS_BLAS} srotg_test)
 else()
-    ops_blas_add_tests(${OPS_BLAS})
+    ops_blas_add_gtest_tests(${OPS_BLAS} srotg_test)
 endif()
