@@ -1,62 +1,43 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
-#ifndef SGER_KERNEL_H
-#define SGER_KERNEL_H
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 #include <cstdint>
 #include "kernel_operator.h"
+#include "sger_tiling.h"
 
 using namespace AscendC;
 
 constexpr uint32_t BUFFER_NUM = 2;
+constexpr uint32_t QUEUE_NUM = 3;
 constexpr uint32_t BYTENUM_PER_FLOAT32 = 4;
-constexpr uint32_t TILE_SIZE = 32;
 constexpr uint32_t UB_SIZE = 192 * 1024;
 constexpr uint32_t MAX_UB_ELEMENTS = UB_SIZE / BYTENUM_PER_FLOAT32;
-constexpr uint32_t MAX_CORE_NUM = 50;
-
-struct SgerTilingDataDevice {
-    uint32_t m;
-    uint32_t n;
-    uint32_t lda;
-    uint32_t useCoreNum;
-    uint32_t startRow[MAX_CORE_NUM];
-    uint32_t rowCount[MAX_CORE_NUM];
-    uint32_t startCol[MAX_CORE_NUM];
-    uint32_t colCount[MAX_CORE_NUM];
-};
+constexpr uint32_t ELEM_PER_32B_BLOCK = 8;
+constexpr uint32_t CHUNK_BASE = UB_SIZE / BUFFER_NUM / QUEUE_NUM / BYTENUM_PER_FLOAT32 / ELEM_PER_32B_BLOCK;
 
 template <typename T>
 class SgerKernel {
 public:
     __aicore__ inline SgerKernel() {}
-    __aicore__ inline void Init(GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR alpha,
-                                GM_ADDR tilingGm);
+    __aicore__ inline void Init(const SgerTilingData& tiling, TPipe* pipeIn);
     __aicore__ inline void Process();
 
 private:
-    __aicore__ inline void ParseTilingData(GM_ADDR tilingGm);
+    __aicore__ inline void CopyIn(uint32_t col, uint32_t rowOff, uint32_t chunk);
+    __aicore__ inline void Compute(uint32_t col, uint32_t rowOff, uint32_t chunk);
+    __aicore__ inline void CopyOut(uint32_t col, uint32_t rowOff, uint32_t chunk);
 
-    __aicore__ inline void CopyIn(uint32_t row, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void Compute(uint32_t row, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void CopyOut(uint32_t row, uint32_t colOffset, uint32_t dataCount);
-
-    __aicore__ inline void CopyInPad(uint32_t row, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void ComputePad(uint32_t row, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void CopyOutPad(uint32_t row, uint32_t colOffset, uint32_t dataCount);
-
-    TPipe pipe;
-    TQue<QuePosition::VECIN, BUFFER_NUM> yQueue;
-    TQue<QuePosition::VECOUT, BUFFER_NUM> aQueue;
-    TQue<QuePosition::VECOUT, BUFFER_NUM> tmpQueue;
+    TPipe* pipe;
+    TQue<TPosition::VECIN, 2> xQueue;
+    TQue<TPosition::VECOUT, 2> aQueue;
+    TQue<TPosition::VECCALC, 1> tmpQueue;
 
     GlobalTensor<T> aGM;
     GlobalTensor<T> xGM;
@@ -68,146 +49,121 @@ private:
     int64_t m;
     int64_t n;
     int64_t lda;
+    int incx;
+    int incy;
+    uint32_t absIncx;
+    uint32_t absIncy;
 
     uint32_t useCoreNum;
-    uint32_t rowStart;
-    uint32_t rowCount;
+    uint32_t colsPerBlock;
     uint32_t colStart;
     uint32_t colCount;
-    uint32_t colTileNum;
-    uint32_t remainderCols;
+    uint32_t rowCount;
+    uint32_t chunkMax;
 };
 
 template <typename T>
-__aicore__ inline void SgerKernel<T>::ParseTilingData(GM_ADDR tilingGm)
-{
-    auto tiling = reinterpret_cast<__gm__ SgerTilingDataDevice *>(tilingGm);
-
-    this->m = tiling->m;
-    this->n = tiling->n;
-    this->lda = tiling->lda;
-    this->useCoreNum = tiling->useCoreNum;
-
-    this->rowStart = tiling->startRow[this->blockIdx];
-    this->rowCount = tiling->rowCount[this->blockIdx];
-    this->colStart = tiling->startCol[this->blockIdx];
-    this->colCount = tiling->colCount[this->blockIdx];
-}
-
-template <typename T>
-__aicore__ inline void SgerKernel<T>::Init(GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR alpha,
-                                           GM_ADDR tilingGm)
+__aicore__ inline void SgerKernel<T>::Init(const SgerTilingData& tiling, TPipe* pipeIn)
 {
     this->blockNum = GetBlockNum();
     this->blockIdx = GetBlockIdx();
+    this->pipe = pipeIn;
+    this->m = tiling.m;
+    this->n = tiling.n;
+    this->lda = tiling.lda;
+    this->useCoreNum = tiling.useCoreNum;
+    this->colsPerBlock = tiling.colsPerBlock;
+    this->incx = tiling.incx;
+    this->incy = tiling.incy;
+    this->absIncx = (this->incx < 0) ? static_cast<uint32_t>(-this->incx) : static_cast<uint32_t>(this->incx);
+    this->absIncy = (this->incy < 0) ? static_cast<uint32_t>(-this->incy) : static_cast<uint32_t>(this->incy);
+    this->alpha = tiling.alpha;
+    this->colStart = this->blockIdx * this->colsPerBlock;
+    this->chunkMax = (this->incx > 1) ? CHUNK_BASE : (CHUNK_BASE * ELEM_PER_32B_BLOCK);
 
-    ParseTilingData(tilingGm);
+    if (this->colStart >= this->n) {
+        this->colCount = 0;
+    } else {
+        this->colCount = (this->blockIdx == this->useCoreNum - 1) ? (this->n - this->colStart) : this->colsPerBlock;
+    }
 
-    aGM.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(A), static_cast<uint32_t>(m * lda));
-    xGM.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(x), static_cast<uint32_t>(m));
-    yGM.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(y), static_cast<uint32_t>(n));
+    this->rowCount = this->m;
 
-    T alphaHost = *reinterpret_cast<__gm__ T*>(alpha);
-    this->alpha = alphaHost;
+    aGM.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(tiling.A), static_cast<uint64_t>(n * lda));
+    xGM.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(tiling.x), static_cast<uint64_t>((m - 1) * absIncx + 1));
+    yGM.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(tiling.y), static_cast<uint64_t>((n - 1) * absIncy + 1));
 
-    colTileNum = colCount / TILE_SIZE;
-    remainderCols = colCount % TILE_SIZE;
-
-    uint32_t ubSizePerBuffer = UB_SIZE / BUFFER_NUM / 3;
-    pipe.InitBuffer(yQueue, BUFFER_NUM, ubSizePerBuffer);
-    pipe.InitBuffer(aQueue, BUFFER_NUM, ubSizePerBuffer);
-    pipe.InitBuffer(tmpQueue, BUFFER_NUM, ubSizePerBuffer);
+    uint32_t ubSizePerBuffer = UB_SIZE / BUFFER_NUM / QUEUE_NUM;
+    pipe->InitBuffer(xQueue, BUFFER_NUM, ubSizePerBuffer);
+    pipe->InitBuffer(aQueue, BUFFER_NUM, ubSizePerBuffer);
+    pipe->InitBuffer(tmpQueue, BUFFER_NUM, ubSizePerBuffer);
 }
 
 template <typename T>
-__aicore__ inline void SgerKernel<T>::CopyIn(uint32_t row, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SgerKernel<T>::CopyIn(uint32_t col, uint32_t rowOff, uint32_t chunk)
 {
-    LocalTensor<T> yLocal = yQueue.AllocTensor<T>();
-    DataCopy(yLocal, yGM[colOffset], dataCount);
-    yQueue.EnQue<T>(yLocal);
+    LocalTensor<T> xLocal = xQueue.AllocTensor<T>();
+    DataCopyPadExtParams<T> noPad{false, 0, 0, T(0)};
+    if (incx == 1) {
+        DataCopyExtParams xParams{1, static_cast<uint32_t>(chunk * sizeof(T)), 0, 0, 0};
+        DataCopyPad(xLocal, xGM[rowOff], xParams, noPad);
+    } else if (incx > 1) {
+        DataCopyExtParams xParams{
+            static_cast<uint16_t>(chunk), static_cast<uint32_t>(sizeof(T)),
+            static_cast<uint32_t>((absIncx - 1) * sizeof(T)), 0, 0};
+        DataCopyPad(xLocal, xGM[rowOff * absIncx], xParams, noPad);
+    } else {
+        for (uint32_t i = 0; i < chunk; ++i) {
+            uint64_t xIdx = (incx > 0) ? static_cast<uint64_t>(static_cast<int64_t>(rowOff + i) * incx) :
+                                         static_cast<uint64_t>(static_cast<int64_t>(m - 1 - (rowOff + i)) * (-incx));
+            xLocal.SetValue(i, xGM.GetValue(xIdx));
+        }
+    }
+    xQueue.EnQue<T>(xLocal);
 
     LocalTensor<T> aLocal = aQueue.AllocTensor<T>();
-    uint32_t aRow = rowStart + row;
-    DataCopy(aLocal, aGM[aRow * lda + colOffset], dataCount);
+    uint32_t aCol = colStart + col;
+    DataCopyExtParams aParams{1, static_cast<uint32_t>(chunk * sizeof(T)), 0, 0, 0};
+    uint64_t aOff = static_cast<uint64_t>(static_cast<int64_t>(aCol) * lda) + rowOff;
+    DataCopyPad(aLocal, aGM[aOff], aParams, noPad);
     aQueue.EnQue<T>(aLocal);
 }
 
 template <typename T>
-__aicore__ inline void SgerKernel<T>::Compute(uint32_t row, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SgerKernel<T>::Compute(uint32_t col, uint32_t rowOff, uint32_t chunk)
 {
-    LocalTensor<T> yLocal = yQueue.DeQue<T>();
+    LocalTensor<T> xLocal = xQueue.DeQue<T>();
     LocalTensor<T> aLocal = aQueue.DeQue<T>();
     LocalTensor<T> tmpLocal = tmpQueue.AllocTensor<T>();
 
-    uint32_t aRow = rowStart + row;
-    T xVal = xGM.GetValue(aRow);
+    uint32_t aCol = colStart + col;
+    uint64_t yIdx = (incy > 0) ? static_cast<uint64_t>(static_cast<int64_t>(aCol) * incy) :
+                                 static_cast<uint64_t>(static_cast<int64_t>(n - 1 - aCol) * (-incy));
+    T yVal = yGM.GetValue(yIdx);
 
-    Muls(tmpLocal, yLocal, xVal, dataCount);
-    Muls(tmpLocal, tmpLocal, alpha, dataCount);
-    Add(aLocal, aLocal, tmpLocal, dataCount);
+    T alphaY = alpha * yVal;
+    if (incx > 1) {
+        for (uint32_t i = 0; i < chunk; ++i) {
+            xLocal.SetValue(i, xLocal.GetValue(i * ELEM_PER_32B_BLOCK));
+        }
+    }
+    Muls(tmpLocal, xLocal, alphaY, chunk);
+    Add(aLocal, aLocal, tmpLocal, chunk);
 
     tmpQueue.FreeTensor(tmpLocal);
 
     aQueue.EnQue<T>(aLocal);
-    yQueue.FreeTensor(yLocal);
+    xQueue.FreeTensor(xLocal);
 }
 
 template <typename T>
-__aicore__ inline void SgerKernel<T>::CopyOut(uint32_t row, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void SgerKernel<T>::CopyOut(uint32_t col, uint32_t rowOff, uint32_t chunk)
 {
     LocalTensor<T> aLocal = aQueue.DeQue<T>();
-    uint32_t aRow = rowStart + row;
-    DataCopy(aGM[aRow * lda + colOffset], aLocal, dataCount);
-    aQueue.FreeTensor(aLocal);
-}
-
-template <typename T>
-__aicore__ inline void SgerKernel<T>::CopyInPad(uint32_t row, uint32_t colOffset, uint32_t dataCount)
-{
-    uint8_t paddingNum = TILE_SIZE - dataCount;
-    DataCopyExtParams copyParams{1, static_cast<uint16_t>(sizeof(T)), 0, 0, 0};
-    DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
-
-    LocalTensor<T> yLocal = yQueue.AllocTensor<T>();
-    DataCopyPad(yLocal, yGM[colOffset], copyParams, padParams);
-    yQueue.EnQue<T>(yLocal);
-
-    LocalTensor<T> aLocal = aQueue.AllocTensor<T>();
-    uint32_t aRow = rowStart + row;
-    DataCopyPad(aLocal, aGM[aRow * lda + colOffset], copyParams, padParams);
-    aQueue.EnQue<T>(aLocal);
-}
-
-template <typename T>
-__aicore__ inline void SgerKernel<T>::ComputePad(uint32_t row, uint32_t colOffset, uint32_t dataCount)
-{
-    LocalTensor<T> yLocal = yQueue.DeQue<T>();
-    LocalTensor<T> aLocal = aQueue.DeQue<T>();
-    LocalTensor<T> tmpLocal = tmpQueue.AllocTensor<T>();
-
-    uint32_t aRow = rowStart + row;
-    T xVal = xGM.GetValue(aRow);
-
-    Muls(tmpLocal, yLocal, xVal, dataCount);
-    Muls(tmpLocal, tmpLocal, alpha, dataCount);
-    Add(aLocal, aLocal, tmpLocal, dataCount);
-
-    tmpQueue.FreeTensor(tmpLocal);
-
-    aQueue.EnQue<T>(aLocal);
-    yQueue.FreeTensor(yLocal);
-}
-
-template <typename T>
-__aicore__ inline void SgerKernel<T>::CopyOutPad(uint32_t row, uint32_t colOffset, uint32_t dataCount)
-{
-    uint8_t paddingNum = TILE_SIZE - dataCount;
-    DataCopyExtParams copyParams{1, static_cast<uint16_t>(sizeof(T)), 0, 0, 0};
-    DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
-
-    LocalTensor<T> aLocal = aQueue.DeQue<T>();
-    uint32_t aRow = rowStart + row;
-    DataCopyPad(aGM[aRow * lda + colOffset], aLocal, copyParams);
+    uint32_t aCol = colStart + col;
+    DataCopyExtParams outParams{1, static_cast<uint32_t>(chunk * sizeof(T)), 0, 0, 0};
+    uint64_t aOff = static_cast<uint64_t>(static_cast<int64_t>(aCol) * lda) + rowOff;
+    DataCopyPad(aGM[aOff], aLocal, outParams);
     aQueue.FreeTensor(aLocal);
 }
 
@@ -218,40 +174,26 @@ __aicore__ inline void SgerKernel<T>::Process()
         return;
     }
 
-    for (uint32_t row = 0; row < rowCount; ++row) {
-        for (uint32_t colTileIdx = 0; colTileIdx < colTileNum; ++colTileIdx) {
-            uint32_t colOffset = colStart + colTileIdx * TILE_SIZE;
-            CopyIn(row, colOffset, TILE_SIZE);
-            pipe_barrier(PIPE_ALL);
-            Compute(row, colOffset, TILE_SIZE);
-            pipe_barrier(PIPE_ALL);
-            CopyOut(row, colOffset, TILE_SIZE);
-        }
-
-        if (remainderCols > 0) {
-            uint32_t colOffset = colStart + colTileNum * TILE_SIZE;
-            CopyInPad(row, colOffset, remainderCols);
-            pipe_barrier(PIPE_ALL);
-            ComputePad(row, colOffset, remainderCols);
-            pipe_barrier(PIPE_ALL);
-            CopyOutPad(row, colOffset, remainderCols);
+    for (uint32_t col = 0; col < colCount; ++col) {
+        for (uint32_t rowOff = 0; rowOff < rowCount; rowOff += chunkMax) {
+            const uint32_t chunk = (rowOff + chunkMax <= rowCount) ? chunkMax : (rowCount - rowOff);
+            CopyIn(col, rowOff, chunk);
+            Compute(col, rowOff, chunk);
+            CopyOut(col, rowOff, chunk);
         }
     }
 }
 
-__global__ __aicore__ void sger_kernel(GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR alpha,
-                                       GM_ADDR tilingGm)
+__global__ __aicore__ void sger_kernel(const SgerTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
+    TPipe pipe;
     SgerKernel<float> op;
-    op.Init(A, x, y, alpha, tilingGm);
+    op.Init(tiling, &pipe);
     op.Process();
 }
 
-void sger_kernel_do(GM_ADDR A, GM_ADDR x, GM_ADDR y, GM_ADDR alpha, GM_ADDR tilingGm,
-                   uint32_t numBlocks, void* stream)
+void sger_kernel_do(const SgerTilingData& tiling, uint32_t numBlocks, void* stream)
 {
-    sger_kernel<<<numBlocks, nullptr, stream>>>(A, x, y, alpha, tilingGm);
+    sger_kernel<<<numBlocks, nullptr, stream>>>(tiling);
 }
-
-#endif  // SGER_KERNEL_H
