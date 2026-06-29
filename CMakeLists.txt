@@ -166,16 +166,26 @@ target_include_directories(${OPS_BLAS} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/include/op_common/
     ./include
     ${CMAKE_CURRENT_LIST_DIR}/blas
+    "${_OPS_BLAS_ASC_ROOT}"
     "${_OPS_BLAS_ASC_ROOT}/include"
+    "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include"
+    ${OPTENSOR_INCLUDE_DIR}
+    ${OPTENSOR_INCLUDE_DIR}/tensor_api
+    ${OPTENSOR_INCLUDE_DIR}/tensor_api/include
 )
 
 target_link_directories(${OPS_BLAS} PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/lib64")
 target_link_libraries(
   ${OPS_BLAS}
-  PRIVATE tiling_api platform c_sec)
+  PRIVATE tiling_api platform c_sec ascendc_runtime ascendcl runtime register)
+
+target_compile_definitions(${OPS_BLAS} PRIVATE
+  ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}
+  ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR})
 
 target_compile_options(${OPS_BLAS} PRIVATE
-    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS}>
+    $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS} -DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
+    $<$<COMPILE_LANGUAGE:CXX>:-DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
 )
 
 # ========= 安装规则（CPack 打包时放入 lib64 和 include） =========
