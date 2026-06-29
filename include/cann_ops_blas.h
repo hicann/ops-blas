@@ -37,7 +37,6 @@ extern "C" {
  * @return ACLBLAS_STATUS_SUCCESS on success.
  *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
  *         ACLBLAS_STATUS_INVALID_VALUE if *handle is non-null.
- *         ACLBLAS_STATUS_NOT_INITIALIZED if the CANN context is not initialized.
  *         ACLBLAS_STATUS_ALLOC_FAILED if memory allocation fails.
  */
 aclblasStatus_t aclblasCreate(aclblasHandle_t* handle);
@@ -127,7 +126,6 @@ aclblasStatus_t aclblasGetVersion(aclblasHandle_t handle, int* version);
  * @param logToKdlls Whether to write logs to the kernel log.
  * @param logLevel Log level.
  * @return ACLBLAS_STATUS_SUCCESS on success.
- *         ACLBLAS_STATUS_INVALID_VALUE if an argument is invalid.
  */
 aclblasStatus_t aclblasLoggerConfigure(
     const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel);

@@ -1,242 +1,363 @@
-# aclblasLt 接口文档
+# 算子接口
 
-## 0. 头文件与目录结构
+## 使用说明
 
-- **aclblasLt API 头文件**
-  - 接口声明、句柄与描述符结构、Lt 专用枚举：
-    - `ops-blas/include/cann_ops_blasLt.h`
-- **通用 BLAS 状态码与基础枚举**
-  - 返回码 `aclblasStatus_t` / `aclblasLtStatus`、计算类型 `aclblasComputeType_t`、矩阵转置枚举 `aclblasOperation_t`：
-    - `ops-blas/include/cann_ops_blas_common.h`
-- **ACL 基础类型**
-  - `aclDataType`、`aclrtStream` 等类型来自：
-    - `acl/acl.h`（通过 `cann_ops_blasLt.h` 间接包含）
+ops-blas 提供基于 C 的 BLAS 标准接口，以及轻量化 GEMM / 矩阵变换接口，便于在 NPU 上高效完成线性代数计算。
 
-> **查找接口/枚举定义**：  
-> 如需查看某个接口或枚举的完整注释与声明，可在上述目录下打开对应头文件（`cann_ops_blasLt.h` / `cann_ops_blas_common.h`）检索名称。
+- **头文件/库文件**
 
----
+  调用接口时，需引用依赖的头文件和库文件。头文件默认位于 `${INSTALL_DIR}/include`，库文件默认位于 `${INSTALL_DIR}/lib64`，具体文件如下：
 
-## 1. 模块简介
+  - 头文件（推荐引用总头文件）：
+    - [cann_ops_blas.h](../../include/cann_ops_blas.h)：aclBLAS 计算接口与 aclBLAS Helper 接口
+    - [cann_ops_blas_common.h](../../include/cann_ops_blas_common.h)：公共类型与枚举定义
+    - [cann_ops_blasLt.h](../../include/cann_ops_blasLt.h)：aclBLASLt 计算接口与 aclBLASLt Helper 接口
+  - 库文件：
+    - `libops_blas.so`：aclBLAS 库
+    - `libops_blasLt.so`：aclBLASLt 库
 
-`aclblasLt` 是面向矩阵乘（GEMM）场景的轻量级高级接口，提供以下能力：
+  `${INSTALL_DIR}` 表示 CANN 安装路径。
 
-- 句柄生命周期管理（Create/Destroy）
-- 矩阵布局描述（MatrixLayout）及属性配置/查询
-- Matmul 操作描述（MatmulDesc）及属性配置
-- 算法搜索偏好设置（Preference）
-- 启发式算法查询（Heuristic）
-- 执行矩阵乘计算（Matmul）
-- 版本与属性查询（GetVersion/GetProperty）
+## aclBLAS Datatypes Reference
 
+[cann_ops_blas_common.h](../../include/cann_ops_blas_common.h) 定义 aclBLAS / aclBLASLt 共用的类型与枚举。
 
----
+### aclblasStatus_t
 
-## 2. 框架层基础结构与类型关系
+函数状态返回类型。所有 aclBLAS / aclBLASLt 库函数均通过该类型返回执行结果。`aclblasLtStatus` 为同类型别名。
 
-### 2.1 基础句柄与描述符类型（定义于 `cann_ops_blasLt.h`）
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` (0) | 函数执行成功。 |
+| `ACLBLAS_STATUS_NOT_INITIALIZED` (1) | 库未初始化，通常因未先调用 `aclblasCreate` / `aclblasLtCreate`，或 CANN 运行环境未就绪。 |
+| `ACLBLAS_STATUS_ALLOC_FAILED` (2) | 库内部资源分配失败（如 device/host 内存申请失败）。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` (3) | 传入了非法或不支持的参数值（如维度为负、指针为空且不允许为空等）。 |
+| `ACLBLAS_STATUS_MAPPING_ERROR` (4) | 访问设备内存空间失败。 |
+| `ACLBLAS_STATUS_EXECUTION_FAILED` (5) | 算子在设备侧执行失败（如下发失败、stream 同步失败等）。 |
+| `ACLBLAS_STATUS_INTERNAL_ERROR` (6) | 库内部操作失败。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` (7) | 当前平台、数据类型或参数组合下，该功能尚未实现或不支持。 |
+| `ACLBLAS_STATUS_ARCH_MISMATCH` (8) | 设备架构与当前实现不匹配。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` (9) | 传入的 handle 为空指针。 |
+| `ACLBLAS_STATUS_INVALID_ENUM` (10) | 传入了不支持的枚举取值。 |
+| `ACLBLAS_STATUS_UNKNOWN` (11) | 后端返回了库未识别的状态码。 |
 
-- **库上下文句柄**
-  - `aclblasLtHandle_t`：`typedef void* aclblasLtHandle_t;`
-- **矩阵布局描述符**
-  - `aclblasLtMatrixLayoutOpaque_t`：内部保存布局信息的 opaque 结构
-  - `aclblasLtMatrixLayout_t`：`typedef aclblasLtMatrixLayoutOpaque_t* aclblasLtMatrixLayout_t;`
-- **矩阵乘操作描述符**
-  - `aclblasLtMatmulDescOpaque_t`
-  - `aclblasLtMatmulDesc_t`：`typedef aclblasLtMatmulDescOpaque_t* aclblasLtMatmulDesc_t;`
-- **算法偏好描述符**
-  - `aclblasLtMatmulPreferenceOpaque_t`
-  - `aclblasLtMatmulPreference_t`：`typedef aclblasLtMatmulPreferenceOpaque_t* aclblasLtMatmulPreference_t;`
-- **算法与启发式结构**
-  - `aclblasLtMatmulAlgo_t`：算法描述（包含内部编码和 `max_workspace_bytes`）
-  - `aclblasLtMatmulHeuristicResult_t`：启发式结果（包含 `algo`、`workspaceSize`、`state`、`wavesCount` 等）
+### aclblasFillMode_t
 
-### 2.2 通用状态码与基础枚举（定义于 `cann_ops_blas_common.h`）
+指定对称矩阵、三角矩阵或 packed 矩阵使用上三角还是下三角部分。取值与 Fortran BLAS 中 `U` / `L` 参数语义一致。
 
-- **返回状态枚举**
-  - `aclblasStatus_t`：主返回码类型
-  - `aclblasLtStatus`：`typedef aclblasStatus_t aclblasLtStatus;`（Lt 接口复用相同状态码集合）
-- **矩阵操作枚举**
-  - `aclblasOperation_t`：`ACLBLAS_OP_N` / `ACLBLAS_OP_T` / `ACLBLAS_OP_C`
-- **计算类型枚举**
-  - `aclblasComputeType_t`：`ACLBLAS_COMPUTE_16F` / `ACLBLAS_COMPUTE_32F` 等
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_UPPER` (121) | 使用矩阵的上三角部分。 |
+| `ACLBLAS_LOWER` (122) | 使用矩阵的下三角部分。 |
 
-### 2.3 Lt 专用枚举与属性（定义于 `cann_ops_blasLt.h`）
+### aclblasDiagType_t
 
-- **矩阵存储顺序**
-  - `aclblasLtOrder_t`
-- **库属性类型**
-  - `aclblasLtPropertyType_t`
-- **Epilogue 类型**
-  - `aclblasLtEpilogue_t`
-- **矩阵布局属性**
-  - `aclblasLtMatrixLayoutAttribute_t`
-- **Matmul 描述符属性**
-  - `aclblasLtMatmulDescAttribute_t`
-- **Preference 属性**
-  - `aclblasLtMatmulPreferenceAttribute_t`
+指定三角矩阵的对角线元素是否视为单位阵（对角元为 1、不参与读写）。取值与 Fortran BLAS 中 `N` / `U` 参数语义一致。
 
-### 2.4 类型关系简图
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_NON_UNIT` (131) | 非单位对角线，对角元素从矩阵数据中读取。 |
+| `ACLBLAS_UNIT` (132) | 单位对角线，对角元素视为 1，调用方无需显式存储。 |
 
-> 下图仅表达“包含/别名关系”，非 C++ 继承。
+### aclblasSideMode_t
 
-```text
-aclblasStatus_t  <------------------------------+
-       ^                                        |
-       | typedef                                |
-aclblasLtStatus --------------------------------+
+指定对称矩阵乘法（symm）等运算中，对称矩阵位于乘积的左侧还是右侧。
 
-aclblasLtMatmulHeuristicResult_t
-  ├── aclblasLtMatmulAlgo_t algo
-  ├── size_t workspaceSize
-  └── aclblasStatus_t state
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_SIDE_LEFT` (141) | 对称/三角矩阵在乘法左侧（op(A)·B 形式）。 |
+| `ACLBLAS_SIDE_RIGHT` (142) | 对称/三角矩阵在乘法右侧（B·op(A) 形式）。 |
 
-aclblasLtMatrixLayout_t
-  └── typedef aclblasLtMatrixLayoutOpaque_t*
+### aclblasOperation_t
 
-aclblasLtMatmulDesc_t
-  └── typedef aclblasLtMatmulDescOpaque_t*
+指定对稠密矩阵执行的操作：原矩阵、转置或共轭转置。取值与 Fortran BLAS 中 `N` / `T` / `C` 参数语义一致。
 
-aclblasLtMatmulPreference_t
-  └── typedef aclblasLtMatmulPreferenceOpaque_t*
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_OP_N` (111) | 不转置，使用原矩阵 op(A) = A。 |
+| `ACLBLAS_OP_T` (112) | 转置，op(A) = A<sup>T</sup>。 |
+| `ACLBLAS_OP_C` (113) | 共轭转置，op(A) = A<sup>H</sup>；实数矩阵下与 `ACLBLAS_OP_T` 等价。 |
+
+### aclblasComputeType_t
+
+指定 GemmEx / GemmBatchedEx 等扩展 GEMM 接口的内部计算精度。具体支持范围依赖后端实现与输入数据类型。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_COMPUTE_16F` (0) | 计算精度至少为 16 位浮点。 |
+| `ACLBLAS_COMPUTE_16F_PEDANTIC` (1) | 计算精度严格为 16 位浮点。 |
+| `ACLBLAS_COMPUTE_32F` (2) | 计算精度至少为 32 位浮点。 |
+| `ACLBLAS_COMPUTE_32F_PEDANTIC` (3) | 计算精度严格为 32 位浮点。 |
+| `ACLBLAS_COMPUTE_32F_FAST_16F` (4) | 32 位输入可降级为 16 位计算以提升性能。 |
+| `ACLBLAS_COMPUTE_32F_FAST_16BF` (5) | 32 位输入使用 BF16 路径计算。 |
+| `ACLBLAS_COMPUTE_32F_FAST_TF32` (6) | 32 位输入可使用 TF32 等加速计算路径。 |
+| `ACLBLAS_COMPUTE_64F` (7) | 计算精度至少为 64 位浮点。 |
+| `ACLBLAS_COMPUTE_64F_PEDANTIC` (8) | 计算精度严格为 64 位浮点。 |
+| `ACLBLAS_COMPUTE_32I` (9) | 计算精度至少为 32 位整数。 |
+| `ACLBLAS_COMPUTE_32I_PEDANTIC` (10) | 计算精度严格为 32 位整数。 |
+
+### aclblasGemmAlgo_t
+
+指定 GemmEx 等接口使用的 GEMM 算法。除默认算法外，其余枚举值为预留，具体支持情况依赖后端。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_GEMM_DEFAULT` (0) | 默认算法，由后端自动选择。 |
+| `ACLBLAS_GEMM_ALGO0` (1) ~ `ACLBLAS_GEMM_ALGO7` (8) | 预留算法编号，供后续扩展。 |
+
+### aclblasLogLevel_t
+
+配置 aclBLAS 库日志输出级别，用于 `aclblasLoggerConfigure` 等接口。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_LOG_LEVEL_DEBUG` (0) | 输出调试级别日志。 |
+| `ACLBLAS_LOG_LEVEL_INFO` (1) | 输出信息级别日志。 |
+| `ACLBLAS_LOG_LEVEL_ERROR` (2) | 仅输出错误级别日志。 |
+
+### aclblasLapackInfo_t
+
+批量 LAPACK 风格接口（如 `aclblasSgetrfBatched`、`aclblasSgeqrfBatched`）中 `info` / `infoArray` 参数的取值约定，语义对齐 LAPACK `xINFO`：
+
+- `info = 0`：成功退出。
+- `info < 0`：若 `info = -i`，表示第 `i` 个参数非法（不含 handle 与 info 本身）。
+
+参数编号遵循 LAPACK 惯例：handle 与 info 不参与计数。例如 `aclblasSgeqrfBatched(handle, m, n, Aarray, lda, TauArray, info, batchSize)` 中，m=1，n=2，Aarray=3，lda=4，TauArray=5，batchSize=6。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLAS_LAPACK_INFO_OK` (0) | 成功退出。 |
+| `ACLBLAS_LAPACK_INFO_ARG_1` (-1) | 第 1 个 LAPACK 风格参数非法。 |
+| `ACLBLAS_LAPACK_INFO_ARG_2` (-2) | 第 2 个 LAPACK 风格参数非法。 |
+| `ACLBLAS_LAPACK_INFO_ARG_3` (-3) | 第 3 个 LAPACK 风格参数非法。 |
+| `ACLBLAS_LAPACK_INFO_ARG_4` (-4) | 第 4 个 LAPACK 风格参数非法。 |
+| `ACLBLAS_LAPACK_INFO_ARG_5` (-5) | 第 5 个 LAPACK 风格参数非法。 |
+| `ACLBLAS_LAPACK_INFO_ARG_6` (-6) | 第 6 个 LAPACK 风格参数非法。 |
+| `ACLBLAS_LAPACK_INFO_ARG_7` (-7) | 第 7 个 LAPACK 风格参数非法。 |
+| `ACLBLAS_LAPACK_INFO_ARG_8` (-8) | 第 8 个 LAPACK 风格参数非法。 |
+
+## aclBLAS Helper Function Reference
+
+Helper 函数用于库初始化、资源管理、日志配置及 aclBLASLt 描述符管理，不直接执行 BLAS 计算。
+
+### aclBLAS Helper
+
+#### aclblasCreate()
+
+```cpp
+aclblasStatus_t aclblasCreate(aclblasHandle_t* handle);
 ```
 
----
+初始化 ops-blas 库并在堆上分配 handle，返回 opaque 库上下文。创建时会预分配 4 MiB 默认 workspace（设备内存，由库管理）。调用任何其他 aclBLAS 函数前必须先成功调用本函数。
 
-## 3. 主要枚举与属性
+调用前 `*handle` 必须为 `nullptr`；若 `*handle` 已非空，视为重复创建，返回错误以防止内存泄漏。aclBLAS 库上下文与当前 CANN 设备绑定；多设备场景下每个设备应创建独立 handle。
 
-> **头文件位置**：以下枚举均定义在 `ops-blas/include/cann_ops_blasLt.h` 或 `ops-blas/include/cann_ops_blas_common.h` 中，对应关系见每小节说明。
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 创建成功。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `*handle` 非空。 |
+| `ACLBLAS_STATUS_ALLOC_FAILED` | 内存分配失败。 |
 
-### 3.1 矩阵存储顺序 `aclblasLtOrder_t`（`cann_ops_blasLt.h`）
+#### aclblasDestroy()
 
-- `ACLBLASLT_ORDER_COL`：列主序
-- `ACLBLASLT_ORDER_ROW`：行主序
+```cpp
+aclblasStatus_t aclblasDestroy(aclblasHandle_t handle);
+```
 
-### 3.2 Epilogue 类型 `aclblasLtEpilogue_t`（`cann_ops_blasLt.h`）
+释放 handle 占用的库内资源。销毁前会同步关联 stream，释放库默认 workspace，并清除用户 workspace 引用（不释放用户自行分配的设备内存）。通常为针对该 handle 的最后一次库调用。
 
-- 包含默认、ReLU、GELU、Bias、Sigmoid、Swish、Clamp 及其 Aux/Bias 组合等多种后处理选项：
-  - 例如：`ACLBLASLT_EPILOGUE_DEFAULT`、`ACLBLASLT_EPILOGUE_RELU`、`ACLBLASLT_EPILOGUE_BIAS`、
-    `ACLBLASLT_EPILOGUE_RELU_BIAS`、`ACLBLASLT_EPILOGUE_GELU` 等。
-- 具体枚举值与行为说明可查阅 `cann_ops_blasLt.h` 中 `aclblasLtEpilogue` 的注释。
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 销毁成功。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
+| `ACLBLAS_STATUS_EXECUTION_FAILED` | stream 同步失败。 |
 
-### 3.3 MatrixLayout 属性 `aclblasLtMatrixLayoutAttribute_t`（`cann_ops_blasLt.h`）
+#### aclblasSetStream()
 
-常用属性包括（括号中为类型/含义）：
+```cpp
+aclblasStatus_t aclblasSetStream(aclblasHandle_t handle, aclrtStream stream);
+```
 
-- `ACLBLASLT_MATRIX_LAYOUT_BATCH_COUNT`（`int32_t`，批次数，默认 1）
-- `ACLBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET`（`int64_t`，跨 batch 偏移元素数）
-- `ACLBLASLT_MATRIX_LAYOUT_TYPE`（`uint32_t`，矩阵数据类型，对应 `aclDataType`）
-- `ACLBLASLT_MATRIX_LAYOUT_ORDER`（`int32_t`，存储顺序，对应 `aclblasLtOrder_t`）
-- `ACLBLASLT_MATRIX_LAYOUT_ROWS`（`uint64_t`，行数）
-- `ACLBLASLT_MATRIX_LAYOUT_COLS`（`uint64_t`，列数）
-- `ACLBLASLT_MATRIX_LAYOUT_LD`（`int64_t`，leading dimension）
+设置 handle 绑定的 AscendCL stream，后续通过该 handle 下发的算子均在此 stream 上执行。若未设置 stream，使用默认 stream。`stream` 为 `nullptr` 时选择默认 stream。
 
-### 3.4 MatmulDesc 属性 `aclblasLtMatmulDescAttribute_t`（`cann_ops_blasLt.h`）
+**注意：** 切换 stream 会自动恢复为库默认 workspace；若此前通过 `aclblasSetWorkspace` 设置了用户 workspace，切换 stream 后须重新设置。
 
-包括但不限于：
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
 
-- 转置控制：
-  - `ACLBLASLT_MATMUL_DESC_TRANSA` / `ACLBLASLT_MATMUL_DESC_TRANSB`（`int32_t`，对应 `aclblasOperation_t`）
-- 后处理与 Bias：
-  - `ACLBLASLT_MATMUL_DESC_EPILOGUE`（`uint32_t`，对应 `aclblasLtEpilogue_t`）
-  - `ACLBLASLT_MATMUL_DESC_BIAS_POINTER`、`ACLBLASLT_MATMUL_DESC_BIAS_DATA_TYPE`
-- Scale 相关：
-  - `ACLBLASLT_MATMUL_DESC_A_SCALE_POINTER` / `B/C/D_SCALE_POINTER`
-- Aux 相关：
-  - `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_POINTER` /
-    `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_LD` /
-    `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_BATCH_STRIDE` /
-    `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_DATA_TYPE`
-- Pointer 模式与扩展：
-  - `ACLBLASLT_MATMUL_DESC_POINTER_MODE`
-  - `ACLBLASLT_MATMUL_DESC_A_SCALE_MODE` / `B_SCALE_MODE`
-  - `ACLBLASLT_MATMUL_DESC_COMPUTE_INPUT_TYPE_A_EXT` / `B_EXT`
-  - 激活扩展参数：`ACLBLASLT_MATMUL_DESC_EPILOGUE_ACT_ARG0_EXT` / `ACT_ARG1_EXT`
+#### aclblasGetStream()
 
-### 3.5 Preference 属性 `aclblasLtMatmulPreferenceAttribute_t`（`cann_ops_blasLt.h`）
+```cpp
+aclblasStatus_t aclblasGetStream(aclblasHandle_t handle, aclrtStream* stream);
+```
 
-- `ACLBLASLT_MATMUL_PREF_SEARCH_MODE`（`uint32_t`，搜索模式）
-- `ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES`（`uint64_t`，最大可用 workspace 大小）
+获取 handle 当前绑定的 stream。
 
----
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 获取成功。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `stream` 为空指针。 |
 
-## 4. API 参考
+#### aclblasSetWorkspace()
 
-> **说明**：以下所有接口的返回类型为 `aclblasStatus_t` / `aclblasLtStatus`，返回码含义详见第 7 章。  
-> **头文件路径统一为**：`ops-blas/include/cann_ops_blasLt.h`。
+```cpp
+aclblasStatus_t aclblasSetWorkspace(aclblasHandle_t handle, void* workspace, size_t workspaceSize);
+```
 
-### 4.1 版本与属性查询
+将用户提供的设备内存借给 handle 作为算子临时存储区，库不取得所有权。支持 grow-only 更新：仅当新 `workspaceSize` 大于当前用户 workspace 大小时才更新设置。传入 `workspace = nullptr` 恢复库默认 workspace；此时 `workspaceSize` 可忽略。
 
-#### 4.1.1 `aclblasLtGetVersion`（`cann_ops_blasLt.h`）
+算子内部禁止额外 `aclrtMalloc` 分配 workspace；workspace 不足时部分算子可能返回 `ACLBLAS_STATUS_EXECUTION_FAILED`，用户可通过本接口扩容后重试。
 
-```c
+| 参数 | 说明 |
+|---|---|
+| `handle` | aclBLAS 句柄。 |
+| `workspace` | 用户分配的设备内存；`nullptr` 恢复默认 workspace。 |
+| `workspaceSize` | workspace 字节数；`workspace` 非空时必须大于 0。 |
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `workspace` 非空但 `workspaceSize` 为 0。 |
+
+#### aclblasGetWorkspace()
+
+```cpp
+aclblasStatus_t aclblasGetWorkspace(aclblasHandle_t handle, void** workspace, size_t* workspaceSize);
+```
+
+获取 handle 当前生效的 workspace 指针及大小（默认或用户 workspace，取决于当前激活项）。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 获取成功。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `workspace` 或 `workspaceSize` 为空指针。 |
+
+#### aclblasGetVersion()
+
+```cpp
+aclblasStatus_t aclblasGetVersion(aclblasHandle_t handle, int* version);
+```
+
+返回 ops-blas 库版本号，编码方式为 `MAJOR * 10000 + MINOR * 100 + PATCH`（例如 1.0.0 对应 10000）。`handle` 可为 `nullptr`，允许在不创建 handle 的情况下查询版本。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | 参数非法（如 `version` 为空）。 |
+
+#### aclblasLoggerConfigure()
+
+```cpp
+aclblasStatus_t aclblasLoggerConfigure(
+    const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel);
+```
+
+配置 ops-blas 库运行时日志行为。
+
+| 参数 | 说明 |
+|---|---|
+| `logFile` | 日志文件路径；为 `nullptr` 或空字符串时不写文件。 |
+| `logToStdOut` | 是否输出到标准输出。 |
+| `logToKdlls` | 是否输出到内核日志。 |
+| `logLevel` | 日志级别，见 [aclblasLogLevel_t](#aclblasloglevel_t)。 |
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 配置成功。 |
+
+#### aclblasSetLoggerCallback()
+
+```cpp
+aclblasStatus_t aclblasSetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+```
+
+安装用户自定义日志回调函数。回调类型为 `void (*)(char*)`。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
+
+#### aclblasGetLoggerCallback()
+
+```cpp
+aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+```
+
+获取当前已安装的用户自定义日志回调函数指针。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 获取成功。 |
+| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
+
+### aclBLASLt Helper
+
+#### aclblasLtGetVersion()
+
+```cpp
 aclblasStatus_t aclblasLtGetVersion(size_t* version);
 ```
 
-- **功能**
-  - 查询 aclblasLt 打包版本号。
-- **参数**
-  - `version`（输出）：版本值地址，不能为空。
-- **返回**
-  - `ACLBLAS_STATUS_SUCCESS`：成功。
-  - `ACLBLAS_STATUS_INVALID_VALUE`：`version == NULL` 等非法参数。
+返回 aclBLASLt 库打包版本号。
 
-#### 4.1.2 `aclblasLtGetProperty`（`cann_ops_blasLt.h`）
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `version` 为空指针。 |
 
-```c
+#### aclblasLtGetProperty()
+
+```cpp
 aclblasStatus_t aclblasLtGetProperty(aclblasLtPropertyType_t type, int* value);
 ```
 
-- **功能**
-  - 查询库属性（主版本、次版本、补丁号等）。
-- **参数**
-  - `type`（输入）：属性类型。
-  - `value`（输出）：属性值输出地址。
-- **返回**
-  - `ACLBLAS_STATUS_SUCCESS`：成功。
-  - `ACLBLAS_STATUS_INVALID_VALUE`：参数非法或属性类型不支持。
+查询 aclBLASLt 库属性。`type` 取值见 `aclblasLtPropertyType_t`：`ACLBLASLT_PROPERTY_MAJOR_VERSION`、`ACLBLASLT_PROPERTY_MINOR_VERSION`、`ACLBLASLT_PROPERTY_PATCH_LEVEL`。
 
----
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `type` 非法或 `value` 为空指针。 |
 
-### 4.2 库句柄管理
+#### aclblasLtCreate()
 
-#### 4.2.1 `aclblasLtCreate`（`cann_ops_blasLt.h`）
-
-```c
-aclblasStatus_t aclblasLtCreate(aclblasLtHandle_t* handle);
+```cpp
+aclblasStatus_t aclblasLtCreate(aclblasLtHandle_t* lightHandle);
 ```
 
-- **功能**
-  - 创建 aclblasLt 上下文句柄，初始化库并绑定当前设备。
-- **参数**
-  - `handle`（输出）：返回创建的句柄。
-- **返回**
-  - `ACLBLAS_STATUS_SUCCESS`
-  - `ACLBLAS_STATUS_INVALID_VALUE`：`handle == NULL`
-  - `ACLBLAS_STATUS_ALLOC_FAILED`：内部资源分配失败
+初始化 aclBLASLt 库并创建 opaque 库上下文 handle，分配必要的 host/device 轻量资源。调用任何其他 aclBLASLt 函数前必须先成功调用本函数。库上下文与当前 CANN 设备绑定；多设备场景下每个设备应创建独立 handle。
 
-#### 4.2.2 `aclblasLtDestroy`（`cann_ops_blasLt.h`）
+建议尽量减少 `aclblasLtCreate` / `aclblasLtDestroy` 调用次数，因 Destroy 会隐式触发设备同步。
 
-```c
-aclblasStatus_t aclblasLtDestroy(const aclblasLtHandle_t handle);
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 创建成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `lightHandle` 为空指针。 |
+| `ACLBLAS_STATUS_NOT_INITIALIZED` | CANN 运行环境未初始化。 |
+| `ACLBLAS_STATUS_ALLOC_FAILED` | 内存分配失败。 |
+
+#### aclblasLtDestroy()
+
+```cpp
+aclblasStatus_t aclblasLtDestroy(const aclblasLtHandle_t lightHandle);
 ```
 
-- **功能**
-  - 销毁句柄并释放资源，可触发设备同步。
-- **参数**
-  - `handle`（输入）：待销毁句柄。
-- **返回**
-  - `ACLBLAS_STATUS_SUCCESS`
-  - `ACLBLAS_STATUS_NOT_INITIALIZED`：库未初始化
-  - `ACLBLAS_STATUS_INVALID_VALUE`：`handle == NULL`
+释放 aclBLASLt handle 占用的硬件资源，通常为针对该 handle 的最后一次库调用。
 
----
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 销毁成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `lightHandle` 为空指针或无效句柄。 |
 
-### 4.3 MatrixLayout 描述符（`cann_ops_blasLt.h`）
+#### aclblasLtMatrixLayoutCreate()
 
-#### 4.3.1 `aclblasLtMatrixLayoutCreate`
-
-```c
+```cpp
 aclblasStatus_t aclblasLtMatrixLayoutCreate(aclblasLtMatrixLayout_t* matLayout,
                                             aclDataType type,
                                             uint64_t rows,
@@ -244,45 +365,46 @@ aclblasStatus_t aclblasLtMatrixLayoutCreate(aclblasLtMatrixLayout_t* matLayout,
                                             int64_t ld);
 ```
 
-- **功能**
-  - 创建矩阵布局描述符，配置基础形状与数据类型。
-- **参数说明**
-  - `type`：数据类型（`aclDataType`）。
-  - `rows/cols`：矩阵行列。
-  - `ld`：leading dimension。
-- **返回**
-  - `ACLBLAS_STATUS_SUCCESS`
-  - `ACLBLAS_STATUS_ALLOC_FAILED`
+创建矩阵 layout 描述符，用于描述矩阵的数据类型、维度及 leading dimension。列主序下 `ld` 为相邻列之间的元素跨度，须满足 `ld >= rows`。
 
-#### 4.3.2 `aclblasLtMatrixLayoutDestroy`
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 创建成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `matLayout` 为空指针或 `ld` 为负数。 |
+| `ACLBLAS_STATUS_ALLOC_FAILED` | 描述符内存分配失败。 |
 
-```c
+#### aclblasLtMatrixLayoutDestroy()
+
+```cpp
 aclblasStatus_t aclblasLtMatrixLayoutDestroy(const aclblasLtMatrixLayout_t matLayout);
 ```
 
-- **功能**
-  - 销毁矩阵布局描述符。
-- **返回**
-  - `ACLBLAS_STATUS_SUCCESS`
+销毁先前创建的矩阵 layout 描述符。
 
-#### 4.3.3 `aclblasLtMatrixLayoutSetAttribute`
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 销毁成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `matLayout` 为空指针。 |
 
-```c
+#### aclblasLtMatrixLayoutSetAttribute()
+
+```cpp
 aclblasStatus_t aclblasLtMatrixLayoutSetAttribute(aclblasLtMatrixLayout_t matLayout,
                                                   aclblasLtMatrixLayoutAttribute_t attr,
                                                   const void* buf,
                                                   size_t sizeInBytes);
 ```
 
-- **功能**
-  - 设置 MatrixLayout 属性值。
-- **返回**
-  - `ACLBLAS_STATUS_SUCCESS`
-  - `ACLBLAS_STATUS_INVALID_VALUE`：`buf == NULL` 或 `sizeInBytes` 不匹配
+设置矩阵 layout 描述符属性。常用属性包括 batch count、strided batch offset、数据类型、内存 order（`aclblasLtOrder_t`）、行/列数、leading dimension 等，详见 `aclblasLtMatrixLayoutAttribute_t`。
 
-#### 4.3.4 `aclblasLtMatrixLayoutGetAttribute`
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `buf` 为空，或 `sizeInBytes` 与属性所需大小不匹配。 |
 
-```c
+#### aclblasLtMatrixLayoutGetAttribute()
+
+```cpp
 aclblasStatus_t aclblasLtMatrixLayoutGetAttribute(const aclblasLtMatrixLayout_t matLayout,
                                                   aclblasLtMatrixLayoutAttribute_t attr,
                                                   void* buf,
@@ -290,51 +412,62 @@ aclblasStatus_t aclblasLtMatrixLayoutGetAttribute(const aclblasLtMatrixLayout_t 
                                                   size_t* sizeWritten);
 ```
 
-- **功能**
-  - 查询 MatrixLayout 属性值。
-- **典型失败返回**
-  - `ACLBLAS_STATUS_INVALID_VALUE`
-  - `ACLBLAS_STATUS_NOT_SUPPORTED`
+查询矩阵 layout 描述符属性。`sizeWritten` 可为 `nullptr`；若 `buf` 缓冲区过小，可通过 `sizeWritten` 获知所需大小。
 
----
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | 参数为空或缓冲区过小。 |
 
-### 4.4 MatmulDesc 描述符（`cann_ops_blasLt.h`）
+#### aclblasLtMatmulDescCreate()
 
-#### 4.4.1 `aclblasLtMatmulDescCreate`
-
-```c
+```cpp
 aclblasStatus_t aclblasLtMatmulDescCreate(aclblasLtMatmulDesc_t* matmulDesc,
                                           aclblasComputeType_t computeType,
                                           aclDataType scaleType);
 ```
 
-- **功能**
-  - 创建矩阵乘操作描述符，配置计算类型与 scale 类型。
-- **返回**
-  - `ACLBLAS_STATUS_SUCCESS`
-  - `ACLBLAS_STATUS_ALLOC_FAILED`
+创建矩阵乘法描述符，指定内部计算精度（`computeType`）与缩放因子数据类型（`scaleType`）。后续通过 SetAttribute 配置 transA/transB、epilogue、scale 指针等，供 `aclblasLtMatmul` 使用。
 
-#### 4.4.2 `aclblasLtMatmulDescDestroy`
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 创建成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `matmulDesc` 为空指针。 |
+| `ACLBLAS_STATUS_ALLOC_FAILED` | 描述符内存分配失败。 |
 
-```c
+#### aclblasLtMatmulDescDestroy()
+
+```cpp
 aclblasStatus_t aclblasLtMatmulDescDestroy(const aclblasLtMatmulDesc_t matmulDesc);
 ```
 
-#### 4.4.3 `aclblasLtMatmulDescSetAttribute`
+销毁先前创建的矩阵乘法描述符。
 
-```c
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 销毁成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `matmulDesc` 为空指针。 |
+
+#### aclblasLtMatmulDescSetAttribute()
+
+```cpp
 aclblasStatus_t aclblasLtMatmulDescSetAttribute(aclblasLtMatmulDesc_t matmulDesc,
                                                 aclblasLtMatmulDescAttribute_t attr,
                                                 const void* buf,
                                                 size_t sizeInBytes);
 ```
 
-- **典型失败返回**
-  - `ACLBLAS_STATUS_INVALID_VALUE`：`buf == NULL` 或大小不匹配
+设置矩阵乘法描述符属性，如 `ACLBLASLT_MATMUL_DESC_TRANSA`、`ACLBLASLT_MATMUL_DESC_TRANSB`、`ACLBLASLT_MATMUL_DESC_EPILOGUE`、各矩阵 scale 指针等，详见 `aclblasLtMatmulDescAttribute_t`。
 
-#### 4.4.4 `aclblasLtMatmulDescGetAttribute`（`cann_ops_blasLt.h`）
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `buf` 为空，或 `sizeInBytes` 与属性所需大小不匹配。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | `attr` 不是已识别的属性。 |
 
-```c
+#### aclblasLtMatmulDescGetAttribute()
+
+```cpp
 aclblasStatus_t aclblasLtMatmulDescGetAttribute(aclblasLtMatmulDesc_t desc,
                                                 aclblasLtMatmulDescAttribute_t attr,
                                                 void* buf,
@@ -342,37 +475,61 @@ aclblasStatus_t aclblasLtMatmulDescGetAttribute(aclblasLtMatmulDesc_t desc,
                                                 size_t* sizeWritten);
 ```
 
----
+查询矩阵乘法描述符属性。
 
-### 4.5 MatmulPreference 描述符（`cann_ops_blasLt.h`）
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `desc` 或 `buf` 为空，或缓冲区过小。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | `attr` 不是已识别的属性。 |
 
-#### 4.5.1 `aclblasLtMatmulPreferenceCreate`
+#### aclblasLtMatmulPreferenceCreate()
 
-```c
+```cpp
 aclblasStatus_t aclblasLtMatmulPreferenceCreate(aclblasLtMatmulPreference_t* pref);
 ```
 
-#### 4.5.2 `aclblasLtMatmulPreferenceDestroy`
+创建矩阵乘法算法搜索偏好描述符，用于 `aclblasLtMatmulAlgoGetHeuristic` 约束 workspace 上限等搜索条件。
 
-```c
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 创建成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `pref` 为空指针。 |
+| `ACLBLAS_STATUS_ALLOC_FAILED` | 描述符内存分配失败。 |
+
+#### aclblasLtMatmulPreferenceDestroy()
+
+```cpp
 aclblasStatus_t aclblasLtMatmulPreferenceDestroy(const aclblasLtMatmulPreference_t pref);
 ```
 
-#### 4.5.3 `aclblasLtMatmulPreferenceSetAttribute`
+销毁先前创建的算法搜索偏好描述符。
 
-```c
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 销毁成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `pref` 为空指针。 |
+
+#### aclblasLtMatmulPreferenceSetAttribute()
+
+```cpp
 aclblasStatus_t aclblasLtMatmulPreferenceSetAttribute(aclblasLtMatmulPreference_t pref,
                                                       aclblasLtMatmulPreferenceAttribute_t attr,
                                                       const void* buf,
                                                       size_t sizeInBytes);
 ```
 
-- **典型失败返回**
-  - `ACLBLAS_STATUS_INVALID_VALUE`
+设置算法搜索偏好属性，如 `ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES`（允许的最大 workspace 字节数，默认 0 表示不允许 workspace）。
 
-#### 4.5.4 `aclblasLtMatmulPreferenceGetAttribute`
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `buf` 为空，或 `sizeInBytes` 与属性所需大小不匹配。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | `attr` 不是已识别的属性。 |
 
-```c
+#### aclblasLtMatmulPreferenceGetAttribute()
+
+```cpp
 aclblasStatus_t aclblasLtMatmulPreferenceGetAttribute(aclblasLtMatmulPreference_t pref,
                                                       aclblasLtMatmulPreferenceAttribute_t attr,
                                                       void* buf,
@@ -380,14 +537,18 @@ aclblasStatus_t aclblasLtMatmulPreferenceGetAttribute(aclblasLtMatmulPreference_
                                                       size_t* sizeWritten);
 ```
 
----
+查询算法搜索偏好描述符属性。
 
-### 4.6 启发式算法查询（`cann_ops_blasLt.h`）
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `pref` 或 `buf` 为空，或缓冲区过小。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | `attr` 不是已识别的属性。 |
 
-#### 4.6.1 `aclblasLtMatmulAlgoGetHeuristic`
+#### aclblasLtMatmulAlgoGetHeuristic()
 
-```c
-aclblasStatus_t aclblasLtMatmulAlgoGetHeuristic(aclblasLtHandle_t handle,
+```cpp
+aclblasStatus_t aclblasLtMatmulAlgoGetHeuristic(aclblasLtHandle_t lightHandle,
                                                 aclblasLtMatmulDesc_t matmulDesc,
                                                 aclblasLtMatrixLayout_t Adesc,
                                                 aclblasLtMatrixLayout_t Bdesc,
@@ -399,137 +560,296 @@ aclblasStatus_t aclblasLtMatmulAlgoGetHeuristic(aclblasLtHandle_t handle,
                                                 int* returnAlgoCount);
 ```
 
-- **功能**
-  - 基于输入布局与偏好，返回若干候选算法及其估计性能。
-- **典型失败返回**
-  - `ACLBLAS_STATUS_NOT_SUPPORTED`：当前配置无可用启发式
-  - `ACLBLAS_STATUS_INVALID_VALUE`：`requestedAlgoCount <= 0` 等非法参数
+根据给定的 matmul 描述符与 A/B/C/D 矩阵 layout，检索可用的矩阵乘法算法启发式结果。结果按预估计算时间递增顺序写入 `heuristicResultsArray`；实际返回数量写入 `returnAlgoCount`。调用 `aclblasLtMatmul` 时可将 `heuristicResultsArray[i].algo` 传入 `algo` 参数。
 
----
+成功返回后应检查 `heuristicResultsArray[0 .. returnAlgoCount-1].state` 确认各候选算法是否可用。
 
-### 4.7 矩阵乘执行（`cann_ops_blasLt.h`）
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功（须进一步检查各结果项的 `state`）。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | 任一指针参数为空、`requestedAlgoCount` 小于等于 0，或计算类型与输入矩阵数据类型不兼容。 |
 
-#### 4.7.1 `aclblasLtMatmul`
+#### aclblasLtMatrixTransformDescCreate()
 
-```c
-aclblasStatus_t aclblasLtMatmul(aclblasLtHandle_t handle,
-                                aclblasLtMatmulDesc_t matmulDesc,
-                                const void* alpha,
-                                const void* A,
-                                aclblasLtMatrixLayout_t Adesc,
-                                const void* B,
-                                aclblasLtMatrixLayout_t Bdesc,
-                                const void* beta,
-                                const void* C,
-                                aclblasLtMatrixLayout_t Cdesc,
-                                void* D,
-                                aclblasLtMatrixLayout_t Ddesc,
-                                const aclblasLtMatmulAlgo_t* algo,
-                                void* workspace,
-                                size_t workspaceSizeInBytes,
-                                aclrtStream stream);
+```cpp
+aclblasStatus_t aclblasLtMatrixTransformDescCreate(aclblasLtMatrixTransformDesc_t* transformDesc,
+                                                   aclDataType scaleType);
 ```
 
-- **功能**
-  - 执行矩阵乘及线性组合，支持 `C == D` 原位更新。
-- **说明**
-  - `workspace` 建议满足 16B 对齐。
-  - 若 `algo == NULL`，内部可进行一次隐式启发式查询选择算法。
-- **典型失败返回**
-  - `ACLBLAS_STATUS_EXECUTION_FAILED`：设备执行失败
-  - `ACLBLAS_STATUS_ARCH_MISMATCH`：配置与设备架构不匹配
-  - `ACLBLAS_STATUS_NOT_SUPPORTED`：当前设备不支持该配置
-  - `ACLBLAS_STATUS_INVALID_VALUE`：参数为 NULL 或配置冲突
-  - `ACLBLAS_STATUS_NOT_INITIALIZED`：库未初始化
+创建矩阵变换描述符，指定计算（scale）精度类型，供 `aclblasLtMatrixTransform` 使用。
 
----
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 创建成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `transformDesc` 为空指针。 |
+| `ACLBLAS_STATUS_ALLOC_FAILED` | 描述符内存分配失败。 |
 
-## 5. 推荐调用流程
+#### aclblasLtMatrixTransformDescDestroy()
 
-1. 调用 `aclblasLtCreate` 创建句柄。
-2. 使用 `aclblasLtMatrixLayoutCreate` 创建 A/B/C/D 的 `MatrixLayout`，并通过 `SetAttribute` 配置属性。
-3. 使用 `aclblasLtMatmulDescCreate` 创建 `MatmulDesc`，设置转置、epilogue 等属性。
-4. 使用 `aclblasLtMatmulPreferenceCreate` 创建 `MatmulPreference`，设置最大 workspace 等偏好。
-5. 调用 `aclblasLtMatmulAlgoGetHeuristic` 获取可用算法。
-6. 调用 `aclblasLtMatmul` 执行计算。
-7. 依次销毁 Preference/Desc/Layout/Handle。
-
----
-
-## 6. 最小示例（伪代码）
-
-```c
-aclblasLtHandle_t handle;
-aclblasLtCreate(&handle);
-
-aclblasLtMatrixLayout_t Adesc, Bdesc, Cdesc, Ddesc;
-aclblasLtMatrixLayoutCreate(&Adesc, ACL_FLOAT16, m, k, lda);
-aclblasLtMatrixLayoutCreate(&Bdesc, ACL_FLOAT16, k, n, ldb);
-aclblasLtMatrixLayoutCreate(&Cdesc, ACL_FLOAT16, m, n, ldc);
-aclblasLtMatrixLayoutCreate(&Ddesc, ACL_FLOAT16, m, n, ldd);
-
-aclblasLtMatmulDesc_t opDesc;
-aclblasLtMatmulDescCreate(&opDesc, ACLBLAS_COMPUTE_32F, ACL_FLOAT);
-
-aclblasLtMatmulPreference_t pref;
-aclblasLtMatmulPreferenceCreate(&pref);
-size_t workspaceCap = 32 * 1024 * 1024;
-aclblasLtMatmulPreferenceSetAttribute(pref,
-  ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES,
-  &workspaceCap,
-  sizeof(workspaceCap));
-
-aclblasLtMatmulHeuristicResult_t heur[8];
-int algoCount = 0;
-aclblasLtMatmulAlgoGetHeuristic(handle, opDesc, Adesc, Bdesc, Cdesc, Ddesc,
-                                pref, 8, heur, &algoCount);
-
-aclblasLtMatmul(handle, opDesc,
-                &alpha, A, Adesc,
-                B, Bdesc,
-                &beta, C, Cdesc,
-                D, Ddesc,
-                &heur[0].algo,
-                workspace, workspaceBytes,
-                stream);
-
-aclblasLtMatmulPreferenceDestroy(pref);
-aclblasLtMatmulDescDestroy(opDesc);
-aclblasLtMatrixLayoutDestroy(Adesc);
-aclblasLtMatrixLayoutDestroy(Bdesc);
-aclblasLtMatrixLayoutDestroy(Cdesc);
-aclblasLtMatrixLayoutDestroy(Ddesc);
-aclblasLtDestroy(handle);
+```cpp
+aclblasStatus_t aclblasLtMatrixTransformDescDestroy(const aclblasLtMatrixTransformDesc_t transformDesc);
 ```
 
----
+销毁先前创建的矩阵变换描述符。
 
-## 7. 返回码对照表（含定义位置）
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 销毁成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `transformDesc` 为空指针。 |
 
-> **定义头文件**：`ops-blas/include/cann_ops_blas_common.h`（`aclblasStatus_t`，`typedef aclblasStatus_t aclblasLtStatus;`）
+#### aclblasLtMatrixTransformDescSetAttribute()
 
-| 枚举名                               | 数值 | 含义                                   | 典型触发场景示例                                                                 | 头文件路径                                      |
-|--------------------------------------|------|----------------------------------------|----------------------------------------------------------------------------------|-------------------------------------------------|
-| `ACLBLAS_STATUS_SUCCESS`            | 0    | 调用成功                               | 接口执行成功，无错误。                                                           | `ops-blas/include/cann_ops_blas_common.h`       |
-| `ACLBLAS_STATUS_NOT_INITIALIZED`    | 1    | 库未初始化                             | 使用未创建或已销毁的 `aclblasLtHandle_t` 调用接口；环境未正确初始化。           | 同上                                            |
-| `ACLBLAS_STATUS_ALLOC_FAILED`       | 2    | 资源/内存分配失败                      | 创建描述符、句柄或内部 buffer 时内存不足；设备侧资源分配失败。                   | 同上                                            |
-| `ACLBLAS_STATUS_INVALID_VALUE`      | 3    | 非法参数                               | 传入 NULL 指针、size 不匹配、不支持的属性类型/组合、无效 `requestedAlgoCount`。 | 同上                                            |
-| `ACLBLAS_STATUS_MAPPING_ERROR`      | 4    | 内存映射/访问失败                      | 访问非法设备内存地址；设备侧 DMA/映射失败。                                     | 同上                                            |
-| `ACLBLAS_STATUS_EXECUTION_FAILED`   | 5    | 程序执行失败                           | `aclblasLtMatmul` 在设备上执行过程中出现运行时错误。                             | 同上                                            |
-| `ACLBLAS_STATUS_INTERNAL_ERROR`     | 6    | 内部错误                               | 内部逻辑异常或未预期状态，通常为实现内部错误。                                  | 同上                                            |
-| `ACLBLAS_STATUS_NOT_SUPPORTED`      | 7    | 功能/配置不支持                        | 当前设备/实现不支持的矩阵尺寸、数据类型、Epilogue 组合或启发式不可用。          | 同上                                            |
-| `ACLBLAS_STATUS_ARCH_MISMATCH`      | 8    | 架构不匹配                             | 算法或配置与当前 NPU 架构不兼容。                                                | 同上                                            |
-| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR`  | 9    | 句柄为 nullptr                         | 调用接口时传入的 `aclblasLtHandle_t` 或 BLAS 句柄为 NULL。                      | 同上                                            |
-| `ACLBLAS_STATUS_INVALID_ENUM`       | 10   | 不支持的枚举值                         | 传入未定义的 `aclblasOperation_t`/`aclblasComputeType_t` 等枚举。                | 同上                                            |
-| `ACLBLAS_STATUS_UNKNOWN`            | 11   | 后端返回未知状态码                     | 后端库返回了当前版本未识别的错误码。                                            | 同上                                            |
+```cpp
+aclblasStatus_t aclblasLtMatrixTransformDescSetAttribute(aclblasLtMatrixTransformDesc_t transformDesc,
+                                                         aclblasLtMatrixTransformDescAttribute_t attr,
+                                                         const void* buf,
+                                                         size_t sizeInBytes);
+```
 
-> **说明**：  
-> Lt 接口（如 `aclblasLtMatmul`、`aclblasLtMatmulAlgoGetHeuristic` 等）返回的 `aclblasStatus_t` 与上述枚举一一对应，错误语义以此枚举为准。
+设置矩阵变换描述符属性，如 `TRANSA`/`TRANSB`（`aclblasOperation_t`）、pointer mode 等，详见 `aclblasLtMatrixTransformDescAttribute_t`。
 
----
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | 参数为空或 `sizeInBytes` 不匹配。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | `attr` 不是已识别的属性。 |
 
-## 8. 备注
+#### aclblasLtMatrixTransformDescGetAttribute()
 
-- 接口能力与属性支持范围以当前实现版本为准，详细限制请参考头文件内注释。
-- 若文档描述与头文件声明不一致，请**以头文件声明与实际实现行为为准**。
-- 开发调试时，建议结合返回码对照表和具体接口注释快速定位问题。
+```cpp
+aclblasStatus_t aclblasLtMatrixTransformDescGetAttribute(aclblasLtMatrixTransformDesc_t transformDesc,
+                                                         aclblasLtMatrixTransformDescAttribute_t attr,
+                                                         void* buf,
+                                                         size_t sizeInBytes,
+                                                         size_t* sizeWritten);
+```
+
+查询矩阵变换描述符属性。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | 参数为空或缓冲区过小。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | `attr` 不是已识别的属性。 |
+
+## aclBLAS Level 1 Function Reference
+
+Level 1 接口在向量之间进行运算，典型操作包括向量缩放（scal）、向量加法（axpy）、点积（dot）、范数（nrm2）、元素交换（swap）等。
+
+算子接口列表如下：
+
+| 接口名 | 说明 |
+|---|---|
+| [aclblasSasum](../../blas/asum/README.md) | 实数向量绝对值之和 |
+| [aclblasSaxpy](../../blas/axpy/README.md) | 单精度浮点 AXPY（y = αx + y） |
+| [aclblasCaxpy](../../blas/axpy/README.md) | 复数 AXPY |
+| [aclblasColwiseMul](../../blas/colwise_mul/README.md) | 复数向量与矩阵每行逐元素乘法 |
+| [aclblasComplexMatDot](../../blas/complex_mat_dot/README.md) | 复数矩阵逐元素点乘 |
+| [aclblasScopy](../../blas/copy/README.md) | 单精度浮点向量拷贝 |
+| [aclblasCcopy](../../blas/copy/README.md) | 复数向量拷贝 |
+| [aclblasSdot](../../blas/dot/README.md) | 实数向量点积 |
+| [aclblasCdotu](../../blas/dot/README.md) | 无共轭复数点积 |
+| [aclblasCdotc](../../blas/dot/README.md) | 共轭复数点积 |
+| [aclblasIamax](../../blas/iamax/README.md) | 查找向量中绝对值最大元素的索引 |
+| [aclblasSnrm2](../../blas/nrm2/README.md) | 实数向量欧几里得范数 |
+| [aclblasScnrm2](../../blas/nrm2/README.md) | 复数向量欧几里得范数 |
+| [aclblasCsrot](../../blas/rot/README.md) | 复数向量平面旋转 |
+| [aclblasSrotm](../../blas/rotm/README.md) | 实数向量 Modified Givens 旋转 |
+| [aclblasSrotmg](../../blas/rotmg/README.md) | 构造修正 Givens 旋转参数 |
+| [aclblasSscal](../../blas/scal/README.md) | 实数向量乘以标量 |
+| [aclblasCscal](../../blas/scal/README.md) | 复数向量乘以复数标量 |
+| [aclblasCsscal](../../blas/scal/README.md) | 复数向量乘以实数标量 |
+| [aclblasScalex](../../blas/scalex/README.md) | 混合精度向量标量乘 |
+| [aclblasSswap](../../blas/swap/README.md) | 实数向量交换 |
+| [aclblasCswap](../../blas/swap/README.md) | 复数向量交换 |
+
+## aclBLAS Level 2 Function Reference
+
+Level 2 接口在矩阵与向量之间进行运算，典型操作包括通用矩阵-向量乘法（gemv）、对称矩阵-向量乘法（symv）、秩-1 更新（ger）、三角矩阵-向量乘法（trmv）等。
+
+算子接口列表如下：
+
+| 接口名 | 说明 |
+|---|---|
+| [aclblasSgbmv](../../blas/gbmv/README.md) | 单精度浮点带状矩阵-向量乘法 |
+| [aclblasSgemv](../../blas/gemv/README.md) | 单精度浮点矩阵-向量乘法 |
+| [aclblasCgemv](../../blas/gemv/README.md) | 复数矩阵-向量乘法 |
+| [aclblasSgemvBatched](../../blas/gemv_batched/README.md) | 单精度批量矩阵-向量乘法 |
+| [aclblasHSHgemvBatched](../../blas/gemv_batched/README.md) | FP16 入/出批量矩阵-向量乘法 |
+| [aclblasHSSgemvBatched](../../blas/gemv_batched/README.md) | FP16 入/FP32 出批量矩阵-向量乘法 |
+| [aclblasTSTgemvBatched](../../blas/gemv_batched/README.md) | FP16 入/FP16 出批量矩阵-向量乘法（T 精度变体） |
+| [aclblasTSSgemvBatched](../../blas/gemv_batched/README.md) | FP16 入/FP32 出批量矩阵-向量乘法（T 精度变体） |
+| [aclblasCgemvBatched](../../blas/gemv_batched/README.md) | 复数批量矩阵-向量乘法 |
+| [aclblasSger](../../blas/ger/README.md) | 单精度浮点矩阵秩-1 更新 |
+| [aclblasCgerc](../../blas/gerc/README.md) | 复数矩阵共轭秩-1 更新 |
+| [aclblasSsbmv](../../blas/sbmv/README.md) | 单精度浮点对称带状矩阵-向量乘法 |
+| [aclblasSpmv](../../blas/spmv/README.md) | 单精度浮点对称压缩矩阵-向量乘法 |
+| [aclblasSspmv](../../blas/spmv/README.md) | 单精度浮点对称 packed 矩阵-向量乘法 |
+| [aclblasSspr](../../blas/spr/README.md) | 单精度对称 packed 秩-1 更新 |
+| [aclblasSspr2](../../blas/spr2/README.md) | 单精度对称矩阵 packed 格式秩-2 更新 |
+| [aclblasSsymv](../../blas/symv/README.md) | 单精度对称矩阵-向量乘法 |
+| [aclblasStbmv](../../blas/tbmv/README.md) | 单精度三角带状矩阵-向量乘法（标准接口） |
+| [aclblasStpmv](../../blas/tpmv/README.md) | 单精度三角压缩矩阵-向量乘法（标准接口） |
+| [aclblasStpsv](../../blas/tpsv/README.md) | 单精度三角 packed 矩阵求解 |
+| [aclblasStpttr](../../blas/tpttr/README.md) | 单精度压缩三角矩阵展开为常规矩阵 |
+| [aclblasStrmv](../../blas/trmv/README.md) | 实数三角矩阵-向量乘法 |
+| [aclblasCtrmv](../../blas/trmv/README.md) | 复数三角矩阵-向量乘法 |
+| [aclblasStrsv](../../blas/trsv/README.md) | 单精度三角矩阵求解 |
+| [aclblasStrttp](../../blas/trttp/README.md) | 单精度常规三角矩阵压缩为 packed 格式 |
+| [aclblasSsyr](../../blas/syr/README.md) | 单精度对称秩-1 更新 |
+| [aclblasSsyr2](../../blas/syr2/README.md) | 单精度对称秩-2 更新 |
+
+## aclBLAS Level 3 Function Reference
+
+Level 3 接口在矩阵之间进行运算，典型操作包括对称矩阵乘法（symm）、分组批量 GEMM、批量 LAPACK 分解与求解等。
+
+算子接口列表如下：
+
+| 接口名 | 说明 |
+|---|---|
+| [aclblasSgemmGroupedBatched](../../blas/gemm_grouped_batched/README.md) | 单精度浮点分组批量矩阵乘法 |
+| [aclblasSgelsBatched](../../blas/gels_batched/README.md) | 单精度批量最小二乘/最小范数求解 |
+| [aclblasSgeqrfBatched](../../blas/geqrf_batched/README.md) | 单精度批量 QR 分解 |
+| [aclblasSgetrfBatched](../../blas/getrf_batched/README.md) | 单精度批量 LU 分解（带部分主元选取） |
+| [aclblasSgetriBatched](../../blas/getri_batched/README.md) | 单精度批量矩阵求逆 |
+| [aclblasSgetrsBatched](../../blas/getrs_batched/README.md) | 单精度批量线性方程组求解 |
+| [aclblasSmatinvBatched](../../blas/matinv_batched/README.md) | 单精度批量矩阵求逆 |
+| [aclblasSsymm](../../blas/symm/README.md) | 单精度浮点对称矩阵乘法 |
+
+## BLAS-like Extension
+
+BLAS-like Extension 提供标准 BLAS Level 3 之外的扩展 GEMM 接口（以 **Ex** 为后缀），通过 `aclblasComputeType_t`、`aclblasGemmAlgo_t` 指定计算精度与算法。适用于混合精度、量化等场景。
+
+算子接口列表如下：
+
+| 接口名 | 说明 |
+|---|---|
+| [aclblasGemmEx](../../blas/gemm/README.md) | 通用矩阵乘法扩展接口，支持 A/B/C 独立数据类型 |
+| [aclblasGemmBatchedEx](../../blas/gemm_batched_ex/README.md) | 通用矩阵乘法批量扩展接口 |
+| [aclblasGemmGroupedBatchedEx](../../blas/gemm_grouped_batched_ex/README.md) | 通用矩阵乘法分组批量扩展接口 |
+
+## aclBLASLt Datatypes Reference
+
+### aclblasLtOrder_t
+
+指定矩阵的内存布局 order。用于 `ACLBLASLT_MATRIX_LAYOUT_ORDER` 属性。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLASLT_ORDER_COL` (0) | 列主序（column major）。 |
+| `ACLBLASLT_ORDER_ROW` (1) | 行主序（row major）。 |
+| `ACLBLASLT_ORDER_COL32` (2) | 32 列复合分块，分块内列主序。 |
+| `ACLBLASLT_ORDER_COL4_4R2_8C` (3) | 32 列 8 行复合量化分块。 |
+| `ACLBLASLT_ORDER_COL32_2R_4R4` (4) | 32 列 32 行复合量化分块。 |
+
+### aclblasLtPropertyType_t
+
+`aclblasLtGetProperty` 查询的库属性类型。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLASLT_PROPERTY_MAJOR_VERSION` (0) | 主版本号。 |
+| `ACLBLASLT_PROPERTY_MINOR_VERSION` (1) | 次版本号。 |
+| `ACLBLASLT_PROPERTY_PATCH_LEVEL` (2) | 补丁版本号。 |
+
+### aclblasLtEpilogue_t
+
+指定矩阵乘法结果的后处理（epilogue）融合操作，通过 `ACLBLASLT_MATMUL_DESC_EPILOGUE` 属性设置。取值为位掩码，可组合（例如 `BIAS | RELU` = 6）。`AUX` 类变体会将 GEMM 原始结果写入辅助缓冲区。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLASLT_EPILOGUE_DEFAULT` (1) | 无特殊后处理；必要时执行 scale / 量化。 |
+| `ACLBLASLT_EPILOGUE_RELU` (2) | 对结果逐点应用 ReLU（`x := max(x, 0)`）。 |
+| `ACLBLASLT_EPILOGUE_BIAS` (4) | 广播偏置向量并相加；偏置长度须等于 D 的行数且 stride 为 1。 |
+| `ACLBLASLT_EPILOGUE_RELU_BIAS` (6) | 先加偏置，再应用 ReLU。 |
+| `ACLBLASLT_EPILOGUE_GELU` (32) | 对结果逐点应用 GELU（`x := GELU(x)`）。 |
+| `ACLBLASLT_EPILOGUE_GELU_BIAS` (36) | 先加偏置，再应用 GELU。 |
+| `ACLBLASLT_EPILOGUE_RELU_AUX` (130) | 输出 GEMM 原始结果至辅助缓冲区，再应用 ReLU。 |
+| `ACLBLASLT_EPILOGUE_RELU_AUX_BIAS` (134) | 输出加偏置后的 GEMM 结果至辅助缓冲区，再应用 ReLU。 |
+| `ACLBLASLT_EPILOGUE_DRELU` (136) | 应用 ReLU 梯度变换，需额外辅助输入。 |
+| `ACLBLASLT_EPILOGUE_DRELU_BGRAD` (152) | 应用 ReLU 梯度变换并对偏置求梯度，需额外辅助输入。 |
+| `ACLBLASLT_EPILOGUE_GELU_AUX` (160) | 输出 GEMM 原始结果至辅助缓冲区，再应用 GELU。 |
+| `ACLBLASLT_EPILOGUE_GELU_AUX_BIAS` (164) | 输出加偏置后的 GEMM 结果至辅助缓冲区，再应用 GELU。 |
+| `ACLBLASLT_EPILOGUE_DGELU` (192) | 应用 GELU 梯度变换，需额外辅助输入。 |
+| `ACLBLASLT_EPILOGUE_DGELU_BGRAD` (208) | 应用 GELU 梯度变换并对偏置求梯度，需额外辅助输入。 |
+| `ACLBLASLT_EPILOGUE_BGRADA` (256) | 对 A 求偏置梯度并输出 GEMM 结果。 |
+| `ACLBLASLT_EPILOGUE_BGRADB` (512) | 对 B 求偏置梯度并输出 GEMM 结果。 |
+| `ACLBLASLT_EPILOGUE_SIGMOID` (1024) | 对结果逐点应用 sigmoid 激活函数。 |
+| `ACLBLASLT_EPILOGUE_SWISH_EXT` (65536) | 对结果逐点应用 Swish（`x := Swish(x, 1)`）。 |
+| `ACLBLASLT_EPILOGUE_SWISH_BIAS_EXT` (65540) | 先加偏置，再应用 Swish。 |
+| `ACLBLASLT_EPILOGUE_CLAMP_EXT` (131072) | 对结果逐点 clamp（`x := max(alpha, min(x, beta))`）。 |
+| `ACLBLASLT_EPILOGUE_CLAMP_BIAS_EXT` (131076) | 先加偏置，再 clamp。 |
+| `ACLBLASLT_EPILOGUE_CLAMP_AUX_EXT` (131200) | 输出 GEMM 原始结果至辅助缓冲区，再 clamp。 |
+| `ACLBLASLT_EPILOGUE_CLAMP_AUX_BIAS_EXT` (131204) | 输出加偏置后的 GEMM 结果至辅助缓冲区，再 clamp。 |
+
+### aclblasLtMatrixLayoutAttribute_t
+
+矩阵 layout 描述符的可配置属性，用于 `aclblasLtMatrixLayoutSetAttribute` / `aclblasLtMatrixLayoutGetAttribute`。
+
+| 取值 | 含义 | 数据类型 | 默认值 |
+|---|---|---|---|
+| `ACLBLASLT_MATRIX_LAYOUT_BATCH_COUNT` (0) | batch 数量。 | `int32_t` | 1 |
+| `ACLBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET` (1) | strided-batch 偏移（元素数）。 | `int64_t` | 0 |
+| `ACLBLASLT_MATRIX_LAYOUT_TYPE` (2) | 矩阵数据类型，见 `aclDataType`。 | `uint32_t` | 创建时指定 |
+| `ACLBLASLT_MATRIX_LAYOUT_ORDER` (3) | 内存 order，见 `aclblasLtOrder_t`。 | `int32_t` | `ACLBLASLT_ORDER_COL` |
+| `ACLBLASLT_MATRIX_LAYOUT_ROWS` (4) | 行数。 | `uint64_t` | 创建时指定 |
+| `ACLBLASLT_MATRIX_LAYOUT_COLS` (5) | 列数。 | `uint64_t` | 创建时指定 |
+| `ACLBLASLT_MATRIX_LAYOUT_LD` (6) | leading dimension（元素数）。 | `int64_t` | 创建时指定 |
+
+### aclblasLtMatmulDescAttribute_t
+
+矩阵乘法描述符的可配置属性，用于 `aclblasLtMatmulDescSetAttribute` / `aclblasLtMatmulDescGetAttribute`。
+
+| 取值 | 含义 | 数据类型 | 默认值 |
+|---|---|---|---|
+| `ACLBLASLT_MATMUL_DESC_TRANSA` (0) | 对矩阵 A 的变换操作，见 `aclblasOperation_t`。 | `int32_t` | `ACLBLAS_OP_N` |
+| `ACLBLASLT_MATMUL_DESC_TRANSB` (1) | 对矩阵 B 的变换操作，见 `aclblasOperation_t`。 | `int32_t` | `ACLBLAS_OP_N` |
+| `ACLBLASLT_MATMUL_DESC_EPILOGUE` (2) | epilogue 后处理，见 `aclblasLtEpilogue_t`。 | `uint32_t` | `ACLBLASLT_EPILOGUE_DEFAULT` |
+| `ACLBLASLT_MATMUL_DESC_BIAS_POINTER` (3) | 设备侧偏置 / 偏置梯度向量指针。 | `void*` / `const void*` | NULL |
+| `ACLBLASLT_MATMUL_DESC_BIAS_DATA_TYPE` (4) | 偏置向量数据类型，可同 D 矩阵或 scale 类型。 | `int32_t`（`aclDataType`） | — |
+| `ACLBLASLT_MATMUL_DESC_A_SCALE_POINTER` (5) | A 的 scale 因子设备指针；为 NULL 时视为 1。 | `void*` / `const void*` | NULL |
+| `ACLBLASLT_MATMUL_DESC_B_SCALE_POINTER` (6) | 同 A_SCALE_POINTER，作用于矩阵 B。 | `void*` / `const void*` | NULL |
+| `ACLBLASLT_MATMUL_DESC_C_SCALE_POINTER` (7) | 同 A_SCALE_POINTER，作用于矩阵 C。 | `void*` / `const void*` | NULL |
+| `ACLBLASLT_MATMUL_DESC_D_SCALE_POINTER` (8) | 同 A_SCALE_POINTER，作用于矩阵 D。 | `void*` / `const void*` | NULL |
+| `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_SCALE_POINTER` (9) | 同 A_SCALE_POINTER，作用于辅助缓冲区。 | `void*` / `const void*` | NULL |
+| `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_POINTER` (10) | epilogue 辅助缓冲区设备指针。 | `void*` / `const void*` | NULL |
+| `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_LD` (11) | 辅助缓冲区的 leading dimension。 | `int64_t` | — |
+| `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_BATCH_STRIDE` (12) | 辅助缓冲区的 batch stride。 | `int64_t` | — |
+| `ACLBLASLT_MATMUL_DESC_POINTER_MODE` (13) | alpha / beta 的传递方式（host / device / 向量）。 | `int32_t` | host |
+| `ACLBLASLT_MATMUL_DESC_AMAX_D_POINTER` (14) | 完成时写入 D 矩阵绝对值最大值的设备指针。 | `void*` / `const void*` | NULL |
+| `ACLBLASLT_MATMUL_DESC_EPILOGUE_AUX_DATA_TYPE` (22) | 辅助向量数据类型；默认使用 D 矩阵类型。 | `int32_t`（`aclDataType`） | D 矩阵类型 |
+| `ACLBLASLT_MATMUL_DESC_A_SCALE_MODE` (31) | A 的 scale 因子解释方式。 | `int32_t` | — |
+| `ACLBLASLT_MATMUL_DESC_B_SCALE_MODE` (32) | B 的 scale 因子解释方式。 | `int32_t` | — |
+| `ACLBLASLT_MATMUL_DESC_COMPUTE_INPUT_TYPE_A_EXT` (100) | 输入 A 参与计算的数据类型。 | `int32_t` | — |
+| `ACLBLASLT_MATMUL_DESC_COMPUTE_INPUT_TYPE_B_EXT` (101) | 输入 B 参与计算的数据类型。 | `int32_t` | — |
+| `ACLBLASLT_MATMUL_DESC_EPILOGUE_ACT_ARG0_EXT` (102) | 激活函数的第一个附加参数。 | `float` | — |
+| `ACLBLASLT_MATMUL_DESC_EPILOGUE_ACT_ARG1_EXT` (103) | 激活函数的第二个附加参数。 | `float` | — |
+
+### aclblasLtMatrixTransformDescAttribute_t
+
+矩阵变换描述符的可配置属性，用于 `aclblasLtMatrixTransformDescSetAttribute` / `aclblasLtMatrixTransformDescGetAttribute`。
+
+| 取值 | 含义 | 数据类型 | 默认值 |
+|---|---|---|---|
+| `ACLBLASLT_MATRIX_TRANSFORM_DESC_SCALE_TYPE` (0) | 计算（scale）数据类型，创建时指定。 | `int32_t`（`aclDataType`） | 创建时指定 |
+| `ACLBLASLT_MATRIX_TRANSFORM_DESC_POINTER_MODE` (1) | alpha / beta 的传递方式。 | `int32_t` | host |
+| `ACLBLASLT_MATRIX_TRANSFORM_DESC_TRANSA` (2) | 对矩阵 A 的变换操作，见 `aclblasOperation_t`。 | `int32_t` | `ACLBLAS_OP_N` |
+| `ACLBLASLT_MATRIX_TRANSFORM_DESC_TRANSB` (3) | 对矩阵 B 的变换操作，见 `aclblasOperation_t`。 | `int32_t` | `ACLBLAS_OP_N` |
+
+### aclblasLtMatmulPreferenceAttribute_t
+
+矩阵乘法算法搜索偏好的可配置属性，用于 `aclblasLtMatmulPreferenceSetAttribute` / `aclblasLtMatmulPreferenceGetAttribute`。
+
+| 取值 | 含义 | 数据类型 | 默认值 |
+|---|---|---|---|
+| `ACLBLASLT_MATMUL_PREF_SEARCH_MODE` (0) | 搜索模式：0=启发式，1=穷举，2=快速。 | `uint32_t` | 0 |
+| `ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES` (1) | 允许的最大 workspace 字节数。 | `uint64_t` | 0 |
+
+## aclBLASLt Function Reference
+
+aclBLASLt 提供描述符风格的矩阵乘法与矩阵变换能力，支持多种数据类型、内存布局（order）及 epilogue 融合，适用于大模型推理等场景。
+
+| 接口名 | 说明 |
+|---|---|
+| [aclblasLtMatmul](../../blasLt/README.md) | 矩阵乘法 D = α·op(A)·op(B) + β·C，支持 FP32/MXFP8/MXFP4 等 |
+| [aclblasLtMatrixTransform](../../blasLt/matrixtransform/README.md) | 矩阵转置、缩放、加法及 layout/dtype 转换 |

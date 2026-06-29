@@ -229,6 +229,8 @@ typedef enum aclblasLtMatmulPreferenceAttribute {
  *
  *  \retval ACLBLAS_STATUS_SUCCESS The allocation completed successfully.
  *  \retval ACLBLAS_STATUS_INVALID_VALUE \p lightHandle == NULL.
+ *  \retval ACLBLAS_STATUS_NOT_INITIALIZED The CANN runtime is not initialized.
+ *  \retval ACLBLAS_STATUS_ALLOC_FAILED If memory allocation fails.
  */
 aclblasStatus_t aclblasLtCreate(aclblasLtHandle_t* lightHandle);
 
@@ -248,9 +250,7 @@ aclblasStatus_t aclblasLtCreate(aclblasLtHandle_t* lightHandle);
  *
  *  \retval ACLBLAS_STATUS_SUCCESS The aclBLASLt context was successfully
  *  destroyed.
- *  \retval ACLBLAS_STATUS_NOT_INITIALIZED The aclBLASLt library was
- *  not initialized.
- *  \retval ACLBLAS_STATUS_INVALID_VALUE \p lightHandle == NULL.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE \p lightHandle == NULL or is not a valid aclBLASLt handle.
  */
 aclblasStatus_t aclblasLtDestroy(const aclblasLtHandle_t lightHandle);
 
@@ -278,6 +278,7 @@ aclblasStatus_t aclblasLtDestroy(const aclblasLtHandle_t lightHandle);
  *  rows).
  *
  *  \retval ACLBLAS_STATUS_SUCCESS If the descriptor was created successfully.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p matLayout is NULL or \p ld is negative.
  *  \retval ACLBLAS_STATUS_ALLOC_FAILED If the memory could not be allocated.
  */
 aclblasStatus_t aclblasLtMatrixLayoutCreate(aclblasLtMatrixLayout_t* matLayout,
@@ -297,6 +298,7 @@ aclblasStatus_t aclblasLtMatrixLayoutCreate(aclblasLtMatrixLayout_t* matLayout,
  *  be destroyed by this function. See \ref aclblasLtMatrixLayout_t.
  *
  *  \retval ACLBLAS_STATUS_SUCCESS If the operation was successful.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p matLayout is NULL.
  */
 aclblasStatus_t aclblasLtMatrixLayoutDestroy(const aclblasLtMatrixLayout_t matLayout);
 
@@ -355,6 +357,7 @@ aclblasStatus_t aclblasLtMatrixLayoutGetAttribute(const aclblasLtMatrixLayout_t 
  *  transform descriptor this function creates. See aclDataType.
  *
  *  \retval ACLBLAS_STATUS_SUCCESS If the descriptor was created successfully.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p matmulDesc is NULL.
  *  \retval ACLBLAS_STATUS_ALLOC_FAILED If the memory could not be allocated.
  */
 aclblasStatus_t aclblasLtMatmulDescCreate(aclblasLtMatmulDesc_t* matmulDesc,
@@ -373,6 +376,7 @@ aclblasStatus_t aclblasLtMatmulDescCreate(aclblasLtMatmulDesc_t* matmulDesc,
  *  to be destroyed by this function. See \ref aclblasLtMatmulDesc_t.
  *
  *  \retval ACLBLAS_STATUS_SUCCESS If operation was successful.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p matmulDesc is NULL.
  */
 aclblasStatus_t aclblasLtMatmulDescDestroy(const aclblasLtMatmulDesc_t matmulDesc);
 
@@ -397,6 +401,7 @@ aclblasStatus_t aclblasLtMatmulDescDestroy(const aclblasLtMatmulDesc_t matmulDes
  *  \retval ACLBLAS_STATUS_SUCCESS If the attribute was set successfully.
  *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p buf is NULL or \p sizeInBytes
  *  doesn't match the size of the internal storage for the selected attribute.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If \p attr is not a recognized attribute.
  */
 aclblasStatus_t aclblasLtMatmulDescSetAttribute(aclblasLtMatmulDesc_t matmulDesc,
                                                 aclblasLtMatmulDescAttribute_t attr,
@@ -426,6 +431,7 @@ aclblasStatus_t aclblasLtMatmulDescSetAttribute(aclblasLtMatmulDesc_t matmulDesc
  *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p desc or \p buf is NULL, or
  *  \p sizeInBytes is smaller than the required size for the selected
  *  attribute.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If \p attr is not a recognized attribute.
  */
 aclblasStatus_t aclblasLtMatmulDescGetAttribute(aclblasLtMatmulDesc_t desc,
                                                 aclblasLtMatmulDescAttribute_t attr,
@@ -447,6 +453,7 @@ aclblasStatus_t aclblasLtMatmulDescGetAttribute(aclblasLtMatmulDesc_t desc,
  *
  *  \retval ACLBLAS_STATUS_SUCCESS If the descriptor was created
  *  successfully.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p pref is NULL.
  *  \retval ACLBLAS_STATUS_ALLOC_FAILED If memory could not be
  *  allocated.
  */
@@ -465,6 +472,7 @@ aclblasStatus_t aclblasLtMatmulPreferenceCreate(aclblasLtMatmulPreference_t* pre
  *  aclblasLtMatmulPreference_t.
  *
  *  \retval ACLBLAS_STATUS_SUCCESS If operation was successful.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p pref is NULL.
  */
 aclblasStatus_t aclblasLtMatmulPreferenceDestroy(const aclblasLtMatmulPreference_t pref);
 
@@ -490,6 +498,7 @@ aclblasStatus_t aclblasLtMatmulPreferenceDestroy(const aclblasLtMatmulPreference
  *  \retval ACLBLAS_STATUS_SUCCESS If the attribute was set successfully.
  *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p buf is NULL or \p sizeInBytes
  *  doesn't match the size of the internal storage for the selected attribute.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If \p attr is not a recognized attribute.
  */
 aclblasStatus_t aclblasLtMatmulPreferenceSetAttribute(aclblasLtMatmulPreference_t pref,
                                                       aclblasLtMatmulPreferenceAttribute_t attr,
@@ -521,6 +530,7 @@ aclblasStatus_t aclblasLtMatmulPreferenceSetAttribute(aclblasLtMatmulPreference_
  *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p pref or \p buf is NULL, or
  *  \p sizeInBytes is smaller than the required size for the selected
  *  attribute.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If \p attr is not a recognized attribute.
  */
 aclblasStatus_t aclblasLtMatmulPreferenceGetAttribute(aclblasLtMatmulPreference_t pref,
                                                       aclblasLtMatmulPreferenceAttribute_t attr,
@@ -564,10 +574,9 @@ aclblasStatus_t aclblasLtMatmulPreferenceGetAttribute(aclblasLtMatmulPreference_
  *  \retval ACLBLAS_STATUS_SUCCESS If query was successful. Inspect
  *  ``heuristicResultsArray[0 to (returnAlgoCount -1)].state`` for the status of the
  *  results.
- *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If no heuristic function is
- *  available for current configuration.
- *  \retval ACLBLAS_STATUS_INVALID_VALUE If
- *  \p requestedAlgoCount is less than or equal to zero.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If any pointer argument is NULL,
+ *  \p requestedAlgoCount is less than or equal to zero, or the compute type is
+ *  incompatible with the input matrix data types.
  */
 aclblasStatus_t aclblasLtMatmulAlgoGetHeuristic(aclblasLtHandle_t lightHandle,
                                                 aclblasLtMatmulDesc_t matmulDesc,
@@ -624,15 +633,11 @@ aclblasStatus_t aclblasLtMatmulAlgoGetHeuristic(aclblasLtHandle_t lightHandle,
  *
  *  \retval ACLBLAS_STATUS_SUCCESS If the operation completed
  *  successfully.
- *  \retval ACLBLAS_STATUS_EXECUTION_FAILED If device reported an
- *  execution error.
- *  \retval ACLBLAS_STATUS_ARCH_MISMATCH If
- *  the configured operation cannot be run using the selected device.
+ *  \retval ACLBLAS_STATUS_NOT_INITIALIZED If the aclBLASLt handle has not been initialized.
  *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If the current implementation on the
  *  selected device doesn't support the configured operation.
  *  \retval ACLBLAS_STATUS_INVALID_VALUE If the parameters are unexpectedly NULL, in
  *  conflict, or in an impossible configuration.
- *  \retval ACLBLAS_STATUS_NOT_INITIALIZED If the aclBLASLt handle has not been initialized.
  */
 aclblasStatus_t aclblasLtMatmul(aclblasLtHandle_t lightHandle,
                                 aclblasLtMatmulDesc_t computeDesc,
@@ -678,6 +683,7 @@ aclblasStatus_t aclblasLtMatrixTransformDescDestroy(const aclblasLtMatrixTransfo
  *  \param sizeInBytes Size of the source buffer in bytes.
  *  \retval ACLBLAS_STATUS_SUCCESS On success.
  *  \retval ACLBLAS_STATUS_INVALID_VALUE If the parameters are NULL or the size mismatches.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If \p attr is not a recognized attribute.
  */
 aclblasStatus_t aclblasLtMatrixTransformDescSetAttribute(aclblasLtMatrixTransformDesc_t transformDesc,
                                                          aclblasLtMatrixTransformDescAttribute_t attr,
@@ -693,6 +699,7 @@ aclblasStatus_t aclblasLtMatrixTransformDescSetAttribute(aclblasLtMatrixTransfor
  *  \param sizeWritten On return, the number of bytes written (or required).
  *  \retval ACLBLAS_STATUS_SUCCESS On success.
  *  \retval ACLBLAS_STATUS_INVALID_VALUE If the parameters are NULL or the buffer is too small.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If \p attr is not a recognized attribute.
  */
 aclblasStatus_t aclblasLtMatrixTransformDescGetAttribute(aclblasLtMatrixTransformDesc_t transformDesc,
                                                          aclblasLtMatrixTransformDescAttribute_t attr,
@@ -717,6 +724,7 @@ aclblasStatus_t aclblasLtMatrixTransformDescGetAttribute(aclblasLtMatrixTransfor
  *  \retval ACLBLAS_STATUS_NOT_INITIALIZED If the handle is NULL.
  *  \retval ACLBLAS_STATUS_INVALID_VALUE If the parameters are NULL or in conflict.
  *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If the dtype / order / op combination is unsupported.
+ *  \retval ACLBLAS_STATUS_INTERNAL_ERROR If an internal launch or tiling error occurs.
  */
 aclblasStatus_t aclblasLtMatrixTransform(aclblasLtHandle_t lightHandle,
                                          aclblasLtMatrixTransformDesc_t transformDesc,
