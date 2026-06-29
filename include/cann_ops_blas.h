@@ -273,6 +273,13 @@ aclblasStatus_t aclblasScalex(
     aclDataType alphaType, void* x, aclDataType xType,
     int incx, aclDataType executionType);
 
+
+aclblasStatus_t aclblasRotEx(
+    aclblasHandle_t handle, int n,
+    void *x, aclDataType xType, int incx,
+    void *y, aclDataType yType, int incy,
+    const void *c, const void *s,
+    aclDataType csType, aclDataType executionType);
 aclblasStatus_t aclblasCsscal(
     aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx);
 
