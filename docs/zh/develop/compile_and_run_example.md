@@ -6,49 +6,34 @@
 
 ## 步骤一：编译并安装 ops-blas
 
-1. 下载源码。
+开始编译前，请先完成[环境部署](../install/quick_install.md)中的[下载源码](../install/quick_install.md#安装基础依赖)、[安装基础依赖](../install/quick_install.md#安装基础依赖)与[配置 CANN 环境变量](../install/quick_install.md#环境变量配置)。
 
-    ```bash
-    git clone https://gitcode.com/cann/ops-blas.git
-    cd ops-blas
-    ```
-
-2. 安装基础依赖。
-
-    ```bash
-    bash install_deps.sh
-    pip3 install -r requirements.txt
-    ```
-
-3. 配置 CANN 环境变量。
-
-    ```bash
-    # 默认路径安装，以 root 用户为例
-    source /usr/local/Ascend/cann/set_env.sh
-    # 若为指定路径安装，请替换为：
-    # source ${install_path}/cann/set_env.sh
-    ```
-
-4. 编译生成 run 安装包。
+1. 编译生成 run 安装包。
 
     以 Ascend 950 为例，在 ops-blas 源码根目录下执行：
 
     ```bash
     bash build.sh --pkg --soc=ascend950
     ```
+    - `--soc` 参数须与运行设备的芯片型号一致，支持的 SOC 值：`ascend910b`、`ascend910_93`、`ascend950`。
 
-    编译成功后，安装包生成在 `build_out/` 目录下，文件名类似 `cann-950-ops-blas_<version>_linux-<arch>.run`。
+    编译成功后，安装包生成在 `build_out/` 目录下，文件名类似 `cann-950-ops-blas_<cann_version>_linux-<arch>.run`。
 
-    > **说明**：`--soc` 参数必须与运行设备的芯片型号一致，否则运行时会报错。支持的 SOC 值：`ascend910b`、`ascend910_93`、`ascend950`。
+    - `${cann_version}`：表示 toolkit 安装包版本号，需满足上文的最低版本要求。
+    - `${arch}`：表示 CPU 架构，如 `aarch64`、`x86_64`。
+    
 
-5. 安装 run 包。
+<a id="安装-run-包"></a>
+
+2. 安装 run 包。
 
     ```bash
     # 赋予可执行权限
     chmod +x build_out/cann-950-ops-blas_*.run
     # 安装（root 用户默认安装到 /usr/local/Ascend）
-    ./build_out/cann-950-ops-blas_*.run --install --quiet
+    ./build_out/cann-950-ops-blas_*.run --install --quiet --install-path=${install_path}
     ```
+    - `${install_path}`：表示指定安装路径，默认安装在 `/usr/local/Ascend` 目录。
 
     安装后，ops-blas 的头文件和库文件会安装到 CANN 安装目录下：
 
@@ -65,7 +50,7 @@
 
 ## 步骤二：准备示例代码
 
-本章以开发和运行环境合设场景为例，即代码开发和代码运行在同一台机器上。这里以 **Sscal 算子**为例，调用其他算子请根据实际情况自行修改 API 调用脚本（\*.cpp）和编译脚本（CMakeLists.txt）。
+本章以开发和运行环境合设场景为例，即代码开发和代码运行在同一台机器上。这里以 **aclblasSscal** 接口为例，调用其他计算接口请根据实际情况自行修改 API 调用脚本（\*.cpp）和编译脚本（CMakeLists.txt）。
 
 1. 新建项目目录。
 
@@ -83,115 +68,130 @@
     将以下代码粘贴到文件中并保存：
 
     ```cpp
-    #include <iostream>
+    #include <cstdio>
+    #include <memory>
     #include <vector>
-    #include <cmath>
-
+    
     #include "acl/acl.h"
     #include "cann_ops_blas.h"
-
+    
     #define CHECK_RET(cond, return_expr) \
         do {                             \
             if (!(cond)) {               \
                 return_expr;             \
             }                            \
         } while (0)
-
-    #define CHECK_FREE_RET(cond, return_expr) \
-        do {                                  \
-            if (!(cond)) {                    \
-                Finalize(deviceId, stream);   \
-                return_expr;                  \
-            }                                 \
-        } while (0)
-
+    
     #define LOG_PRINT(message, ...)         \
         do {                                \
             printf(message, ##__VA_ARGS__); \
         } while (0)
-
-    int Init(int32_t deviceId, aclrtStream *stream)
+    
+    class AclContext {
+    public:
+        explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+    
+        ~AclContext()
+        {
+            if (stream_ != nullptr) {
+                aclrtDestroyStream(stream_);
+                stream_ = nullptr;
+            }
+            if (deviceSet_) {
+                aclrtResetDevice(deviceId_);
+                deviceSet_ = false;
+            }
+            if (aclInited_) {
+                aclFinalize();
+                aclInited_ = false;
+            }
+        }
+    
+        int Init()
+        {
+            auto ret = aclInit(nullptr);
+            CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+            aclInited_ = true;
+    
+            ret = aclrtSetDevice(deviceId_);
+            CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+            deviceSet_ = true;
+    
+            ret = aclrtCreateStream(&stream_);
+            CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+            return ACL_SUCCESS;
+        }
+    
+        aclrtStream Stream() const { return stream_; }
+    
+    private:
+        int32_t deviceId_;
+        aclrtStream stream_ = nullptr;
+        bool aclInited_ = false;
+        bool deviceSet_ = false;
+    };
+    
+    int aclblasSscalTest(AclContext& ctx)
     {
-        auto ret = aclInit(nullptr);
-        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
-        ret = aclrtSetDevice(deviceId);
-        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
-        ret = aclrtCreateStream(stream);
-        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
-        return 0;
-    }
-
-    void Finalize(int32_t deviceId, aclrtStream stream)
-    {
-        aclrtDestroyStream(stream);
-        aclrtResetDevice(deviceId);
-        aclFinalize();
-    }
-
-    int aclblasSscalTest(int32_t deviceId, aclrtStream &stream)
-    {
-        auto ret = Init(deviceId, &stream);
-        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("Init acl failed. ERROR: %d\n", ret); return ret);
-
+        aclrtStream stream = ctx.Stream();
+    
         // 1. 创建 ops-blas 句柄
-        aclblasHandle_t handle = nullptr;
-        auto blasRet = aclblasCreate(&handle);
-        CHECK_FREE_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
-                       LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet); return blasRet);
-        blasRet = aclblasSetStream(handle, stream);
-        CHECK_FREE_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
-                       LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet); return blasRet);
-
+        aclblasHandle_t rawHandle = nullptr;
+        auto blasRet = aclblasCreate(&rawHandle);
+        CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+                  return blasRet);
+        std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+    
+        blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+        CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+                  return blasRet);
+    
         // 2. 准备 Host 数据
         int n = 5;
         int incx = 1;
         float alpha = 2.0f;
         std::vector<float> xHostData = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
         size_t xBytes = n * sizeof(float);
-
+    
         // 3. 申请 Device 内存并拷贝数据
-        void *xDeviceAddr = nullptr;
-        auto aclRet = aclrtMalloc(&xDeviceAddr, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-        CHECK_FREE_RET(aclRet == ACL_SUCCESS,
-                       LOG_PRINT("aclrtMalloc for x failed. ERROR: %d\n", aclRet); return aclRet);
-        aclRet = aclrtMemcpy(xDeviceAddr, xBytes, xHostData.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
-        CHECK_FREE_RET(aclRet == ACL_SUCCESS,
-                       LOG_PRINT("aclrtMemcpy for x failed. ERROR: %d\n", aclRet); return aclRet);
-
+        void* rawMem = nullptr;
+        auto aclRet = aclrtMalloc(&rawMem, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for x failed. ERROR: %d\n", aclRet); return aclRet);
+        std::unique_ptr<void, aclError (*)(void*)> xDevicePtr(rawMem, aclrtFree);
+    
+        aclRet = aclrtMemcpy(xDevicePtr.get(), xBytes, xHostData.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for x failed. ERROR: %d\n", aclRet); return aclRet);
+    
         // 4. 调用 aclblasSscal（alpha 为 Host 指针）
-        blasRet = aclblasSscal(handle, n, &alpha, static_cast<float*>(xDeviceAddr), incx);
-        CHECK_FREE_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
-                       LOG_PRINT("aclblasSscal failed. ERROR: %d\n", blasRet); return blasRet);
-
+        blasRet = aclblasSscal(
+            static_cast<aclblasHandle_t>(handlePtr.get()), n, &alpha, static_cast<float*>(xDevicePtr.get()), incx);
+        CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSscal failed. ERROR: %d\n", blasRet);
+                  return blasRet);
+    
         // 5. 同步等待任务执行结束
         aclRet = aclrtSynchronizeStream(stream);
-        CHECK_FREE_RET(aclRet == ACL_SUCCESS,
-                       LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
-
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+    
         // 6. 将结果从 Device 拷贝回 Host 并打印
         std::vector<float> resultData(n, 0);
-        aclRet = aclrtMemcpy(resultData.data(), xBytes, xDeviceAddr, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
-        CHECK_FREE_RET(aclRet == ACL_SUCCESS,
-                       LOG_PRINT("copy result from device to host failed. ERROR: %d\n", aclRet); return aclRet);
+        aclRet = aclrtMemcpy(resultData.data(), xBytes, xDevicePtr.get(), xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("copy result from device to host failed. ERROR: %d\n", aclRet);
+                  return aclRet);
         for (int i = 0; i < n; i++) {
             LOG_PRINT("result[%d] is: %f\n", i, resultData[i]);
         }
-
-        // 7. 释放资源
-        aclrtFree(xDeviceAddr);
-        aclblasDestroy(handle);
-
+    
         return ACL_SUCCESS;
     }
-
+    
     int main()
     {
-        int32_t deviceId = 0;
-        aclrtStream stream;
-        auto ret = aclblasSscalTest(deviceId, stream);
-        CHECK_FREE_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSscalTest failed. ERROR: %d\n", ret); return ret);
-
-        Finalize(deviceId, stream);
+        AclContext ctx(0);
+        auto ret = ctx.Init();
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+    
+        ret = aclblasSscalTest(ctx);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSscalTest failed. ERROR: %d\n", ret); return ret);
         return 0;
     }
     ```
@@ -262,7 +262,7 @@
     > **说明**：
     >
     > - `source set_env.sh` 会自动设置 `ASCEND_HOME_PATH` 环境变量，CMakeLists.txt 通过该变量定位 CANN 头文件和库文件。
-    > - 若 ops-blas 的 run 包已安装到 CANN 目录下（步骤一第 5 步），则 `OPS_BLAS_PATH` 默认与 `ASCEND_HOME_PATH` 相同，无需额外设置。
+    > - 若 ops-blas 的 run 包已安装到 CANN 目录下（参见 [安装 run 包](#安装-run-包)），则 `OPS_BLAS_PATH` 默认与 `ASCEND_HOME_PATH` 相同，无需额外设置。
     > - 如需使用 BLASLt 接口（如 `aclblasLtMatmul`），还需在 CMakeLists.txt 中额外链接 `libops_blasLt.so`。
 
 ## 步骤三：编译与运行
@@ -287,7 +287,7 @@
     ./opapi_test
     ```
 
-    以 Sscal 算子（n=5, alpha=2.0, x=[1,2,3,4,5]）为例，预期输出如下：
+    以 **aclblasSscal** 接口（n=5, alpha=2.0, x=[1,2,3,4,5]）为例，预期输出如下：
 
     ```bash
     result[0] is: 2.000000
@@ -296,7 +296,7 @@
     result[3] is: 8.000000
     result[4] is: 10.000000
     ```
-
+    
 3. 若执行结果报错，未出现预期结果，可以使用 `aclGetRecentErrMsg` 接口获取报错具体信息。示例如下：
 
     ```cpp
@@ -306,3 +306,4 @@
         return ret;
     }
     ```
+
