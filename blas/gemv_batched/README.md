@@ -60,6 +60,75 @@ aclblasStatus_t aclblasSgemvBatched(aclblasHandle_t handle, aclblasOperation_t t
 - incx != 0, incy != 0
 - batchCount >= 0
 - trans 必须为 ACLBLAS_OP_N 或 ACLBLAS_OP_T
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int m = 2;
+    constexpr int n = 2;
+    constexpr int lda = m;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
+    constexpr int batchCount = 2;
+    constexpr size_t aSize = batchCount * lda * n * sizeof(float);
+    constexpr size_t xSize = batchCount * n * sizeof(float);
+    constexpr size_t ySize = batchCount * m * sizeof(float);
+
+    float alpha = 1.0f, beta = 0.0f;
+    float hA[aSize / sizeof(float)] = {1.0f, 3.0f, 2.0f, 4.0f,
+                                       5.0f, 7.0f, 6.0f, 8.0f};
+    float hX[xSize / sizeof(float)] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float hY[ySize / sizeof(float)] = {0.0f};
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    float *dA = nullptr, *dX = nullptr, *dY = nullptr;
+    aclrtMalloc(reinterpret_cast<void**>(&dA), aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dX), xSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dY), ySize, ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dA, aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dX, xSize, hX, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dY, ySize, hY, ySize, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasSgemvBatched(
+        handle, ACLBLAS_OP_N, m, n, &alpha,
+        dA, lda, dX, incx, &beta, dY, incy, batchCount);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hY, ySize, dY, ySize, ACL_MEMCPY_DEVICE_TO_HOST);
+    for (int b = 0; b < batchCount; b++)
+        for (int i = 0; i < m; i++)
+            printf("batch %d, hY[%d] = %f\n", b, i, hY[b * m + i]);
+
+    aclrtFree(dA);
+    aclrtFree(dX);
+    aclrtFree(dY);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```
+
 ### aclblasHSHgemvBatched
 
 #### 产品支持情况
@@ -99,6 +168,74 @@ aclblasStatus_t aclblasHSHgemvBatched(aclblasHandle_t handle, aclblasOperation_t
 - incx != 0, incy != 0
 - batchCount >= 0
 - trans 必须为 ACLBLAS_OP_N 或 ACLBLAS_OP_T
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int m = 2;
+    constexpr int n = 2;
+    constexpr int lda = m;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
+    constexpr int batchCount = 2;
+    constexpr size_t aSize = batchCount * lda * n * sizeof(uint16_t);
+    constexpr size_t xSize = batchCount * n * sizeof(uint16_t);
+    constexpr size_t ySize = batchCount * m * sizeof(uint16_t);
+
+    float alpha = 1.0f, beta = 0.0f;
+    uint16_t hA[aSize / sizeof(uint16_t)] = {
+        0x3C00, 0x4000, 0x3E00, 0x4200,
+        0x4500, 0x4700, 0x4600, 0x4800};
+    uint16_t hX[xSize / sizeof(uint16_t)] = {0x3C00, 0x3C00, 0x3C00, 0x3C00};
+    uint16_t hY[ySize / sizeof(uint16_t)] = {0};
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    uint16_t *dA = nullptr, *dX = nullptr, *dY = nullptr;
+    aclrtMalloc(reinterpret_cast<void**>(&dA), aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dX), xSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dY), ySize, ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dA, aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dX, xSize, hX, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dY, ySize, hY, ySize, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasHSHgemvBatched(
+        handle, ACLBLAS_OP_N, m, n, &alpha,
+        dA, lda, dX, incx, &beta, dY, incy, batchCount);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hY, ySize, dY, ySize, ACL_MEMCPY_DEVICE_TO_HOST);
+    printf("HSHgemvBatched done\n");
+
+    aclrtFree(dA);
+    aclrtFree(dX);
+    aclrtFree(dY);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```
+
 ### aclblasHSSgemvBatched
 
 #### 产品支持情况
@@ -138,6 +275,75 @@ aclblasStatus_t aclblasHSSgemvBatched(aclblasHandle_t handle, aclblasOperation_t
 - incx != 0, incy != 0
 - batchCount >= 0
 - trans 必须为 ACLBLAS_OP_N 或 ACLBLAS_OP_T
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int m = 2;
+    constexpr int n = 2;
+    constexpr int lda = m;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
+    constexpr int batchCount = 2;
+    constexpr size_t aSize = batchCount * lda * n * sizeof(uint16_t);
+    constexpr size_t xSize = batchCount * n * sizeof(uint16_t);
+    constexpr size_t ySize = batchCount * m * sizeof(float);
+
+    float alpha = 1.0f, beta = 0.0f;
+    uint16_t hA[aSize / sizeof(uint16_t)] = {
+        0x3C00, 0x4000, 0x3E00, 0x4200,
+        0x4500, 0x4700, 0x4600, 0x4800};
+    uint16_t hX[xSize / sizeof(uint16_t)] = {0x3C00, 0x3C00, 0x3C00, 0x3C00};
+    float hY[ySize / sizeof(float)] = {0.0f};
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    uint16_t *dA = nullptr, *dX = nullptr;
+    float *dY = nullptr;
+    aclrtMalloc(reinterpret_cast<void**>(&dA), aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dX), xSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dY), ySize, ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dA, aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dX, xSize, hX, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dY, ySize, hY, ySize, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasHSSgemvBatched(
+        handle, ACLBLAS_OP_N, m, n, &alpha,
+        dA, lda, dX, incx, &beta, dY, incy, batchCount);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hY, ySize, dY, ySize, ACL_MEMCPY_DEVICE_TO_HOST);
+    printf("HSSgemvBatched done\n");
+
+    aclrtFree(dA);
+    aclrtFree(dX);
+    aclrtFree(dY);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```
+
 ### aclblasCgemvBatched
 
 #### 产品支持情况
@@ -174,3 +380,78 @@ aclblasStatus_t aclblasCgemvBatched(aclblasHandle_t handle, aclblasOperation tra
 
 - batchCount >= 0, m >= 0, n >= 0
 - trans 必须为 ACLBLAS_OP_N、ACLBLAS_OP_T 或 ACLBLAS_OP_C
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include <complex>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int64_t m = 2;
+    constexpr int64_t n = 2;
+    constexpr int64_t lda = m;
+    constexpr int64_t incx = 1;
+    constexpr int64_t incy = 1;
+    constexpr int64_t batchCount = 2;
+    constexpr size_t aElem = (size_t)batchCount * lda * n;
+    constexpr size_t xElem = (size_t)batchCount * n;
+    constexpr size_t yElem = (size_t)batchCount * m;
+    constexpr size_t aSize = aElem * sizeof(std::complex<float>);
+    constexpr size_t xSize = xElem * sizeof(std::complex<float>);
+    constexpr size_t ySize = yElem * sizeof(std::complex<float>);
+
+    std::complex<float> alpha = {1.0f, 0.0f};
+    std::complex<float> beta = {0.0f, 0.0f};
+    std::complex<float> hA[aElem] = {
+        {1.0f, 0.0f}, {0.0f, 1.0f}, {2.0f, 0.0f}, {0.0f, 2.0f},
+        {3.0f, 0.0f}, {0.0f, 3.0f}, {4.0f, 0.0f}, {0.0f, 4.0f}};
+    std::complex<float> hX[xElem] = {
+        {1.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 0.0f}};
+    std::complex<float> hY[yElem] = {};
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    uint8_t *dA = nullptr, *dX = nullptr, *dY = nullptr;
+    aclrtMalloc(reinterpret_cast<void**>(&dA), aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dX), xSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dY), ySize, ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dA, aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dX, xSize, hX, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dY, ySize, hY, ySize, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasCgemvBatched(
+        handle, ACLBLAS_OP_N, m, n, alpha,
+        dA, lda, dX, incx, beta, dY, incy, batchCount);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hY, ySize, dY, ySize, ACL_MEMCPY_DEVICE_TO_HOST);
+    for (int b = 0; b < batchCount; b++)
+        for (int i = 0; i < m; i++)
+            printf("batch %d, hY[%d] = (%f, %f)\n", b, i, hY[b * m + i].real(), hY[b * m + i].imag());
+
+    aclrtFree(dA);
+    aclrtFree(dX);
+    aclrtFree(dY);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```

@@ -55,3 +55,73 @@ aclblasStatus_t aclblasSgbmv(aclblasHandle_t handle, aclblasOperation_t trans, i
 
 - lda >= kl + ku + 1
 - incx != 0, incy != 0
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int m = 3;
+    constexpr int n = 3;
+    constexpr int kl = 1;
+    constexpr int ku = 1;
+    constexpr int lda = kl + ku + 1;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
+    constexpr size_t xSize = n * sizeof(float);
+    constexpr size_t ySize = m * sizeof(float);
+    constexpr size_t aSize = lda * n * sizeof(float);
+
+    float alpha = 1.0f;
+    float beta = 0.0f;
+    float hX[n] = {1.0f, 1.0f, 1.0f};
+    float hY[m] = {0.0f};
+    float hA[lda * n] = {0.0f, 1.0f, 3.0f,
+                         2.0f, 1.0f, 3.0f,
+                         2.0f, 1.0f, 0.0f};
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    float *dA = nullptr, *dX = nullptr, *dY = nullptr;
+    aclrtMalloc(reinterpret_cast<void**>(&dA), aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dX), xSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dY), ySize, ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dA, aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dX, xSize, hX, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dY, ySize, hY, ySize, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasSgbmv(
+        handle, ACLBLAS_OP_N, m, n, kl, ku, &alpha,
+        dA, lda, dX, incx, &beta, dY, incy);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hY, ySize, dY, ySize, ACL_MEMCPY_DEVICE_TO_HOST);
+    for (int i = 0; i < m; i++)
+        printf("hY[%d] = %f\n", i, hY[i]);
+
+    aclrtFree(dA);
+    aclrtFree(dX);
+    aclrtFree(dY);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```

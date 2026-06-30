@@ -29,7 +29,7 @@ op(A) * x = b
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasStrsv(aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, int64_t n, const float *A, int64_t lda, float *x, int64_t incx)
+aclblasStatus_t aclblasStrsv(aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, const float *A, int lda, float *x, int incx)
 ```
 
 #### 参数说明
@@ -37,14 +37,14 @@ aclblasStatus_t aclblasStrsv(aclblasHandle_t handle, aclblasFillMode uplo, aclbl
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
-| uplo | 输入 | aclblasFillMode | ACLBLAS_UPPER(121) — A 为上三角矩阵；ACLBLAS_LOWER(122) — A 为下三角矩阵，Host 内存 |
-| trans | 输入 | aclblasOperation | ACLBLAS_OP_N(111) — op(A) = A；ACLBLAS_OP_T(112) — op(A) = A^T；ACLBLAS_OP_C(113) — op(A) = A^H（FP32 下与 T 等价），Host 内存 |
-| diag | 输入 | aclblasDiagType | ACLBLAS_NON_UNIT(131) — 对角元从 A 读取；ACLBLAS_UNIT(132) — 对角元固定为 1，Host 内存 |
-| n | 输入 | int64_t | 矩阵阶数，n >= 0。n == 0 时为空操作直接返回成功，Host 内存 |
+| uplo | 输入 | aclblasFillMode_t | ACLBLAS_UPPER(121) — A 为上三角矩阵；ACLBLAS_LOWER(122) — A 为下三角矩阵，Host 内存 |
+| trans | 输入 | aclblasOperation_t | ACLBLAS_OP_N(111) — op(A) = A；ACLBLAS_OP_T(112) — op(A) = A^T；ACLBLAS_OP_C(113) — op(A) = A^H（FP32 下与 T 等价），Host 内存 |
+| diag | 输入 | aclblasDiagType_t | ACLBLAS_NON_UNIT(131) — 对角元从 A 读取；ACLBLAS_UNIT(132) — 对角元固定为 1，Host 内存 |
+| n | 输入 | int | 矩阵阶数，n >= 0。n == 0 时为空操作直接返回成功，Host 内存 |
 | A | 输入 | const float*（FP32） | n x lda 三角矩阵指针，仅相关三角部分被访问，Device 内存 |
-| lda | 输入 | int64_t | A 的 leading dimension，lda >= max(1, n)，Host 内存 |
+| lda | 输入 | int | A 的 leading dimension，lda >= max(1, n)，Host 内存 |
 | x | 输入/输出 | float*（FP32） | 输入时存储右端向量 b，输出时原地覆盖为解向量 x，Device 内存 |
-| incx | 输入 | int64_t | x 的存储增量，incx != 0（可正可负）。incx < 0 时 x 反向存储，Host 内存 |
+| incx | 输入 | int | x 的存储增量，incx != 0（可正可负）。incx < 0 时 x 反向存储，Host 内存 |
 
 #### 约束说明
 
@@ -58,7 +58,7 @@ aclblasStatus_t aclblasStrsv(aclblasHandle_t handle, aclblasFillMode uplo, aclbl
 
 #### 调用示例
 
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](../../docs/zh/develop/compile_and_run_example.md)。
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
 
 ```cpp
 #include "acl/acl.h"
@@ -69,12 +69,12 @@ int main()
     aclInit(nullptr);
     aclrtSetDevice(0);
 
-    aclblasHandle_t handle;
+    aclblasHandle_t handle = nullptr;
     aclblasCreate(&handle);
 
-    constexpr int64_t n = 4;
-    constexpr int64_t incx = 1;
-    constexpr int64_t lda = 4;
+    constexpr int n = 4;
+    constexpr int incx = 1;
+    constexpr int lda = 4;
     constexpr size_t aSize = n * lda * sizeof(float);
     constexpr size_t xSize = n * sizeof(float);
 
@@ -86,7 +86,7 @@ int main()
     };
     float hX[n] = {1.0f, 4.0f, 9.0f, 16.0f};
 
-    aclrtStream stream;
+    aclrtStream stream = nullptr;
     aclrtCreateStream(&stream);
     aclblasSetStream(handle, stream);
 
@@ -102,7 +102,7 @@ int main()
         handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
         n, dA, lda, dX, incx);
 
-    aclrtStreamSynchronize(nullptr);
+    aclrtSynchronizeStream(stream);
 
     aclrtMemcpy(hX, xSize, dX, xSize, ACL_MEMCPY_DEVICE_TO_HOST);
 

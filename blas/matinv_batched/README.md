@@ -1,4 +1,4 @@
-# 批量矩阵求逆算子
+# MatinvBatched算子
 
 ## 算子概述
 
@@ -68,6 +68,8 @@ aclblasStatus_t aclblasSmatinvBatched(
 
 #### 调用示例
 
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
 ```cpp
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
@@ -76,7 +78,6 @@ aclblasStatus_t aclblasSmatinvBatched(
 
 int main()
 {
-    // 1. 初始化
     aclInit(nullptr);
     int32_t deviceId = 0;
     aclrtSetDevice(deviceId);
@@ -84,20 +85,17 @@ int main()
     aclblasHandle_t handle = nullptr;
     aclblasCreate(&handle);
 
-    // 2. 设置参数
     const int n = 16;
     const int batchSize = 4;
     const int lda = n;
     const int lda_inv = n;
 
-    // 3. 在 Host 侧准备输入矩阵
     std::vector<std::vector<float>> hostA(batchSize);
     std::vector<std::vector<float>> hostAinv(batchSize);
     std::vector<int> hostInfo(batchSize, 0);
     for (int b = 0; b < batchSize; b++) {
         hostA[b].resize((size_t)lda * n, 0.0f);
         hostAinv[b].resize((size_t)lda_inv * n, 0.0f);
-        // 列主序初始化为非奇异方阵
         for (int j = 0; j < n; j++) {
             for (int i = 0; i < n; i++) {
                 hostA[b][j * lda + i] = (i == j) ? 2.0f : 0.1f;
@@ -105,7 +103,6 @@ int main()
         }
     }
 
-    // 4. Device 侧分配矩阵内存并拷贝输入
     std::vector<void*> dAMatrices(batchSize, nullptr);
     std::vector<void*> dAinvMatrices(batchSize, nullptr);
     const size_t matBytes = (size_t)lda * n * sizeof(float);
@@ -118,7 +115,6 @@ int main()
         aclrtMalloc(&dAinvMatrices[b], invBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     }
 
-    // 5. 构建 Device 侧指针数组（关键步骤）
     const size_t ptrArrayBytes = (size_t)batchSize * sizeof(float*);
     std::vector<float*> hAPtrs(batchSize), hAinvPtrs(batchSize);
     for (int b = 0; b < batchSize; b++) {
@@ -134,19 +130,16 @@ int main()
     aclrtMemcpy(dAinvPtrArray, ptrArrayBytes, hAinvPtrs.data(), ptrArrayBytes,
                  ACL_MEMCPY_HOST_TO_DEVICE);
 
-    // 6. Device 侧分配 info 数组
     const size_t infoBytes = (size_t)batchSize * sizeof(int);
     void* dInfo = nullptr;
     aclrtMalloc(&dInfo, infoBytes, ACL_MEM_MALLOC_HUGE_FIRST);
 
-    // 7. 调用接口
     aclblasStatus_t status = aclblasSmatinvBatched(
         handle, n,
         (const float* const*)dAPtrArray, lda,
         (float* const*)dAinvPtrArray, lda_inv,
         (int*)dInfo, batchSize);
 
-    // 8. 同步并拷回结果
     if (status == ACLBLAS_STATUS_SUCCESS) {
         aclrtStream stream = nullptr;
         aclblasGetStream(handle, &stream);
@@ -159,7 +152,6 @@ int main()
         aclrtMemcpy(hostInfo.data(), infoBytes, dInfo, infoBytes,
                      ACL_MEMCPY_DEVICE_TO_HOST);
 
-        // 9. 检查结果
         for (int b = 0; b < batchSize; b++) {
             if (hostInfo[b] == 0) {
                 printf("Batch %d: inversion succeeded\n", b);
@@ -171,7 +163,6 @@ int main()
         printf("aclblasSmatinvBatched failed: %d\n", status);
     }
 
-    // 10. 释放 Device 内存
     for (int b = 0; b < batchSize; b++) {
         aclrtFree(dAMatrices[b]);
         aclrtFree(dAinvMatrices[b]);
@@ -187,73 +178,3 @@ int main()
     return 0;
 }
 ```
-
-## 实现概要
-
-采用五步编排方案，在同一 stream 上异步提交五个 kernel（不显式同步，依赖 stream 串行语义）：
-
-```
-Step 0: InitPtrArrayKernel  → 在 workspace 中构建指针数组
-Step 1: CopyKernel          → Ainv[i] = A[i]（保护输入矩阵不被修改）
-Step 2: getrf（复用）        → Ainv[i] 就地 LU 分解
-Step 3: CopyKernel          → LU 因子副本存入 workspace 临时缓冲区
-Step 4: getri（复用）        → 从 LU 因子计算逆矩阵写入 Ainv[i]
-```
-
-**编程模型**：SIMT（`LAUNCH_BOUND(256)`）
-
-**Workspace 三段式布局**：
-
-```
-workspace →
-+------------------+-------------------------+------------------+
-| Zone 0           | Zone 1                  | Zone 2           |
-| matTmpPtrArray   | matTmpBuf               | PivotArray       |
-| 指针数组          | LU 因子副本 dense blocks | 主元 int 数组     |
-| batchSize×8 B    | n²×batchSize×4 B        | n×batchSize×4 B  |
-+------------------+-------------------------+------------------+
-```
-
-## 性能概要
-
-| shape | dtype | 耗时 (us) | GFLOPS | 吞吐量 (mat/s) |
-|-------|-------|---------|--------|-------------|
-| n=32, batchSize=1 | FP32 | 376 | 0.17 | 2,657 |
-| n=32, batchSize=64 | FP32 | 752 | 5.58 | 85,106 |
-| n=32, batchSize=256 | FP32 | 1,860 | 9.02 | 137,634 |
-| n=32, batchSize=1024 | FP32 | 7,032 | 9.54 | 145,628 |
-
-测试环境：Ascend950PR，arch35，CANN 9.1.0，54 AI Cores 满频运行。
-
-典型 VEC Bound 算子，VEC 流水线利用率 > 99%。大 batchSize 场景（≥ 64）时核间负载均衡良好。
-
-## 编译
-
-```bash
-bash build.sh --ops=matinv_batched
-```
-
-## 测试
-
-```bash
-bash build.sh --ops=matinv_batched --run
-```
-
-## 文件结构
-
-```
-blas/matinv_batched/
-├── README.md
-└── arch35/
-    ├── matinv_batched_tiling_data.h    # TilingData 结构体定义
-    ├── matinv_batched_host.cpp         # Host 侧入口 + 参数校验 + 五步编排
-    ├── copy_atoa_kernel.cpp            # CopyKernel（Step 1/3 共用，SIMT）
-    ├── copy_atoa_kernel.h              # copy_kernel_do 声明
-    ├── init_ptr_array_kernel.cpp       # InitPtrArrayKernel（Step 0，SIMT）
-    └── init_ptr_array_kernel.h         # init_ptr_array_kernel_do 声明
-```
-
-内部复用（不修改）：
-
-- `blas/getrf_batched/arch35/` — Step 2 LU 分解 kernel
-- `blas/getri_batched/arch35/` — Step 4 求逆 kernel

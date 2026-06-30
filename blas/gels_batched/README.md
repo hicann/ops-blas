@@ -63,3 +63,79 @@ aclblasStatus_t aclblasSgelsBatched(aclblasHandle_t handle, aclblasOperation_t t
 - ldc >= max(1, m, n)
 - trans 必须为 ACLBLAS_OP_N 或 ACLBLAS_OP_T
 - m==0 或 n==0 或 nrhs==0 或 batchSize==0 时直接返回成功
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+#include <cstdio>
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int m = 3;
+    constexpr int n = 2;
+    constexpr int nrhs = 1;
+    constexpr int lda = m;
+    constexpr int ldc = (m > n) ? m : n;
+    constexpr int batchSize = 1;
+
+    float hA[lda * n] = {1.0f, 0.0f, 0.0f,
+                         0.0f, 1.0f, 0.0f};
+    float hC[ldc * nrhs] = {1.0f, 2.0f, 0.0f};
+    int hInfo[batchSize] = {0};
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    void *dA = nullptr, *dC = nullptr, *dInfo = nullptr;
+    void *dAPtrs = nullptr, *dCPtrs = nullptr;
+    aclrtMalloc(&dA, sizeof(hA), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dC, sizeof(hC), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dInfo, sizeof(hInfo), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dAPtrs, sizeof(float*), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dCPtrs, sizeof(float*), ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dA, sizeof(hA), hA, sizeof(hA), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dC, sizeof(hC), hC, sizeof(hC), ACL_MEMCPY_HOST_TO_DEVICE);
+
+    float *dAPtrHost = static_cast<float*>(dA);
+    float *dCPtrHost = static_cast<float*>(dC);
+    aclrtMemcpy(dAPtrs, sizeof(float*), &dAPtrHost, sizeof(float*), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dCPtrs, sizeof(float*), &dCPtrHost, sizeof(float*), ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasSgelsBatched(
+        handle, ACLBLAS_OP_N, m, n, nrhs,
+        reinterpret_cast<float* const*>(dAPtrs), lda,
+        reinterpret_cast<float* const*>(dCPtrs), ldc,
+        static_cast<int*>(dInfo), batchSize);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hC, sizeof(hC), dC, sizeof(hC), ACL_MEMCPY_DEVICE_TO_HOST);
+    aclrtMemcpy(hInfo, sizeof(hInfo), dInfo, sizeof(hInfo), ACL_MEMCPY_DEVICE_TO_HOST);
+    printf("info[0] = %d\n", hInfo[0]);
+    for (int i = 0; i < n; i++)
+        printf("x[%d] = %f\n", i, hC[i]);
+
+    aclrtFree(dA);
+    aclrtFree(dC);
+    aclrtFree(dInfo);
+    aclrtFree(dAPtrs);
+    aclrtFree(dCPtrs);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```

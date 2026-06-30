@@ -53,3 +53,60 @@ aclblasStatus_t aclblasStpsv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 - diag 必须为 ACLBLAS_NON_UNIT 或 ACLBLAS_UNIT
 - incx != 0（可正可负）
 - AP、x 不可为 nullptr
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int n = 2;
+    constexpr int incx = 1;
+    constexpr int apSize = n * (n + 1) / 2;
+    constexpr size_t apBytes = apSize * sizeof(float);
+    constexpr size_t xBytes = n * sizeof(float);
+
+    float hAP[apSize] = {1.0f, 2.0f, 3.0f};
+    float hX[n] = {1.0f, 8.0f};
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    float *dAP = nullptr, *dX = nullptr;
+    aclrtMalloc(reinterpret_cast<void**>(&dAP), apBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dX), xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dAP, apBytes, hAP, apBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dX, xBytes, hX, xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasStpsv(
+        handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
+        n, dAP, dX, incx);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hX, xBytes, dX, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    for (int i = 0; i < n; i++)
+        printf("hX[%d] = %f\n", i, hX[i]);
+
+    aclrtFree(dAP);
+    aclrtFree(dX);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```

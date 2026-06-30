@@ -53,3 +53,82 @@ aclblasStatus_t aclblasSgetriBatched(aclblasHandle_t handle, int n, const float 
 - n == 0 或 batchSize == 0 时直接返回成功，不启动 Kernel
 - Carray[i] 的内存空间不可与 Aarray[i] 重叠
 - 调用前必须先使用 aclblasSgetrfBatched 完成 LU 分解
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+#include <cstdio>
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int n = 2;
+    constexpr int lda = n;
+    constexpr int ldc = n;
+    constexpr int batchSize = 1;
+
+    float hA[lda * n] = {1.0f, 0.0f, 0.0f, 1.0f};
+    float hC[ldc * n] = {0.0f};
+    int hPivot[n] = {0, 1};
+    int hInfo[batchSize] = {0};
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    void *dA = nullptr, *dC = nullptr, *dPivot = nullptr, *dInfo = nullptr;
+    void *dAPtrs = nullptr, *dCPtrs = nullptr;
+    aclrtMalloc(&dA, sizeof(hA), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dC, sizeof(hC), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dPivot, sizeof(hPivot), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dInfo, sizeof(hInfo), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dAPtrs, sizeof(float*), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(&dCPtrs, sizeof(float*), ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dA, sizeof(hA), hA, sizeof(hA), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dC, sizeof(hC), hC, sizeof(hC), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dPivot, sizeof(hPivot), hPivot, sizeof(hPivot), ACL_MEMCPY_HOST_TO_DEVICE);
+
+    float *dAPtrHost = static_cast<float*>(dA);
+    float *dCPtrHost = static_cast<float*>(dC);
+    aclrtMemcpy(dAPtrs, sizeof(float*), &dAPtrHost, sizeof(float*), ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dCPtrs, sizeof(float*), &dCPtrHost, sizeof(float*), ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasSgetriBatched(
+        handle, n,
+        reinterpret_cast<const float* const*>(dAPtrs), lda,
+        static_cast<const int*>(dPivot),
+        reinterpret_cast<float* const*>(dCPtrs), ldc,
+        static_cast<int*>(dInfo), batchSize);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hC, sizeof(hC), dC, sizeof(hC), ACL_MEMCPY_DEVICE_TO_HOST);
+    aclrtMemcpy(hInfo, sizeof(hInfo), dInfo, sizeof(hInfo), ACL_MEMCPY_DEVICE_TO_HOST);
+    printf("info[0] = %d\n", hInfo[0]);
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            printf("C[%d][%d] = %f\n", i, j, hC[j * ldc + i]);
+
+    aclrtFree(dA);
+    aclrtFree(dC);
+    aclrtFree(dPivot);
+    aclrtFree(dInfo);
+    aclrtFree(dAPtrs);
+    aclrtFree(dCPtrs);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```

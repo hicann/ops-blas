@@ -55,3 +55,67 @@ aclblasStatus_t aclblasSsyr2(aclblasHandle_t handle, aclblasFillMode_t uplo, int
 - 算子输入 shape 为 [n]、[n]、[n, n]，输出 shape 为 [n, n]
 - 算子实际计算时，不支持 ND 高维度运算（不支持维度 >= 3 的运算）
 - Host 侧不做流同步，调用方需自行管理同步
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    aclInit(nullptr);
+    aclrtSetDevice(0);
+
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+
+    constexpr int n = 2;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
+    constexpr int lda = n;
+    constexpr size_t vSize = n * sizeof(float);
+    constexpr size_t aSize = n * n * sizeof(float);
+
+    float hX[n] = {1.0f, 2.0f};
+    float hY[n] = {3.0f, 4.0f};
+    float hA[n * n] = {0.0f};
+    float alpha = 1.0f;
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    float *dX = nullptr, *dY = nullptr, *dA = nullptr;
+    aclrtMalloc(reinterpret_cast<void**>(&dX), vSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dY), vSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dA), aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+
+    aclrtMemcpy(dX, vSize, hX, vSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dY, vSize, hY, vSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dA, aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t status = aclblasSsyr2(
+        handle, ACLBLAS_LOWER, n, &alpha,
+        dX, incx, dY, incy, dA, lda);
+
+    aclrtSynchronizeStream(stream);
+
+    aclrtMemcpy(hA, aSize, dA, aSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+            printf("hA[%d][%d] = %f\n", i, j, hA[j * lda + i]);
+
+    aclrtFree(dX);
+    aclrtFree(dY);
+    aclrtFree(dA);
+    aclrtDestroyStream(stream);
+    aclblasDestroy(handle);
+    aclrtResetDevice(0);
+    aclFinalize();
+    return 0;
+}
+```
