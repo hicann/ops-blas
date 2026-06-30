@@ -97,68 +97,152 @@ aclblasStatus_t aclblasRotEx(
 示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
 
 ```cpp
-#include "acl/acl.h"
-#include "cann_ops_blas.h"
-#include <cstdint>
+#include <cstdio>
+#include <memory>
 #include <vector>
 
-int main()
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+int aclblasRotExTest(AclContext& ctx)
 {
-    // 初始化 ACL
-    aclInit(nullptr);
-    aclrtSetDevice(0);
+    aclrtStream stream = ctx.Stream();
 
-    // 创建 handle
-    aclblasHandle_t handle;
-    aclblasCreate(&handle);
+    // 1. 创建 ops-blas 句柄
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
 
-    // 参数配置
-    int n = 1024;
-    aclDataType xType = ACL_FLOAT;
-    aclDataType yType = ACL_FLOAT;
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    // 2. 准备 Host 数据
+    int n = 5;
     int incx = 1;
     int incy = 1;
+    aclDataType xType = ACL_FLOAT;
+    aclDataType yType = ACL_FLOAT;
     aclDataType csType = ACL_FLOAT;
     aclDataType executionType = ACL_FLOAT;
 
-    // 分配 host 内存
-    std::vector<float> hX(n, 1.0f);
-    std::vector<float> hY(n, 2.0f);
+    std::vector<float> hX = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f};
+    std::vector<float> hY = {6.0f, 7.0f, 8.0f, 9.0f, 10.0f};
     float c = 0.8f;
     float s = 0.6f;
+    size_t dataBytes = n * sizeof(float);
 
-    // 分配 device 内存
-    void *dX = nullptr;
-    void *dY = nullptr;
-    aclrtMalloc(&dX, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(&dY, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    // 3. 申请 Device 内存并拷贝数据
+    void* rawMemX = nullptr;
+    auto aclRet = aclrtMalloc(&rawMemX, dataBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for x failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> xDevicePtr(rawMemX, aclrtFree);
 
-    // 拷贝数据到 device
-    aclrtMemcpy(dX, n * sizeof(float), hX.data(), n * sizeof(float),
-                ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(dY, n * sizeof(float), hY.data(), n * sizeof(float),
-                ACL_MEMCPY_HOST_TO_DEVICE);
+    void* rawMemY = nullptr;
+    aclRet = aclrtMalloc(&rawMemY, dataBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for y failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> yDevicePtr(rawMemY, aclrtFree);
 
-    // 调用 RotEx 算子
-    aclblasRotEx(handle, n, dX, xType, incx, dY, yType, incy,
-                 &c, &s, csType, executionType);
+    aclRet = aclrtMemcpy(xDevicePtr.get(), dataBytes, hX.data(), dataBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for x failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(yDevicePtr.get(), dataBytes, hY.data(), dataBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for y failed. ERROR: %d\n", aclRet); return aclRet);
 
-    // 同步等待计算完成
-    aclrtStreamSynchronize(nullptr);
+    // 4. 调用 aclblasRotEx
+    blasRet = aclblasRotEx(
+        static_cast<aclblasHandle_t>(handlePtr.get()), n,
+        xDevicePtr.get(), xType, incx,
+        yDevicePtr.get(), yType, incy,
+        &c, &s, csType, executionType);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasRotEx failed. ERROR: %d\n", blasRet);
+              return blasRet);
 
-    // 结果拷贝回 host
-    aclrtMemcpy(hX.data(), n * sizeof(float), dX, n * sizeof(float),
-                ACL_MEMCPY_DEVICE_TO_HOST);
-    aclrtMemcpy(hY.data(), n * sizeof(float), dY, n * sizeof(float),
-                ACL_MEMCPY_DEVICE_TO_HOST);
+    // 5. 同步等待任务执行结束
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
 
-    // 释放资源
-    aclrtFree(dX);
-    aclrtFree(dY);
-    aclblasDestroy(handle);
-    aclrtResetDevice(0);
-    aclFinalize();
+    // 6. 将结果从 Device 拷贝回 Host 并打印
+    std::vector<float> resultX(n, 0);
+    std::vector<float> resultY(n, 0);
+    aclRet = aclrtMemcpy(resultX.data(), dataBytes, xDevicePtr.get(), dataBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("copy x result from device to host failed. ERROR: %d\n", aclRet);
+              return aclRet);
+    aclRet = aclrtMemcpy(resultY.data(), dataBytes, yDevicePtr.get(), dataBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("copy y result from device to host failed. ERROR: %d\n", aclRet);
+              return aclRet);
+    for (int i = 0; i < n; i++) {
+        LOG_PRINT("resultX[%d] is: %f, resultY[%d] is: %f\n", i, resultX[i], i, resultY[i]);
+    }
 
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasRotExTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasRotExTest failed. ERROR: %d\n", ret); return ret);
     return 0;
 }
 ```
