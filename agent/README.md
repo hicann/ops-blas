@@ -59,6 +59,8 @@
 | 3.3 大 shape 精简 | CP3.2 问卷结果 | developer | 精简后的 CSV + ST 通过 | 仅当用户选择「精简为 1 条」时执行 | |
 | **阶段4：上库** | | | | | |
 | 4.1 编写文档 | 全部代码和设计文档 | writer | README.md | — | |
+| ⚪ 4.1.1 README 内容审查 | README.md + API 声明 + host.cpp | reviewer | 4.1.1-审查报告.md | 9 项逐项审查（模板、API 签名、RAII、头文件等） | |
+| ⚪ 4.1.2 README 编译测试 | README.md + 开发环境报告 | developer | 4.1.2-编译测试报告.md | 编译 + NPU 运行时验证，不通过→打回 | |
 | 4.2 代码检视 | git diff + OAT checklist + OAT 扫描报告 + 全部变更文件 + 文档 | reviewer | 4.2-代码检视报告.md | 变更范围 + OAT 合规复核 + 规范 + 冗余清理 + 日志规范 | |
 | 4.3 开发总结 | 全部交付物 | writer | CP4.3.json、4.3-Issue.md、4.3-上库PR模板.md、更新 LOG.md | 整理为问卷 + 提 Issue（内容来自需求文档）+ 生成上库 PR 描述 + 更新开发日志 | |
 | ⛔ CP4.3 | CP4.3.json | 用户 | 上库审批 | AskUserQuestion，通过后 squash commit -m "Feat: 新增面向archXX的aclblasXxx接口" | |

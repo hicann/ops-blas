@@ -6,7 +6,7 @@
 2. 按实际包含的接口增删子章节（### 节）。如仅有单精度接口则只保留一个 ### 节；如有更多接口（如 aclblasH{op}、aclblasC{op}）则继续添加。
 3. 参数说明列必须写清楚参数含义和内存位置（Host 内存/Device 内存）。
 4. 约束说明如无约束则写"无"，不允许留空。
-5. 调用示例须由开发者在本地跑通后再上库。
+5. 调用示例必须使用 RAII 模式（AclContext 类 + std::unique_ptr）管理 ACL 资源和 Device 内存，与 compile_and_run_example.md 一致；须由开发者在本地跑通后再上库。
 6. 完成文档后删除本使用说明注释块。
 
 占位符约定：
@@ -77,25 +77,117 @@ aclblasStatus_t aclblasS{op}(aclblasHandle_t handle, int n, const float *x, floa
 
 #### 调用示例
 
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ```cpp
+#include <cstdio>
+#include <memory>
+#include <vector>
+
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+int aclblasS{op}Test(AclContext& ctx)
+{
+    aclrtStream stream = ctx.Stream();
+
+    // 1. 创建 ops-blas 句柄
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    // 2. 准备 Host 数据
+    // {按算子需求定义参数并初始化 Host 数据，如 std::vector<float> hX(n, 1.0f); }
+
+    // 3. 申请 Device 内存并拷贝数据
+    // {按算子需求使用 aclrtMalloc + std::unique_ptr + aclrtFree 管理 Device 内存}
+    // {按算子需求使用 aclrtMemcpy 拷贝数据到 Device}
+
+    // 4. 调用 aclblasS{op}
+    // blasRet = aclblasS{op}(static_cast<aclblasHandle_t>(handlePtr.get()), ...);
+    // CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasS{op} failed. ERROR: %d\n", blasRet);
+    //           return blasRet);
+
+    // 5. 同步等待任务执行结束
+    auto aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 6. 将结果从 Device 拷贝回 Host 并打印
+    // {按算子需求使用 aclrtMemcpy 拷贝结果回 Host 并打印验证}
+
+    return ACL_SUCCESS;
+}
+
 int main()
 {
-    aclInit(nullptr);
-    aclrtSetDevice(0);
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
 
-    aclblasHandle_t handle;
-    aclblasCreate(&handle);
-
-    // 分配 Device 内存、初始化数据、调用 aclblasS{op}、同步并释放资源
-
-    aclblasDestroy(handle);
-
-    aclrtResetDevice(0);
-    aclFinalize();
-
+    ret = aclblasS{op}Test(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasS{op}Test failed. ERROR: %d\n", ret); return ret);
     return 0;
 }
 ```
@@ -132,25 +224,117 @@ aclblasStatus_t aclblasD{op}(aclblasHandle_t handle, int n, const double *x, dou
 
 #### 调用示例
 
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](compile_and_run_example.md)。
+
 ```cpp
+#include <cstdio>
+#include <memory>
+#include <vector>
+
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+int aclblasD{op}Test(AclContext& ctx)
+{
+    aclrtStream stream = ctx.Stream();
+
+    // 1. 创建 ops-blas 句柄
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    // 2. 准备 Host 数据
+    // {按算子需求定义参数并初始化 Host 数据，如 std::vector<double> hX(n, 1.0); }
+
+    // 3. 申请 Device 内存并拷贝数据
+    // {按算子需求使用 aclrtMalloc + std::unique_ptr + aclrtFree 管理 Device 内存}
+    // {按算子需求使用 aclrtMemcpy 拷贝数据到 Device}
+
+    // 4. 调用 aclblasD{op}
+    // blasRet = aclblasD{op}(static_cast<aclblasHandle_t>(handlePtr.get()), ...);
+    // CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasD{op} failed. ERROR: %d\n", blasRet);
+    //           return blasRet);
+
+    // 5. 同步等待任务执行结束
+    auto aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 6. 将结果从 Device 拷贝回 Host 并打印
+    // {按算子需求使用 aclrtMemcpy 拷贝结果回 Host 并打印验证}
+
+    return ACL_SUCCESS;
+}
+
 int main()
 {
-    aclInit(nullptr);
-    aclrtSetDevice(0);
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
 
-    aclblasHandle_t handle;
-    aclblasCreate(&handle);
-
-    // 分配 Device 内存、初始化数据、调用 aclblasD{op}、同步并释放资源
-
-    aclblasDestroy(handle);
-
-    aclrtResetDevice(0);
-    aclFinalize();
-
+    ret = aclblasD{op}Test(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasD{op}Test failed. ERROR: %d\n", ret); return ret);
     return 0;
 }
 ```

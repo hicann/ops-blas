@@ -29,7 +29,8 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
      | CP2.1 | 打回 2.1.1.A/2.1.1.B 重新开发 | 终止开发流程 |
      | CP2.2 | 打回 2.2.1.A/2.2.1.B 重新开发 | 终止开发流程 |
      | CP3.2 | 打回 3.1/3.2 重新检视/验收 | — |
-     | CP4.3 | 打回 4.2 代码检视 | — |
+     | 4.1.1 / 4.1.2 | 打回 4.1 修复 README | — |
+    | CP4.3 | 打回 4.2 代码检视 | — |
 
 3. **问卷处理** — 基于已生成的 json 模板发送 `AskUserQuestion` 问卷时，不得进行任何修改，直接发送。每次问卷得到用户答复后，保存为 `{原问卷名}.ret.json`，仅保留用户选择的选项，删除未选选项。
 
@@ -71,6 +72,11 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
 13. **host include 精简**
     - host.cpp **禁止**引入冗余 include：`acl/acl.h`、`cann_ops_blas_common.h`、`tiling/platform/platform_ascendc.h` 均为冗余，由 `host_utils.h` / `aclblas_handle_internal.h` / `kernel.h` 间接引入
     - 仅保留必需头文件：`log/log.h`、`cann_ops_blas.h`、`{op}_kernel.h`、`aclblas_handle_internal.h`、`host_utils.h`；视算子需求可选 `kernel_constant.h`
+14. **README 质量门控**
+    - README 必须先通过内容审查（4.1.1）和编译测试（4.1.2）才能进入代码检视（4.2）
+    - 4.1.1 或 4.1.2 失败时，打回 4.1 writer 修复文档，最多 2 次；第 2 次仍失败通过 AskUserQuestion 询问用户
+    - 4.1.2 编译测试中 NPU 不可用时，标记为「跳过运行时（环境限制）」，编译通过即视为成功
+    - 调用示例必须使用 RAII 模式（AclContext 类 + std::unique_ptr），对齐 compile_and_run_example.md
 
 ---
 
@@ -136,6 +142,8 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
 | 3.3 大 shape 精简 | CP3.2 问卷结果 | developer | 精简后的 CSV + ST 通过 | 仅当用户选择「精简为 1 条」时执行 | |
 | **阶段4：上库** | | | | | |
 | 4.1 编写文档 | 全部代码和设计文档 | writer | README.md | — | |
+| 4.1.1 README 内容审查 | README.md + API 声明（cann_ops_blas.h）+ host.cpp | reviewer (scene: readme-review) | 4.1.1-审查报告.md | 9 项逐项审查（模板完整性、API 签名、参数类型、RAII、API 名称、头文件、交叉引用、内存标注、约束），不通过→打回 4.1（≤2 次） | |
+| 4.1.2 README 编译测试 | README.md + 2.0.1-开发环境.md | developer (scene: readme-compile-test) | 4.1.2-编译测试报告.md | 提取调用示例 → CMake 编译 → NPU 可用时运行，不通过→打回 4.1 后重跑 4.1.1+4.1.2（≤2 次） | |
 | 4.2 代码检视 | git diff + OAT checklist + OAT 扫描报告 + 全部变更文件 + 文档 | reviewer | 4.2-代码检视报告.md | 变更范围 + OAT 合规复核 + 规范 + 冗余清理 + 日志规范 | |
 | 4.3 开发总结 | 全部交付物 | writer | CP4.3.json、4.3-Issue.md、4.3-上库PR模板.md、更新 LOG.md | 整理为问卷 + 提 Issue（内容来自需求文档）+ 生成上库 PR 描述 + 更新开发日志 | |
 | ⛔ CP4.3 | CP4.3.json | 用户 | 上库审批 | AskUserQuestion，通过后 squash commit -m "Feat: 新增面向archXX的aclblasXxx接口" | |

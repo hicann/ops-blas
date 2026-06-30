@@ -221,6 +221,44 @@ blas/{operator_name}/
 
 ---
 
+### 6. README 编译测试
+
+| 维度 | 内容 |
+|------|------|
+| **接收** | README 文件路径、开发环境报告路径（由调用方传入） |
+| **执行** | 提取调用示例代码、创建 CMake 项目、编译、NPU 可用时运行 |
+| **交付** | 编译测试报告、日志摘要 |
+
+**概述**：从 README 中提取调用示例代码，按 compile_and_run_example.md 的 CMake 模板编译并验证，确保示例代码可编译通过且在 NPU 上运行正确。
+
+**执行步骤**：
+
+1. **提取示例代码** — 读取 README.md，提取所有 ` ```cpp ` 代码块（每个代码块对应一个调用示例），逐个编译测试
+
+2. **创建临时项目** — 在 `.agent/dev-docs/{operator_name}/compile_test/` 下创建：
+   - `test_api.cpp`：提取的代码
+   - `CMakeLists.txt`：参考 `docs/zh/develop/compile_and_run_example.md` 中的 CMake 模板，将 `add_executable(opapi_test test_sscal.cpp)` 替换为 `add_executable(opapi_test test_api.cpp)`
+
+3. **配置环境** — 读取 `.agent/dev-docs/{operator_name}/2.0.1-开发环境.md`（或开发日志）获取 CANN 路径，执行 `source {cann_path}/set_env.sh`
+
+4. **编译** — `mkdir -p build && cd build && cmake .. -DCMAKE_CXX_COMPILER=g++ -DCMAKE_SKIP_RPATH=TRUE && make`，捕获 stdout/stderr
+
+5. **运行**（NPU 可用时）— 检测 NPU 设备（`npu-smi info` 或 `/dev/davinci*`）：
+   - NPU 可用：设置 `LD_LIBRARY_PATH`，运行 `./bin/opapi_test`，捕获输出
+   - NPU 不可用：标记为「跳过运行时（环境限制）」，编译通过即视为成功
+
+6. **清理** — 删除 `.agent/dev-docs/{operator_name}/compile_test/` 临时目录
+
+**交付标准**：
+- [ ] 调用示例代码已成功提取
+- [ ] 编译通过（零错误）
+- [ ] NPU 可用时运行通过（零错误 + 输出合理）；不可用时已标记跳过
+- [ ] 临时目录已清理
+- [ ] 编译测试报告已生成：`.agent/dev-docs/{operator_name}/4.1.2-编译测试报告.md`
+- [ ] 日志摘要已输出
+
+---
+
 ## 日志摘要输出要求
 
 每个任务完成后，必须在输出末尾追加【日志摘要】段落：

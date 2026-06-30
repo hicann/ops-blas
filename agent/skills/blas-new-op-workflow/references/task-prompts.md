@@ -30,6 +30,8 @@
 | 3.2 性能验收 | developer | 读取 LOG.md 继续 |
 | 3.3 大 shape 精简 | developer | 读取 LOG.md 继续 |
 | 4.1 编写文档 | writer (scene: write-readme) | 读取 LOG.md 继续 |
+| 4.1.1 README 内容审查 | reviewer (scene: readme-review) | 读取 LOG.md 继续 |
+| 4.1.2 README 编译测试 | developer (scene: readme-compile-test) | 读取 LOG.md 继续 |
 | 4.2 代码检视 | reviewer | 读取 LOG.md 继续 |
 | 4.3 开发总结 | writer (scene: questionnaire) | 读取 LOG.md 继续 |
 
@@ -404,6 +406,45 @@ scene: write-readme
   - 所有 {占位符} 已替换为实际内容
   - 参数表明确标注内存位置（Host 内存/Device 内存）
   - 调用示例可在本地编译运行
+```
+
+### 4.1.1 README 内容审查
+
+```yaml
+subagent: reviewer
+scene: readme-review
+输入:
+  - blas/{operator_name}/README.md（要审查的 README）
+  - include/cann_ops_blas.h（从中查找对应 API 声明）
+  - blas/{operator_name}/archXX/{operator_name}_host.cpp（约束验证参考）
+输出:
+  - .agent/dev-docs/{operator_name}/4.1.1-审查报告.md（9 项审查结果，每项状态 + 证据，发现问题附行号和期望值）
+验收标准:
+  - 全部 9 项已逐项检查
+  - 每项有明确通过/失败标记
+  - 发现问题附行号和期望值
+  - 整体通过率明确
+  - 未修改任何源文件
+```
+
+### 4.1.2 README 编译测试
+
+```yaml
+subagent: developer
+scene: readme-compile-test
+输入:
+  - blas/{operator_name}/README.md（从中提取调用示例代码）
+  - .agent/dev-docs/{operator_name}/2.0.1-开发环境.md（获取 CANN 环境路径）
+  - docs/zh/develop/compile_and_run_example.md（CMakeLists.txt 模板）
+输出:
+  - .agent/dev-docs/{operator_name}/4.1.2-编译测试报告.md（编译结果 + 运行结果/跳过说明）
+验收标准:
+  - 最后一个 ```cpp 代码块已提取
+  - 在 .agent/dev-docs/{op}/compile_test/ 下创建 CMake 项目
+  - 编译通过（零错误）
+  - NPU 可用时运行通过；不可用时已标记跳过
+  - 临时目录已清理
+  - 报告包含编译日志、运行状态和整体结论
 ```
 
 ### 4.2 代码检视

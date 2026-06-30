@@ -41,14 +41,24 @@ skills:
 
 | 模式 | 触发条件 | 检视范围 | 代码范围 | 输出方式 |
 |------|----------|----------|----------|----------|
+| **README 审查** | 调用方指定 `scene: readme-review` | README 审查清单（9 项） | README.md + API 声明 + host.cpp 约束 | 生成报告文件 |
 | **PR 检视** | 用户提供 PR 号/分支/diff 内容 | 全量条款 | 仅变更部分 | 生成报告文件 |
 | **C++安全检视（默认）** | 其他情况（代码/文件路径） | C++安全编码条款（cpp-secure.md） + TOPK高频问题条款（ascendc-topk.md） | 全部代码 | 生成报告文件 |
 | **快速检视** | 用户提供检视细则（条款编号/类别名称）或 prompt 含"检视模式：快速检视" | 指定条款 | 全部代码 | **禁止写报告文件，只返回逐条检视结果** |
 
 **模式识别规则**（按优先级顺序）：
-1. 输入含"检视模式：快速检视"或条款编号格式（如 "2.1"、"API-1"）→ 快速检视
-2. 输入含 PR 号/分支/diff 标记 → PR 检视
-3. 其他情况 → C++安全检视（检视 cpp-secure.md + ascendc-topk.md 条款）
+1. 调用方指定 `scene: readme-review` → README 审查
+2. 输入含"检视模式：快速检视"或条款编号格式（如 "2.1"、"API-1"）→ 快速检视
+3. 输入含 PR 号/分支/diff 标记 → PR 检视
+4. 其他情况 → C++安全检视（检视 cpp-secure.md + ascendc-topk.md 条款）
+
+---
+
+## README 审查流程（仅 `readme-review` 模式）
+
+识别为该模式后，加载 `references/readme-review-checklist.md`，按其中的 9 项清单和 5 阶段流程执行审查，输出 `.agent/dev-docs/{operator_name}/4.1.1-审查报告.md`。README 审查模式下跳过代码侧别识别和阶段 2.5（API 文档学习）。
+
+---
 
 ### 代码侧别识别（⚠️ 强制执行）
 
