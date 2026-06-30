@@ -73,32 +73,43 @@ int main()
     aclInit(nullptr);
     aclrtSetDevice(0);
 
-    aclblasHandle_t handle;
+    aclrtStream stream;
+    aclrtCreateStream(&stream);
+
+    aclblasHandle_t handle = nullptr;
     aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
 
     int n = 4;
     float alpha = 1.0f;
     int incx = 1, incy = 1;
 
+    float xHost[] = {1.0f, 2.0f, 3.0f, 4.0f};
+    float yHost[] = {1.0f, 1.0f, 1.0f, 1.0f};
+
     size_t size = n * (n + 1) / 2 * sizeof(float);
-    float *xDev, *yDev, *apDev;
+    void *xDev = nullptr, *yDev = nullptr, *apDev = nullptr;
     aclrtMalloc(&xDev, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc(&yDev, n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc(&apDev, size, ACL_MEM_MALLOC_HUGE_FIRST);
 
     aclrtMemcpy(xDev, n * sizeof(float), xHost, n * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
     aclrtMemcpy(yDev, n * sizeof(float), yHost, n * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemsetAsync(apDev, size, 0, size, handle->stream);
+    aclrtMemsetAsync(apDev, size, 0, size, stream);
 
-    aclblasSspr2(handle, ACLBLAS_UPPER, n, &alpha, xDev, incx, yDev, incy, apDev);
+    aclblasSspr2(handle, ACLBLAS_UPPER, n, &alpha,
+                 static_cast<const float *>(xDev), incx,
+                 static_cast<const float *>(yDev), incy,
+                 static_cast<float *>(apDev));
 
-    aclrtSynchronizeStream(handle->stream);
+    aclrtSynchronizeStream(stream);
 
     aclrtFree(xDev);
     aclrtFree(yDev);
     aclrtFree(apDev);
 
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
 
     aclrtResetDevice(0);
     aclFinalize();

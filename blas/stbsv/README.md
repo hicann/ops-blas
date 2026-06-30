@@ -78,14 +78,23 @@ int main()
     aclInit(nullptr);
     aclrtSetDevice(0);
 
-    aclblasHandle_t handle;
+    aclrtStream stream;
+    aclrtCreateStream(&stream);
+
+    aclblasHandle_t handle = nullptr;
     aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
 
     int n = 4, k = 1, lda = 2, incx = 1;
 
+    // 下三角单位对角带状矩阵 A (lda x n, 列主序)，解 A x = b
+    float aHost[lda * n] = {1.0f, 1.0f, 0.0f, 1.0f,
+                            0.0f, 1.0f, 0.0f, 1.0f};
+    float xHost[n] = {1.0f, 1.0f, 1.0f, 1.0f};
+
     size_t aBytes = lda * n * sizeof(float);
     size_t xBytes = n * sizeof(float);
-    float *aDev, *xDev;
+    void *aDev = nullptr, *xDev = nullptr;
     aclrtMalloc(&aDev, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc(&xDev, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
 
@@ -93,14 +102,16 @@ int main()
     aclrtMemcpy(xDev, xBytes, xHost, xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
 
     aclblasStbsv(handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
-                 n, k, aDev, lda, xDev, incx);
+                 n, k, static_cast<const float *>(aDev), lda,
+                 static_cast<float *>(xDev), incx);
 
-    aclrtSynchronizeStream(handle->stream);
+    aclrtSynchronizeStream(stream);
 
     aclrtFree(aDev);
     aclrtFree(xDev);
 
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
 
     aclrtResetDevice(0);
     aclFinalize();
