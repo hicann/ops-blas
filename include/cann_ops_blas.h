@@ -368,6 +368,10 @@ aclblasStatus_t aclblasSgemv(
 
 aclblasStatus_t aclblasSaxpy(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx, float* y, int incy);
 
+aclblasStatus_t aclblasAxpyEx(
+    aclblasHandle_t handle, int n, const void* alpha, aclDataType alphaType, const void* x, aclDataType xType, int incx,
+    void* y, aclDataType yType, int incy, aclDataType executionType);
+
 aclblasStatus_t aclblasSgeqrfBatched(
     aclblasHandle_t handle, int m, int n, float* const Aarray[], int lda, float* const TauArray[], int* info,
     int batchSize);

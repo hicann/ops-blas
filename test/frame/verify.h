@@ -157,40 +157,41 @@ public:
     {}
 
 protected:
-    bool shouldSkip(float outVal, float goldVal) override
-    {
-        if (PrecisionStrategy::shouldSkip(outVal, goldVal))
-            return true;
-        if (std::isinf(outVal) || std::isinf(goldVal))
-            return true;
-        return false;
-    }
+    // Delegates to base class; INF mismatches handled in processElement
+    bool shouldSkip(float outVal, float goldVal) override { return PrecisionStrategy::shouldSkip(outVal, goldVal); }
 
     void processElement(float outVal, float goldVal) override
     {
+        // INF mismatch: hard failure, bypass MERE/MARE
+        if (std::isinf(outVal) || std::isinf(goldVal)) {
+            mismatchCount_++;
+            return;
+        }
         double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + kEpsilon);
         sumRelErr_ += relErr;
         if (relErr > maxRelErr_)
             maxRelErr_ = relErr;
         if (relErr > outlierLimit_)
             outlierCount_++;
+        validCount_++;
     }
 
     bool reportResult(size_t count, size_t skippedCount, const std::string& caseId) override
     {
-        size_t validCount = count - skippedCount;
-        double mere = (validCount > 0) ? sumRelErr_ / static_cast<double>(validCount) : 0.0;
+        double mere = (validCount_ > 0) ? sumRelErr_ / static_cast<double>(validCount_) : 0.0;
 
         std::cout << "[" << caseId << "] MERE=" << mere << " MARE=" << maxRelErr_ << " (threshold=" << threshold_
                   << ", outlier_limit=" << outlierLimit_;
         if (skippedCount > 0)
-            std::cout << ", skipped " << skippedCount << " elements (exact/nan/inf)";
+            std::cout << ", skipped " << skippedCount << " elements (exact/nan/inf-equal)";
+        if (mismatchCount_ > 0)
+            std::cout << ", " << mismatchCount_ << " special-value mismatches";
         std::cout << ")" << std::endl;
 
-        bool pass = (mere < threshold_) && (maxRelErr_ < outlierLimit_);
+        bool pass = (mismatchCount_ == 0) && (mere < threshold_) && (maxRelErr_ < outlierLimit_);
         std::cout << "[" << caseId << "] " << (pass ? "PASSED" : "FAILED") << " (MERE < threshold && MARE < "
-                  << multiplier_ << "*threshold, " << outlierCount_ << " outliers out of " << count << " elements)"
-                  << std::endl;
+                  << multiplier_ << "*threshold, " << outlierCount_ << " outliers, " << mismatchCount_
+                  << " mismatches out of " << count << " elements)" << std::endl;
         return pass;
     }
 
@@ -202,6 +203,8 @@ private:
     double sumRelErr_ = 0.0;
     double maxRelErr_ = 0.0;
     size_t outlierCount_ = 0;
+    size_t mismatchCount_ = 0; // INF-related special-value mismatches
+    size_t validCount_ = 0;    // elements contributing to MERE/MARE statistics
 };
 
 class ExactStrategy : public PrecisionStrategy {
@@ -293,11 +296,9 @@ public:
     }
 
     // ── Complex Float MERE/MARE verification (real/imag separately) ──
-    static bool verifyMereMareComplexFloat(const std::complex<float>* output,
-                                             const std::complex<float>* golden,
-                                             size_t count, double threshold, double multiplier,
-                                             double epsilon,
-                                             const std::string& caseId)
+    static bool verifyMereMareComplexFloat(
+        const std::complex<float>* output, const std::complex<float>* golden, size_t count, double threshold,
+        double multiplier, double epsilon, const std::string& caseId)
     {
         // Split into real and imaginary parts
         std::vector<float> outReal(count), outImag(count);
@@ -315,7 +316,6 @@ public:
         bool imagPass = imagStrategy.verify(outImag.data(), goldImag.data(), count, 1, caseId + "_imag");
         return realPass && imagPass;
     }
-
 
 private:
     static std::unique_ptr<PrecisionStrategy> createStrategy(const VerifyConfig& cfg)

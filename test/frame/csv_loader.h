@@ -326,6 +326,22 @@ inline aclblasComputeType_t parseComputeType(const std::string& s)
     return parseEnum(s, t, ACLBLAS_COMPUTE_32F);
 }
 
+// ── aclDataType string → int32_t parser ──
+//   ACL_FLOAT=0, ACL_FLOAT16=1, ACL_BF16=27, ACL_INT8=8 etc.
+//   Stored as int32_t so BlasFillMode / param structs can switch on it.
+using T_DtypeLocal = int32_t;
+
+inline T_DtypeLocal parseDataType(const std::string& s)
+{
+    static const std::unordered_map<std::string, T_DtypeLocal> t = {
+        {"ACL_FLOAT16", static_cast<int32_t>(ACL_FLOAT16)}, {"FP16", static_cast<int32_t>(ACL_FLOAT16)},
+        {"ACL_FLOAT", static_cast<int32_t>(ACL_FLOAT)},     {"FP32", static_cast<int32_t>(ACL_FLOAT)},
+        {"ACL_BF16", static_cast<int32_t>(ACL_BF16)},       {"BF16", static_cast<int32_t>(ACL_BF16)},
+        {"ACL_INT8", static_cast<int32_t>(ACL_INT8)},       {"INT8", static_cast<int32_t>(ACL_INT8)},
+    };
+    return parseEnum<T_DtypeLocal>(s, t, static_cast<int32_t>(ACL_FLOAT));
+}
+
 // ── Array parsers: semicolon-separated values for grouped batched operators ──
 
 inline std::vector<std::string> splitBySemicolon(const std::string& s)
