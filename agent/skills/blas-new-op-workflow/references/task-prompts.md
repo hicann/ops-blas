@@ -112,6 +112,8 @@ scene: questionnaire
   - CP1.1.B.json 中 {aclblasXxx} 和 {operator_name} 已替换
   - 精度标准选项中根据算子类型标注"（推荐）"：非计算类→位精确，浮点计算类→对应标杆
   - 编程模型选项仅当 CP1.1.A 确认的目标芯片为 arch35 时包含，其他芯片删除此题
+  - 若 CP1.1.A 选中 Ex（多dtype扩展），则保留 CP1.1.B.json 中 condition 为"CP1.1.A 选中 Ex"的 Ex 专属问题（Ex 形态、Ex dtype 组合），并删除编程模型问题
+  - 若 CP1.1.A 未选中 Ex，则删除 CP1.1.B.json 中 condition 为"CP1.1.A 选中 Ex"的所有问题
   - 不修改 question/options 结构
 ```
 

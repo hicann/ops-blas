@@ -5,7 +5,7 @@
     "API 名称": "{aclblasXxx}",
     "目录/文件名": "{operator_name}",
     "前期对齐": "CP1.1.A 已确认：dtype={已选dtype}，目标芯片={已选芯片}",
-    "说明": "确认精度标准和编程模型"
+    "说明": "确认精度标准和编程模型。若 CP1.1.A 选中 Ex，则追加 Ex 形态和 dtype 组合问题，并删除编程模型问题"
   },
   "questions": [
     {
@@ -25,6 +25,31 @@
         {"label": "SIMD membase", "description": "传统 SIMD 编程模型，使用 TPipe/TQue 流水线"},
         {"label": "SIMD regbase", "description": "寄存器级 SIMD 编程，使用 RegTensor/MaskReg/__simd_vf__，适合需要精细寄存器控制的场景"},
         {"label": "SIMT", "description": "__simt_vf__ 修饰，asc_vf_call 启动，适合 data-parallel 场景"}
+      ]
+    },
+    {
+      "header": "Ex 形态",
+      "condition": "CP1.1.A 选中 Ex",
+      "question": "Ex 变体属于哪种形态？",
+      "options": [
+        {"label": "矩阵类 (GEMM Ex)", "description": "A/B/C 独立 dtype + alpha/beta，Cube BlockMmad"},
+        {"label": "批量类 (Batched Ex)", "description": "指针数组 + batchCount + workspace 布局"},
+        {"label": "分组类 (Grouped Batched Ex)", "description": "逐组配置，GM 平铺 tiling + cube/epilogue 两段"},
+        {"label": "向量类 (Scale Ex)", "description": "单一 xType，SIMD/SIMT 双路径"},
+        {"label": "其他", "description": "用户自行描述 Ex 形态"}
+      ]
+    },
+    {
+      "header": "Ex dtype 组合",
+      "condition": "CP1.1.A 选中 Ex",
+      "multiSelect": true,
+      "question": "需要支持哪些 dtype 组合？",
+      "options": [
+        {"label": "FP16 + FP16 + FP16", "description": "A/B/C 均为 FP16，最常用"},
+        {"label": "BF16 + BF16 + BF16", "description": "A/B/C 均为 BF16"},
+        {"label": "FP32 + FP32 + FP32", "description": "A/B/C 均为 FP32"},
+        {"label": "FP8 (E4M3/E5M2) → FP16", "description": "FP8 输入，FP16 输出，含混合 FP8 组合"},
+        {"label": "其他", "description": "用户自行描述 dtype 组合和 computeType"}
       ]
     }
   ]

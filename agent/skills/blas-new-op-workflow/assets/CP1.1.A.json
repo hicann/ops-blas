@@ -24,7 +24,8 @@
         {"label": "S (FP32)", "description": "float，单精度实数，4 字节"},
         {"label": "D (FP64)", "description": "double，双精度实数，8 字节"},
         {"label": "C (Complex FP32)", "description": "std::complex<float>，单精度复数，8 字节"},
-        {"label": "Z (Complex FP64)", "description": "std::complex<double>，双精度复数，16 字节"}
+        {"label": "Z (Complex FP64)", "description": "std::complex<double>，双精度复数，16 字节"},
+        {"label": "Ex (多dtype扩展)", "description": "A/B/C 各路独立 aclDataType + computeType 计算精度可配，适用 gemm_ex/scalex 等 Ex 变体"}
       ]
     },
     {
