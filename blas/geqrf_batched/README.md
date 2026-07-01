@@ -49,3 +49,176 @@ aclblasStatus_t aclblasSgeqrfBatched(aclblasHandle_t handle, int m, int n, float
 
 - m >= 0, n >= 0, batchSize >= 0
 - lda >= max(1, m)
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include <memory>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+struct AclrtMemDeleter {
+    void operator()(void* ptr) const
+    {
+        if (ptr != nullptr) {
+            aclrtFree(ptr);
+        }
+    }
+};
+
+struct AclblasHandleDeleter {
+    void operator()(aclblasHandle_t handle) const
+    {
+        if (handle != nullptr) {
+            aclblasDestroy(handle);
+        }
+    }
+};
+
+int aclblasSgeqrfBatchedTest(AclContext& ctx)
+{
+    constexpr int m = 2;
+    constexpr int n = 2;
+    constexpr int lda = 2;
+    constexpr int batchSize = 1;
+    constexpr int minMN = m < n ? m : n;
+    constexpr size_t matBytes = static_cast<size_t>(lda) * n * sizeof(float);
+    constexpr size_t tauBytes = static_cast<size_t>(minMN) * sizeof(float);
+    constexpr size_t ptrBytes = sizeof(float*) * batchSize;
+
+    // A 按列主序存储：[[1,3],[2,4]]
+    float hA[lda * n] = {1.0f, 2.0f, 3.0f, 4.0f};
+    float hTau[minMN] = {0.0f};
+    int info = 0;
+
+    void *rawA = nullptr;
+    auto aclRet = aclrtMalloc(&rawA, matBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dA(rawA);
+
+    void *rawTau = nullptr;
+    aclRet = aclrtMalloc(&rawTau, tauBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dTau(rawTau);
+
+    void *rawAPtrs = nullptr;
+    aclRet = aclrtMalloc(&rawAPtrs, ptrBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dAPtrs(rawAPtrs);
+
+    void *rawTauPtrs = nullptr;
+    aclRet = aclrtMalloc(&rawTauPtrs, ptrBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dTauPtrs(rawTauPtrs);
+
+    aclRet = aclrtMemcpy(dA.get(), matBytes, hA, matBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    // 构造设备端指针数组：将每个设备指针拷贝到 Device 上的指针数组
+    float* hAPtr = static_cast<float*>(dA.get());
+    aclRet = aclrtMemcpy(dAPtrs.get(), ptrBytes, &hAPtr, ptrBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    float* hTauPtr = static_cast<float*>(dTau.get());
+    aclRet = aclrtMemcpy(dTauPtrs.get(), ptrBytes, &hTauPtr, ptrBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+    std::unique_ptr<void, AclblasHandleDeleter> handle(rawHandle);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handle.get()), ctx.Stream());
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+
+    blasRet = aclblasSgeqrfBatched(
+        static_cast<aclblasHandle_t>(handle.get()), m, n,
+        reinterpret_cast<float* const*>(dAPtrs.get()), lda,
+        reinterpret_cast<float* const*>(dTauPtrs.get()), &info, batchSize);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+
+    aclRet = aclrtSynchronizeStream(ctx.Stream());
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    aclRet = aclrtMemcpy(hA, matBytes, dA.get(), matBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    aclRet = aclrtMemcpy(hTau, tauBytes, dTau.get(), tauBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    printf("info = %d\n", info);
+    for (int i = 0; i < lda * n; i++) {
+        printf("A[%d] = %f\n", i, hA[i]);
+    }
+    for (int i = 0; i < minMN; i++) {
+        printf("tau[%d] = %f\n", i, hTau[i]);
+    }
+
+    return 0;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasSgeqrfBatchedTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+    return 0;
+}
+```

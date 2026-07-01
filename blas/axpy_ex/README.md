@@ -69,6 +69,8 @@ aclblasStatus_t aclblasAxpyEx(aclblasHandle_t handle, int n, const void *alpha, 
 
 #### 调用示例
 
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
 ```cpp
 #include <cstdio>
 #include <vector>

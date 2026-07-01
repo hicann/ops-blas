@@ -48,3 +48,146 @@ aclblasStatus_t aclblasStpttr(aclblasHandle_t handle, aclblasFillMode_t uplo, in
 - n >= 0
 - lda >= max(1, n)
 - uplo 必须为 ACLBLAS_UPPER 或 ACLBLAS_LOWER
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include <memory>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+struct AclrtMemDeleter {
+    void operator()(void* ptr) const
+    {
+        if (ptr != nullptr) {
+            aclrtFree(ptr);
+        }
+    }
+};
+
+struct AclblasHandleDeleter {
+    void operator()(aclblasHandle_t handle) const
+    {
+        if (handle != nullptr) {
+            aclblasDestroy(handle);
+        }
+    }
+};
+
+int aclblasStpttrTest(AclContext& ctx)
+{
+    constexpr int n = 3;
+    constexpr int lda = 3;
+    constexpr size_t aSize = lda * n * sizeof(float);
+    constexpr size_t apSize = n * (n + 1) / 2 * sizeof(float);
+
+    // 输入压缩格式（按列打包上三角）：1 2 5 3 6 9
+    float hAP[n * (n + 1) / 2] = {1.0f, 2.0f, 5.0f, 3.0f, 6.0f, 9.0f};
+    float hA[lda * n] = {0.0f};
+
+    void *rawAP = nullptr;
+    auto aclRet = aclrtMalloc(&rawAP, apSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dAP(rawAP);
+
+    void *rawA = nullptr;
+    aclRet = aclrtMalloc(&rawA, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dA(rawA);
+
+    aclRet = aclrtMemcpy(dAP.get(), apSize, hAP, apSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+    std::unique_ptr<void, AclblasHandleDeleter> handle(rawHandle);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handle.get()), ctx.Stream());
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+
+    blasRet = aclblasStpttr(
+        static_cast<aclblasHandle_t>(handle.get()), ACLBLAS_UPPER, n,
+        static_cast<const float*>(dAP.get()), static_cast<float*>(dA.get()), lda);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+
+    aclRet = aclrtSynchronizeStream(ctx.Stream());
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    aclRet = aclrtMemcpy(hA, aSize, dA.get(), aSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    // 预期结果（列主序上三角）：1 0 0 2 5 0 3 6 9
+    for (int i = 0; i < lda * n; i++) {
+        printf("A[%d] = %f\n", i, hA[i]);
+    }
+
+    return 0;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasStpttrTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+    return 0;
+}
+```
