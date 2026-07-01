@@ -55,6 +55,152 @@ aclblasStatus_t aclblasStbmv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 - k >= 0
 - lda >= k + 1
 - incx != 0
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <memory>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+struct AclrtMemDeleter {
+    void operator()(void* ptr) const
+    {
+        if (ptr != nullptr) {
+            aclrtFree(ptr);
+        }
+    }
+};
+
+struct AclblasHandleDeleter {
+    void operator()(aclblasHandle_t handle) const
+    {
+        if (handle != nullptr) {
+            aclblasDestroy(handle);
+        }
+    }
+};
+
+int aclblasStbmvTest(AclContext& ctx)
+{
+    constexpr int n = 4;
+    constexpr int k = 1;
+    constexpr int lda = k + 1;
+    constexpr int incx = 1;
+    constexpr size_t aSize = lda * n * sizeof(float);
+    constexpr size_t xSize = n * sizeof(float);
+
+    float hA[lda * n] = {
+        4.0f, 1.0f,
+        5.0f, 2.0f,
+        6.0f, 3.0f,
+        7.0f, 0.0f
+    };
+    float hX[n] = {1.0f, 2.0f, 3.0f, 4.0f};
+
+    void *rawA = nullptr;
+    auto aclRet = aclrtMalloc(&rawA, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dA(rawA);
+
+    void *rawX = nullptr;
+    aclRet = aclrtMalloc(&rawX, xSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dX(rawX);
+
+    aclRet = aclrtMemcpy(dA.get(), aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    aclRet = aclrtMemcpy(dX.get(), xSize, hX, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+    std::unique_ptr<void, AclblasHandleDeleter> handle(rawHandle);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handle.get()), ctx.Stream());
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+
+    blasRet = aclblasStbmv(
+        static_cast<aclblasHandle_t>(handle.get()), ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
+        n, k, static_cast<float*>(dA.get()), lda, static_cast<float*>(dX.get()), incx);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+
+    aclRet = aclrtSynchronizeStream(ctx.Stream());
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    aclRet = aclrtMemcpy(hX, xSize, dX.get(), xSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    return 0;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasStbmvTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+    return 0;
+}
+```
+
 ### aclblasStbmv_legacy
 
 #### 产品支持情况
