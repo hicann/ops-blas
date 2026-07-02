@@ -106,6 +106,8 @@ if(EXISTS "${_OPS_BLAS_ASC_ROOT}/include")
   target_include_directories(${OPS_BLASLT} PRIVATE
     "${_OPS_BLAS_ASC_ROOT}"
     "${_OPS_BLAS_ASC_ROOT}/include"
+    "${_OPS_BLAS_ASC_ROOT}/include/utils"
+    "${_OPS_BLAS_ASC_ROOT}/impl/basic_api"
     "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include"
   )
 endif()
@@ -168,6 +170,8 @@ target_include_directories(${OPS_BLAS} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/blas
     "${_OPS_BLAS_ASC_ROOT}"
     "${_OPS_BLAS_ASC_ROOT}/include"
+    "${_OPS_BLAS_ASC_ROOT}/include/utils"
+    "${_OPS_BLAS_ASC_ROOT}/impl/basic_api"
     "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include"
     ${OPTENSOR_INCLUDE_DIR}
     ${OPTENSOR_INCLUDE_DIR}/tensor_api

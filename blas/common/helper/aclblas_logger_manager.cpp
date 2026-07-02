@@ -14,6 +14,7 @@
  */
 
 #include "aclblas_logger_manager.h"
+#include "dlog_pub.h"
 
 namespace {
 static AclBlas::_aclblas_logger_configure configure;
@@ -29,16 +30,16 @@ aclblasStatus_t aclblasLoggerConfigure(const char* logFile, bool logToStdOut, bo
     configure.logLevel = logLevel;
     switch (configure.logLevel) {
         case aclblasLogLevel::ACLBLAS_LOG_LEVEL_INFO:
-            dlog_setlevel(OP, DLOG_INFO, 1);
+            dlog_setlevel(OP_MODULE_ID, DLOG_INFO, 1);
             break;
         case aclblasLogLevel::ACLBLAS_LOG_LEVEL_ERROR:
-            dlog_setlevel(OP, DLOG_ERROR, 1);
+            dlog_setlevel(OP_MODULE_ID, DLOG_ERROR, 1);
             break;
         case aclblasLogLevel::ACLBLAS_LOG_LEVEL_DEBUG:
-            dlog_setlevel(OP, DLOG_DEBUG, 1);
+            dlog_setlevel(OP_MODULE_ID, DLOG_DEBUG, 1);
             break;
         default:
-            dlog_setlevel(OP, DLOG_INFO, 1);
+            dlog_setlevel(OP_MODULE_ID, DLOG_INFO, 1);
             break;
     }
     return aclblasStatus_t::ACLBLAS_STATUS_SUCCESS;
