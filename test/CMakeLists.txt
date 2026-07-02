@@ -63,9 +63,14 @@ if(BUILD_TEST)
         if(NOT TEST_HAS_OP_SOURCES OR NOT TEST_HAS_TEST_SOURCES)
             set(SKIP_REASONS "")
             if(NOT TEST_HAS_OP_SOURCES)
-                list(APPEND SKIP_REASONS
-                    "operator implementation not found for '${SOC_VERSION}' "
-                    "(checked blas/${TEST_NAME}/ and blasLt/*/)")
+                if(NOT ENABLE_BLAS_TRMM AND (TEST_NAME STREQUAL "strmm" OR TEST_NAME STREQUAL "trmm"))
+                    list(APPEND SKIP_REASONS
+                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
+                else()
+                    list(APPEND SKIP_REASONS
+                        "operator implementation not found for '${SOC_VERSION}' "
+                        "(checked blas/${TEST_NAME}/ and blasLt/*/)")
+                endif()
             endif()
             if(NOT TEST_HAS_TEST_SOURCES)
                 list(APPEND SKIP_REASONS

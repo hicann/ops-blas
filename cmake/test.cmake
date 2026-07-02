@@ -11,6 +11,13 @@
 # 检查 blas/<op_name>/ 下是否有当前 SOC 可编译的算子实现
 function(_ops_blas_has_blas_op_sources op_name out_var)
     set(has_sources FALSE)
+
+    # strmm 使用 tensor_api，需 asc-devkit >= 9.1；低版本跳过其实现与测试
+    if(NOT ENABLE_BLAS_TRMM AND (op_name STREQUAL "strmm" OR op_name STREQUAL "trmm"))
+        set(${out_var} FALSE PARENT_SCOPE)
+        return()
+    endif()
+
     foreach(arch_dir ${SOC_ARCH_DIRS})
         file(GLOB arch_dir_srcs ${CMAKE_SOURCE_DIR}/blas/${op_name}/${arch_dir}/*.cpp
                                   ${CMAKE_SOURCE_DIR}/blas/*/${op_name}/${arch_dir}/*.cpp

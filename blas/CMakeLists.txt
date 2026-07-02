@@ -60,6 +60,15 @@ foreach(arch_dir ${SOC_ARCH_DIRS})
     list(APPEND ARCH_SRC_FILES ${arch_dir_srcs})
 endforeach()
 
+# strmm 使用 tensor_api，需 asc-devkit >= 9.1（ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR > 0）
+if(NOT ENABLE_BLAS_TRMM)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/trmm/")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/trmm/")
+    message(
+        STATUS
+        "Skipping blas trmm/strmm (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
+
 set(ALL_BLAS_SRC_FILES
     ${BASE_SRC_FILES}
     ${OP_SRC_FILES}

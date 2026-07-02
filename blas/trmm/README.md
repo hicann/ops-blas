@@ -29,6 +29,8 @@ RIGHT 模式：B := alpha * B * op(A)
 - Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
 - Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
 
+> Ascend 950PR/Ascend 950DT 上的 strmm 依赖 CANN asc-devkit >= 9.1（`ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR >= 1`），低于该版本时编译与运行将跳过此算子。
+
 #### 函数原型
 
 ```cpp
