@@ -73,65 +73,144 @@ aclblasStatus_t aclblasAxpyEx(aclblasHandle_t handle, int n, const void *alpha, 
 
 ```cpp
 #include <cstdio>
-#include <vector>
+#include <memory>
+
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
-int main()
-{
-    // 1. 初始化 ACL 环境
-    aclInit(nullptr);
-    aclrtSetDevice(0);
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-    // 2. 创建 handle 与 stream
-    aclblasHandle_t handle;
-    aclrtStream stream;
-    aclblasCreate(&handle);
-    aclrtCreateStream(&stream);
-    aclblasSetStream(handle, stream);
+class AclContext {
+public:
+    explicit AclContext(int deviceId) : deviceId_(deviceId) {}
 
-    // 3. 准备 host 数据: y = alpha * x + y, n=4, incx=incy=1, FP32
-    constexpr int n = 4;
-    const float alpha = 2.0f;
-    std::vector<float> xHost = {1.0f, 2.0f, 3.0f, 4.0f};
-    std::vector<float> yHost = {10.0f, 20.0f, 30.0f, 40.0f};
-    const size_t bytes = static_cast<size_t>(n) * sizeof(float);
-
-    // 4. 分配 Device 内存并拷贝 x、y 到 Device
-    void *dX = nullptr;
-    void *dY = nullptr;
-    aclrtMalloc(&dX, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(&dY, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMemcpy(dX, bytes, xHost.data(), bytes, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(dY, bytes, yHost.data(), bytes, ACL_MEMCPY_HOST_TO_DEVICE);
-
-    // 5. 调用 aclblasAxpyEx: y = alpha * x + y
-    aclblasStatus_t ret = aclblasAxpyEx(
-        handle, n,
-        &alpha, ACL_FLOAT,
-        dX, ACL_FLOAT, 1,
-        dY, ACL_FLOAT, 1,
-        ACL_FLOAT);
-    if (ret != ACLBLAS_STATUS_SUCCESS) {
-        printf("aclblasAxpyEx failed, ret=%d\n", static_cast<int>(ret));
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
     }
 
-    // 6. 同步并取回结果
-    aclrtSynchronizeStream(stream);
-    aclrtMemcpy(yHost.data(), bytes, dY, bytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        aclInited_ = true;
 
-    // 预期结果: y = {12.0, 24.0, 36.0, 48.0}
-    printf("result: %.1f %.1f %.1f %.1f\n",
-           yHost[0], yHost[1], yHost[2], yHost[3]);
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        deviceSet_ = true;
 
-    // 7. 释放资源
-    aclrtFree(dX);
-    aclrtFree(dY);
-    aclblasDestroy(handle);
-    aclrtDestroyStream(stream);
-    aclrtResetDevice(0);
-    aclFinalize();
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, return ret);
+        return ACL_SUCCESS;
+    }
 
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+struct AclrtMemDeleter {
+    void operator()(void* ptr) const
+    {
+        if (ptr != nullptr) {
+            aclrtFree(ptr);
+        }
+    }
+};
+
+struct AclblasHandleDeleter {
+    void operator()(aclblasHandle_t handle) const
+    {
+        if (handle != nullptr) {
+            aclblasDestroy(handle);
+        }
+    }
+};
+
+int aclblasAxpyExTest(AclContext& ctx)
+{
+    constexpr int n = 4;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
+    constexpr size_t bytes = n * sizeof(float);
+    float alpha = 2.0f;
+
+    float hX[n] = {1.0f, 2.0f, 3.0f, 4.0f};
+    float hY[n] = {10.0f, 20.0f, 30.0f, 40.0f};
+
+    void *rawX = nullptr;
+    auto aclRet = aclrtMalloc(&rawX, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dX(rawX);
+
+    void *rawY = nullptr;
+    aclRet = aclrtMalloc(&rawY, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    std::unique_ptr<void, AclrtMemDeleter> dY(rawY);
+
+    aclRet = aclrtMemcpy(dX.get(), bytes, hX, bytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+    aclRet = aclrtMemcpy(dY.get(), bytes, hY, bytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+    std::unique_ptr<void, AclblasHandleDeleter> handle(rawHandle);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handle.get()), ctx.Stream());
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+
+    blasRet = aclblasAxpyEx(
+        static_cast<aclblasHandle_t>(handle.get()), n,
+        static_cast<const void*>(&alpha), ACL_FLOAT,
+        static_cast<const void*>(dX.get()), ACL_FLOAT, incx,
+        static_cast<void*>(dY.get()), ACL_FLOAT, incy,
+        ACL_FLOAT);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
+
+    aclRet = aclrtSynchronizeStream(ctx.Stream());
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    aclRet = aclrtMemcpy(hY, bytes, dY.get(), bytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, return aclRet);
+
+    // 预期结果：y = alpha*x + y = {12, 24, 36, 48}
+    for (int i = 0; i < n; i++) {
+        printf("y[%d] = %f\n", i, hY[i]);
+    }
+
+    return 0;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasAxpyExTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
     return 0;
 }
 ```

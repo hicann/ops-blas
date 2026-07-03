@@ -157,12 +157,10 @@ aclblasStatus_t aclblasScopy(aclblasHandle_t handle, int n, const float* x, int 
 
     ScopyTilingData tiling = CalScopyTilingData(totalN, numBlocks, incx, incy);
 
-    if (CheckLogLevel(OP_MODULE_ID, DLOG_DEBUG) == 1) {
-        OP_LOGD(
-            "aclblasScopy", "tiling: totalN=%u perCoreN=%u extra=%u tail=%u tileSize=%u numBlocks=%u incx=%d incy=%d",
-            tiling.totalN, tiling.perCoreN, tiling.extraBlockCores, tiling.tailElements, tiling.tileSize, numBlocks,
-            tiling.incx, tiling.incy);
-    }
+    OP_LOGD(
+        "aclblasScopy", "tiling: totalN=%u perCoreN=%u extra=%u tail=%u tileSize=%u numBlocks=%u incx=%d incy=%d",
+        tiling.totalN, tiling.perCoreN, tiling.extraBlockCores, tiling.tailElements, tiling.tileSize, numBlocks,
+        tiling.incx, tiling.incy);
     OP_LOGD("aclblasScopy", "launching kernel: blocks=%u n=%u incx=%d incy=%d", numBlocks, totalN, incx, incy);
 
     uint8_t* wsPtr = PrepareOffsetWorkspace(h, incx, incy, tiling.tileSize);
