@@ -51,3 +51,165 @@ aclblasStatus_t aclblasSgetrfBatched(aclblasHandle_t handle, int n, float *const
 - n == 0 或 batchSize == 0 时直接返回成功，不启动 Kernel
 - PivotArray != NULL 时 infoArray 不可为 NULL
 - PivotArray == NULL 合法（禁用主元选取，执行非主元 LU 分解）
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include <memory>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+int aclblasSgetrfBatchedTest(AclContext& ctx)
+{
+    aclrtStream stream = ctx.Stream();
+
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    constexpr int n = 2;
+    constexpr int lda = 2;
+    constexpr int batchSize = 1;
+    constexpr size_t aSize = static_cast<size_t>(lda) * n * sizeof(float);
+    constexpr size_t ipivSize = static_cast<size_t>(n) * batchSize * sizeof(int);
+    constexpr size_t infoSize = sizeof(int);
+
+    std::vector<float> hA = {4.0f, 2.0f,
+                             1.0f, 3.0f};
+    std::vector<int> hIpiv(n * batchSize, 0);
+    std::vector<int> hInfo(batchSize, 0);
+
+    void* rawA = nullptr;
+    aclError aclRet;
+    aclRet = aclrtMalloc(&rawA, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for A failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtr(rawA, aclrtFree);
+
+    void* rawIpiv = nullptr;
+    aclRet = aclrtMalloc(&rawIpiv, ipivSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for ipiv failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dIpivPtr(rawIpiv, aclrtFree);
+
+    void* rawInfo = nullptr;
+    aclRet = aclrtMalloc(&rawInfo, infoSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for info failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dInfoPtr(rawInfo, aclrtFree);
+
+    aclRet = aclrtMemcpy(dAPtr.get(), aSize, hA.data(), aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for A failed. ERROR: %d\n", aclRet); return aclRet);
+
+    float* hAPtrHost = static_cast<float*>(dAPtr.get());
+    void* rawAPtrs = nullptr;
+    aclRet = aclrtMalloc(&rawAPtrs, sizeof(float*), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for APtrs failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtrs(rawAPtrs, aclrtFree);
+
+    aclRet = aclrtMemcpy(dAPtrs.get(), sizeof(float*), &hAPtrHost, sizeof(float*), ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for APtrs failed. ERROR: %d\n", aclRet); return aclRet);
+
+    blasRet = aclblasSgetrfBatched(
+        static_cast<aclblasHandle_t>(handlePtr.get()), n,
+        static_cast<float* const*>(dAPtrs.get()), lda,
+        static_cast<int*>(dIpivPtr.get()),
+        static_cast<int*>(dInfoPtr.get()), batchSize);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSgetrfBatched failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    aclRet = aclrtMemcpy(hIpiv.data(), ipivSize, dIpivPtr.get(), ipivSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for ipiv failed. ERROR: %d\n", aclRet); return aclRet);
+
+    aclRet = aclrtMemcpy(hInfo.data(), infoSize, dInfoPtr.get(), infoSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for info failed. ERROR: %d\n", aclRet); return aclRet);
+
+    LOG_PRINT("info[0] = %d\n", hInfo[0]);
+    if (hInfo[0] == 0) {
+        LOG_PRINT("ipiv = [%d, %d]\n", hIpiv[0], hIpiv[1]);
+        LOG_PRINT("Success! Factorization completed.\n");
+    } else {
+        LOG_PRINT("Failed! U(%d,%d) is exactly zero.\n", hInfo[0], hInfo[0]);
+    }
+
+    LOG_PRINT("aclblasSgetrfBatched test passed\n");
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasSgetrfBatchedTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSgetrfBatchedTest failed. ERROR: %d\n", ret); return ret);
+    return 0;
+}
+```

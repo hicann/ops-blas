@@ -60,16 +60,80 @@ aclblasStatus_t aclblasStpsv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 
 ```cpp
 #include <cstdio>
+#include <memory>
+#include <vector>
+
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
-int main()
-{
-    aclInit(nullptr);
-    aclrtSetDevice(0);
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-    aclblasHandle_t handle = nullptr;
-    aclblasCreate(&handle);
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+int aclblasStpsvTest(AclContext& ctx)
+{
+    aclrtStream stream = ctx.Stream();
+
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
 
     constexpr int n = 2;
     constexpr int incx = 1;
@@ -77,36 +141,54 @@ int main()
     constexpr size_t apBytes = apSize * sizeof(float);
     constexpr size_t xBytes = n * sizeof(float);
 
-    float hAP[apSize] = {1.0f, 2.0f, 3.0f};
-    float hX[n] = {1.0f, 8.0f};
+    std::vector<float> hAP = {1.0f, 2.0f, 3.0f};
+    std::vector<float> hX = {1.0f, 8.0f};
 
-    aclrtStream stream = nullptr;
-    aclrtCreateStream(&stream);
-    aclblasSetStream(handle, stream);
+    void* rawAP = nullptr;
+    aclError aclRet;
+    aclRet = aclrtMalloc(&rawAP, apBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for AP failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtr(rawAP, aclrtFree);
 
-    float *dAP = nullptr, *dX = nullptr;
-    aclrtMalloc(reinterpret_cast<void**>(&dAP), apBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void**>(&dX), xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    void* rawX = nullptr;
+    aclRet = aclrtMalloc(&rawX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for x failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dXPtr(rawX, aclrtFree);
 
-    aclrtMemcpy(dAP, apBytes, hAP, apBytes, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(dX, xBytes, hX, xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMemcpy(dAPtr.get(), apBytes, hAP.data(), apBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for AP failed. ERROR: %d\n", aclRet); return aclRet);
 
-    aclblasStatus_t status = aclblasStpsv(
-        handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
-        n, dAP, dX, incx);
+    aclRet = aclrtMemcpy(dXPtr.get(), xBytes, hX.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for x failed. ERROR: %d\n", aclRet); return aclRet);
 
-    aclrtSynchronizeStream(stream);
+    blasRet = aclblasStpsv(
+        static_cast<aclblasHandle_t>(handlePtr.get()), ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
+        n, static_cast<const float*>(dAPtr.get()), static_cast<float*>(dXPtr.get()), incx);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStpsv failed. ERROR: %d\n", blasRet);
+              return blasRet);
 
-    aclrtMemcpy(hX, xBytes, dX, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
-    for (int i = 0; i < n; i++)
-        printf("hX[%d] = %f\n", i, hX[i]);
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
 
-    aclrtFree(dAP);
-    aclrtFree(dX);
-    aclrtDestroyStream(stream);
-    aclblasDestroy(handle);
-    aclrtResetDevice(0);
-    aclFinalize();
+    std::vector<float> xResult(n, 0.0f);
+    aclRet = aclrtMemcpy(xResult.data(), xBytes, dXPtr.get(), xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy result failed. ERROR: %d\n", aclRet); return aclRet);
+    for (int i = 0; i < n; i++) {
+        LOG_PRINT("x[%d] = %f\n", i, xResult[i]);
+    }
+
+    LOG_PRINT("aclblasStpsv test passed\n");
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasStpsvTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasStpsvTest failed. ERROR: %d\n", ret); return ret);
     return 0;
 }
 ```

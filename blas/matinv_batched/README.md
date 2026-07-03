@@ -29,15 +29,7 @@ Ainv[i] = A[i]⁻¹,  i = 0, 1, ..., batchSize - 1
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSmatinvBatched(
-    aclblasHandle_t handle,
-    int n,
-    const float* const A[],
-    int lda,
-    float* const Ainv[],
-    int lda_inv,
-    int* info,
-    int batchSize);
+aclblasStatus_t aclblasSmatinvBatched(aclblasHandle_t handle, int n, const float* const A[], int lda, float* const Ainv[], int lda_inv, int* info, int batchSize)
 ```
 
 #### 参数说明
@@ -71,31 +63,97 @@ aclblasStatus_t aclblasSmatinvBatched(
 示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
 
 ```cpp
-#include "acl/acl.h"
-#include "cann_ops_blas.h"
 #include <cstdio>
+#include <functional>
+#include <memory>
 #include <vector>
 
-int main()
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+int aclblasSmatinvBatchedTest(AclContext& ctx)
 {
-    aclInit(nullptr);
-    int32_t deviceId = 0;
-    aclrtSetDevice(deviceId);
+    aclrtStream stream = ctx.Stream();
 
-    aclblasHandle_t handle = nullptr;
-    aclblasCreate(&handle);
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
 
-    const int n = 16;
-    const int batchSize = 4;
-    const int lda = n;
-    const int lda_inv = n;
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    constexpr int n = 16;
+    constexpr int batchSize = 4;
+    constexpr int lda = n;
+    constexpr int lda_inv = n;
+    constexpr size_t aSize = static_cast<size_t>(lda) * n * sizeof(float);
+    constexpr size_t invSize = static_cast<size_t>(lda_inv) * n * sizeof(float);
+    constexpr size_t infoSize = batchSize * sizeof(int);
 
     std::vector<std::vector<float>> hostA(batchSize);
     std::vector<std::vector<float>> hostAinv(batchSize);
     std::vector<int> hostInfo(batchSize, 0);
     for (int b = 0; b < batchSize; b++) {
-        hostA[b].resize((size_t)lda * n, 0.0f);
-        hostAinv[b].resize((size_t)lda_inv * n, 0.0f);
+        hostA[b].resize(static_cast<size_t>(lda) * n, 0.0f);
+        hostAinv[b].resize(static_cast<size_t>(lda_inv) * n, 0.0f);
         for (int j = 0; j < n; j++) {
             for (int i = 0; i < n; i++) {
                 hostA[b][j * lda + i] = (i == j) ? 2.0f : 0.1f;
@@ -105,76 +163,106 @@ int main()
 
     std::vector<void*> dAMatrices(batchSize, nullptr);
     std::vector<void*> dAinvMatrices(batchSize, nullptr);
-    const size_t matBytes = (size_t)lda * n * sizeof(float);
-    const size_t invBytes = (size_t)lda_inv * n * sizeof(float);
-
-    for (int b = 0; b < batchSize; b++) {
-        aclrtMalloc(&dAMatrices[b], matBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-        aclrtMemcpy(dAMatrices[b], matBytes, hostA[b].data(), matBytes,
-                     ACL_MEMCPY_HOST_TO_DEVICE);
-        aclrtMalloc(&dAinvMatrices[b], invBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    }
-
-    const size_t ptrArrayBytes = (size_t)batchSize * sizeof(float*);
-    std::vector<float*> hAPtrs(batchSize), hAinvPtrs(batchSize);
-    for (int b = 0; b < batchSize; b++) {
-        hAPtrs[b] = (float*)dAMatrices[b];
-        hAinvPtrs[b] = (float*)dAinvMatrices[b];
-    }
-
-    void *dAPtrArray = nullptr, *dAinvPtrArray = nullptr;
-    aclrtMalloc(&dAPtrArray, ptrArrayBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMemcpy(dAPtrArray, ptrArrayBytes, hAPtrs.data(), ptrArrayBytes,
-                 ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMalloc(&dAinvPtrArray, ptrArrayBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMemcpy(dAinvPtrArray, ptrArrayBytes, hAinvPtrs.data(), ptrArrayBytes,
-                 ACL_MEMCPY_HOST_TO_DEVICE);
-
-    const size_t infoBytes = (size_t)batchSize * sizeof(int);
-    void* dInfo = nullptr;
-    aclrtMalloc(&dInfo, infoBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-
-    aclblasStatus_t status = aclblasSmatinvBatched(
-        handle, n,
-        (const float* const*)dAPtrArray, lda,
-        (float* const*)dAinvPtrArray, lda_inv,
-        (int*)dInfo, batchSize);
-
-    if (status == ACLBLAS_STATUS_SUCCESS) {
-        aclrtStream stream = nullptr;
-        aclblasGetStream(handle, &stream);
-        aclrtSynchronizeStream(stream);
-
-        for (int b = 0; b < batchSize; b++) {
-            aclrtMemcpy(hostAinv[b].data(), invBytes, dAinvMatrices[b], invBytes,
-                         ACL_MEMCPY_DEVICE_TO_HOST);
+    auto cleanupMatrices = [&]() {
+        for (int i = 0; i < batchSize; i++) {
+            if (dAMatrices[i]) aclrtFree(dAMatrices[i]);
+            if (dAinvMatrices[i]) aclrtFree(dAinvMatrices[i]);
         }
-        aclrtMemcpy(hostInfo.data(), infoBytes, dInfo, infoBytes,
-                     ACL_MEMCPY_DEVICE_TO_HOST);
+    };
+    struct MatrixGuard {
+        std::function<void()> cleanup;
+        ~MatrixGuard() { cleanup(); }
+    };
+    MatrixGuard guard{cleanupMatrices};
 
-        for (int b = 0; b < batchSize; b++) {
-            if (hostInfo[b] == 0) {
-                printf("Batch %d: inversion succeeded\n", b);
-            } else {
-                printf("Batch %d: singular (info=%d)\n", b, hostInfo[b]);
-            }
-        }
-    } else {
-        printf("aclblasSmatinvBatched failed: %d\n", status);
+    aclError aclRet;
+    for (int b = 0; b < batchSize; b++) {
+        aclRet = aclrtMalloc(&dAMatrices[b], aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for A[%d] failed. ERROR: %d\n", b, aclRet);
+                  return aclRet);
+        aclRet = aclrtMemcpy(dAMatrices[b], aSize, hostA[b].data(), aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for A[%d] failed. ERROR: %d\n", b, aclRet);
+                  return aclRet);
+        aclRet = aclrtMalloc(&dAinvMatrices[b], invSize, ACL_MEM_MALLOC_HUGE_FIRST);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for Ainv[%d] failed. ERROR: %d\n", b, aclRet);
+                  return aclRet);
     }
+
+    constexpr size_t ptrArraySize = static_cast<size_t>(batchSize) * sizeof(float*);
+    std::vector<float*> hAPtrs(batchSize);
+    std::vector<float*> hAinvPtrs(batchSize);
+    for (int b = 0; b < batchSize; b++) {
+        hAPtrs[b] = static_cast<float*>(dAMatrices[b]);
+        hAinvPtrs[b] = static_cast<float*>(dAinvMatrices[b]);
+    }
+
+    void* rawAPtrArray = nullptr;
+    aclRet = aclrtMalloc(&rawAPtrArray, ptrArraySize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for APtrArray failed. ERROR: %d\n", aclRet);
+              return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtrArray(rawAPtrArray, aclrtFree);
+
+    void* rawAinvPtrArray = nullptr;
+    aclRet = aclrtMalloc(&rawAinvPtrArray, ptrArraySize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for AinvPtrArray failed. ERROR: %d\n", aclRet);
+              return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAinvPtrArray(rawAinvPtrArray, aclrtFree);
+
+    void* rawInfo = nullptr;
+    aclRet = aclrtMalloc(&rawInfo, infoSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for info failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dInfoPtr(rawInfo, aclrtFree);
+
+    aclRet = aclrtMemcpy(dAPtrArray.get(), ptrArraySize, hAPtrs.data(), ptrArraySize,
+                         ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for APtrArray failed. ERROR: %d\n", aclRet);
+              return aclRet);
+    aclRet = aclrtMemcpy(dAinvPtrArray.get(), ptrArraySize, hAinvPtrs.data(), ptrArraySize,
+                         ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for AinvPtrArray failed. ERROR: %d\n", aclRet);
+              return aclRet);
+
+    blasRet = aclblasSmatinvBatched(
+        static_cast<aclblasHandle_t>(handlePtr.get()), n,
+        reinterpret_cast<const float* const*>(dAPtrArray.get()), lda,
+        reinterpret_cast<float* const*>(dAinvPtrArray.get()), lda_inv,
+        static_cast<int*>(dInfoPtr.get()), batchSize);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSmatinvBatched failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet);
+              return aclRet);
 
     for (int b = 0; b < batchSize; b++) {
-        aclrtFree(dAMatrices[b]);
-        aclrtFree(dAinvMatrices[b]);
+        aclRet = aclrtMemcpy(hostAinv[b].data(), invSize, dAinvMatrices[b], invSize,
+                             ACL_MEMCPY_DEVICE_TO_HOST);
+        CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for Ainv[%d] failed. ERROR: %d\n", b, aclRet);
+                  return aclRet);
     }
-    aclrtFree(dAPtrArray);
-    aclrtFree(dAinvPtrArray);
-    aclrtFree(dInfo);
+    aclRet = aclrtMemcpy(hostInfo.data(), infoSize, dInfoPtr.get(), infoSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy info failed. ERROR: %d\n", aclRet); return aclRet);
 
-    aclblasDestroy(handle);
-    aclrtResetDevice(deviceId);
-    aclFinalize();
+    for (int b = 0; b < batchSize; b++) {
+        if (hostInfo[b] == 0) {
+            LOG_PRINT("Batch %d: inversion succeeded\n", b);
+        } else {
+            LOG_PRINT("Batch %d: singular (info=%d)\n", b, hostInfo[b]);
+        }
+    }
 
+    LOG_PRINT("aclblasSmatinvBatched test passed\n");
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasSmatinvBatchedTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSmatinvBatchedTest failed. ERROR: %d\n", ret); return ret);
     return 0;
 }
 ```

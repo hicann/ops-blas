@@ -57,16 +57,80 @@ aclblasStatus_t aclblasSsyr(aclblasHandle_t handle, aclblasFillMode uplo, const 
 
 ```cpp
 #include <cstdio>
+#include <memory>
+#include <vector>
+
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
-int main()
-{
-    aclInit(nullptr);
-    aclrtSetDevice(0);
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
 
-    aclblasHandle_t handle = nullptr;
-    aclblasCreate(&handle);
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+int aclblasSsyrTest(AclContext& ctx)
+{
+    aclrtStream stream = ctx.Stream();
+
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
 
     constexpr int n = 2;
     constexpr int incx = 1;
@@ -74,39 +138,57 @@ int main()
     constexpr size_t xSize = n * sizeof(float);
     constexpr size_t aSize = n * n * sizeof(float);
 
-    float hX[n] = {1.0f, 2.0f};
-    float hA[n * n] = {0.0f};
+    std::vector<float> hX = {1.0f, 2.0f};
+    std::vector<float> hA(n * n, 0.0f);
     float alpha = 1.0f;
 
-    aclrtStream stream = nullptr;
-    aclrtCreateStream(&stream);
-    aclblasSetStream(handle, stream);
+    void* rawX = nullptr;
+    aclError aclRet;
+    aclRet = aclrtMalloc(&rawX, xSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for x failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dXPtr(rawX, aclrtFree);
 
-    float *dX = nullptr;
-    float *dA = nullptr;
-    aclrtMalloc(reinterpret_cast<void**>(&dX), xSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void**>(&dA), aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    void* rawA = nullptr;
+    aclRet = aclrtMalloc(&rawA, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for A failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtr(rawA, aclrtFree);
 
-    aclrtMemcpy(dX, xSize, hX, xSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(dA, aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMemcpy(dXPtr.get(), xSize, hX.data(), xSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for x failed. ERROR: %d\n", aclRet); return aclRet);
 
-    aclblasStatus_t status = aclblasSsyr(
-        handle, ACLBLAS_LOWER, n, &alpha,
-        dX, incx, dA, lda);
+    aclRet = aclrtMemcpy(dAPtr.get(), aSize, hA.data(), aSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for A failed. ERROR: %d\n", aclRet); return aclRet);
 
-    aclrtSynchronizeStream(stream);
+    blasRet = aclblasSsyr(
+        static_cast<aclblasHandle_t>(handlePtr.get()), ACLBLAS_LOWER, n, &alpha,
+        static_cast<const float*>(dXPtr.get()), incx, static_cast<float*>(dAPtr.get()), lda);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSsyr failed. ERROR: %d\n", blasRet);
+              return blasRet);
 
-    aclrtMemcpy(hA, aSize, dA, aSize, ACL_MEMCPY_DEVICE_TO_HOST);
-    for (int i = 0; i < n; i++)
-        for (int j = 0; j < n; j++)
-            printf("hA[%d][%d] = %f\n", i, j, hA[j * lda + i]);
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
 
-    aclrtFree(dX);
-    aclrtFree(dA);
-    aclrtDestroyStream(stream);
-    aclblasDestroy(handle);
-    aclrtResetDevice(0);
-    aclFinalize();
+    std::vector<float> aResult(n * n, 0.0f);
+    aclRet = aclrtMemcpy(aResult.data(), aSize, dAPtr.get(), aSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy result failed. ERROR: %d\n", aclRet); return aclRet);
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            LOG_PRINT("A[%d][%d] = %f\n", i, j, aResult[j * lda + i]);
+        }
+    }
+
+    LOG_PRINT("aclblasSsyr test passed\n");
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasSsyrTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSsyrTest failed. ERROR: %d\n", ret); return ret);
     return 0;
 }
 ```
