@@ -213,16 +213,16 @@ static GemvBatchedTilingData CalTilingData(uint32_t batchCount, uint32_t m, uint
 template <typename T_IN, typename T_OUT>
 static aclblasStatus_t GemvBatchedImpl(aclblasHandle_t handle, aclblasOperation_t trans,
                                        int m, int n,
-                                       const float *alpha, const T_IN *A, int lda,
-                                       const T_IN *x, int incx,
-                                       const float *beta, T_OUT *y, int incy,
+                                       const float *alpha, const T_IN *const Aarray[], int lda,
+                                       const T_IN *const xarray[], int incx,
+                                       const float *beta, T_OUT *const yarray[], int incy,
                                        int batchCount, uint32_t dtype)
 {
     if (handle == nullptr)  return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     if (m <= 0 || n <= 0)  return ACLBLAS_STATUS_INVALID_VALUE;
     if (lda < (m > 0 ? m : 1)) return ACLBLAS_STATUS_INVALID_VALUE;
     if (incx == 0 || incy == 0 || batchCount <= 0) return ACLBLAS_STATUS_INVALID_VALUE;
-    if (A == nullptr || x == nullptr || y == nullptr)   return ACLBLAS_STATUS_INVALID_VALUE;
+    if (Aarray == nullptr || xarray == nullptr || yarray == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
     if (alpha == nullptr || beta == nullptr)            return ACLBLAS_STATUS_INVALID_VALUE;
     if (trans != ACLBLAS_OP_N && trans != ACLBLAS_OP_T) return ACLBLAS_STATUS_INVALID_ENUM;
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
@@ -239,57 +239,60 @@ static aclblasStatus_t GemvBatchedImpl(aclblasHandle_t handle, aclblasOperation_
         dtype, transUint, *alpha, *beta, coreNum, usedCoreNum, maxPerCore,
         (int32_t)lda, (int32_t)incx, (int32_t)incy);
 
-    gemv_batched_kernel_do((uint8_t*)A, (uint8_t*)x, (uint8_t*)y,
+    gemv_batched_kernel_do(
+        reinterpret_cast<uint8_t*>(const_cast<T_IN**>(Aarray)),
+        reinterpret_cast<uint8_t*>(const_cast<T_IN**>(xarray)),
+        reinterpret_cast<uint8_t*>(const_cast<T_OUT**>(yarray)),
         tiling, usedCoreNum, useStream);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 aclblasStatus_t aclblasSgemvBatched(aclblasHandle_t handle, aclblasOperation_t trans,
                                      int m, int n,
-                                     const float *alpha, const float *A, int lda,
-                                     const float *x, int incx,
-                                     const float *beta, float *y, int incy,
+                                     const float *alpha, const float *const Aarray[], int lda,
+                                     const float *const xarray[], int incx,
+                                     const float *beta, float *const yarray[], int incy,
                                      int batchCount)
 {
-    return GemvBatchedImpl<float, float>(handle, trans, m, n, alpha, A, lda, x, incx, beta, y, incy, batchCount, 1);
+    return GemvBatchedImpl<float, float>(handle, trans, m, n, alpha, Aarray, lda, xarray, incx, beta, yarray, incy, batchCount, 1);
 }
 
 aclblasStatus_t aclblasHSHgemvBatched(aclblasHandle_t handle, aclblasOperation_t trans,
                                        int m, int n,
-                                       const float *alpha, const uint16_t *A, int lda,
-                                       const uint16_t *x, int incx,
-                                       const float *beta, uint16_t *y, int incy,
+                                       const float *alpha, const uint16_t *const Aarray[], int lda,
+                                       const uint16_t *const xarray[], int incx,
+                                       const float *beta, uint16_t *const yarray[], int incy,
                                        int batchCount)
 {
-    return GemvBatchedImpl<uint16_t, uint16_t>(handle, trans, m, n, alpha, A, lda, x, incx, beta, y, incy, batchCount, 0);
+    return GemvBatchedImpl<uint16_t, uint16_t>(handle, trans, m, n, alpha, Aarray, lda, xarray, incx, beta, yarray, incy, batchCount, 0);
 }
 
 aclblasStatus_t aclblasHSSgemvBatched(aclblasHandle_t handle, aclblasOperation_t trans,
                                        int m, int n,
-                                       const float *alpha, const uint16_t *A, int lda,
-                                       const uint16_t *x, int incx,
-                                       const float *beta, float *y, int incy,
+                                       const float *alpha, const uint16_t *const Aarray[], int lda,
+                                       const uint16_t *const xarray[], int incx,
+                                       const float *beta, float *const yarray[], int incy,
                                        int batchCount)
 {
-    return GemvBatchedImpl<uint16_t, float>(handle, trans, m, n, alpha, A, lda, x, incx, beta, y, incy, batchCount, 2);
+    return GemvBatchedImpl<uint16_t, float>(handle, trans, m, n, alpha, Aarray, lda, xarray, incx, beta, yarray, incy, batchCount, 2);
 }
 
 aclblasStatus_t aclblasTSTgemvBatched(aclblasHandle_t handle, aclblasOperation_t trans,
                                        int m, int n,
-                                       const float *alpha, const uint16_t *A, int lda,
-                                       const uint16_t *x, int incx,
-                                       const float *beta, uint16_t *y, int incy,
+                                       const float *alpha, const uint16_t *const Aarray[], int lda,
+                                       const uint16_t *const xarray[], int incx,
+                                       const float *beta, uint16_t *const yarray[], int incy,
                                        int batchCount)
 {
-    return GemvBatchedImpl<uint16_t, uint16_t>(handle, trans, m, n, alpha, A, lda, x, incx, beta, y, incy, batchCount, 3);
+    return GemvBatchedImpl<uint16_t, uint16_t>(handle, trans, m, n, alpha, Aarray, lda, xarray, incx, beta, yarray, incy, batchCount, 3);
 }
 
 aclblasStatus_t aclblasTSSgemvBatched(aclblasHandle_t handle, aclblasOperation_t trans,
                                        int m, int n,
-                                       const float *alpha, const uint16_t *A, int lda,
-                                       const uint16_t *x, int incx,
-                                       const float *beta, float *y, int incy,
+                                       const float *alpha, const uint16_t *const Aarray[], int lda,
+                                       const uint16_t *const xarray[], int incx,
+                                       const float *beta, float *const yarray[], int incy,
                                        int batchCount)
 {
-    return GemvBatchedImpl<uint16_t, float>(handle, trans, m, n, alpha, A, lda, x, incx, beta, y, incy, batchCount, 4);
+    return GemvBatchedImpl<uint16_t, float>(handle, trans, m, n, alpha, Aarray, lda, xarray, incx, beta, yarray, incy, batchCount, 4);
 }

@@ -240,24 +240,29 @@ aclblasStatus_t aclblasCgerc(
     const int64_t incx, uint8_t* y, const int64_t incy, uint8_t* A, const int64_t lda);
 
 aclblasStatus_t aclblasSgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* A, int lda,
-    const float* x, int incx, const float* beta, float* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const float *const Aarray[], int lda, const float *const xarray[], int incx,
+    const float* beta, float *const yarray[], int incy, int batchCount);
 
 aclblasStatus_t aclblasHSHgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const uint16_t* A, int lda,
-    const uint16_t* x, int incx, const float* beta, uint16_t* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const uint16_t *const Aarray[], int lda, const uint16_t *const xarray[], int incx,
+    const float* beta, uint16_t *const yarray[], int incy, int batchCount);
 
 aclblasStatus_t aclblasHSSgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const uint16_t* A, int lda,
-    const uint16_t* x, int incx, const float* beta, float* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const uint16_t *const Aarray[], int lda, const uint16_t *const xarray[], int incx,
+    const float* beta, float *const yarray[], int incy, int batchCount);
 
 aclblasStatus_t aclblasTSTgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const uint16_t* A, int lda,
-    const uint16_t* x, int incx, const float* beta, uint16_t* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const uint16_t *const Aarray[], int lda, const uint16_t *const xarray[], int incx,
+    const float* beta, uint16_t *const yarray[], int incy, int batchCount);
 
 aclblasStatus_t aclblasTSSgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const uint16_t* A, int lda,
-    const uint16_t* x, int incx, const float* beta, float* y, int incy, int batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const uint16_t *const Aarray[], int lda, const uint16_t *const xarray[], int incx,
+    const float* beta, float *const yarray[], int incy, int batchCount);
 
 aclblasStatus_t aclblasCcopy(
     aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy);

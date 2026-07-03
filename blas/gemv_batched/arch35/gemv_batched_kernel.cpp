@@ -18,6 +18,25 @@
 
 using namespace AscendC;
 
+// Helper: read a device-side pointer from the pointer array stored in GM.
+// For use inside SIMT kernel blocks (__simt_vf__ functions).
+template <typename T>
+__simt_callee__ __aicore__ inline __gm__ T* ReadPtrFromArray(GM_ADDR aarrayBase, uint32_t batchIdx)
+{
+    __gm__ uint64_t* addrSlot = reinterpret_cast<__gm__ uint64_t*>(aarrayBase) + batchIdx;
+    uint64_t rawAddr = *addrSlot;
+    return reinterpret_cast<__gm__ T*>(rawAddr);
+}
+
+// Same as ReadPtrFromArray but without __simt_callee__ decorator — for use in AIV context.
+template <typename T>
+__aicore__ inline __gm__ T* ReadPtrFromAivArray(GM_ADDR aarrayBase, uint32_t batchIdx)
+{
+    __gm__ uint64_t* addrSlot = reinterpret_cast<__gm__ uint64_t*>(aarrayBase) + batchIdx;
+    uint64_t rawAddr = *addrSlot;
+    return reinterpret_cast<__gm__ T*>(rawAddr);
+}
+
 constexpr uint32_t ELENUM_BLOCK_FP16    = 16;
 constexpr uint32_t ELENUM_REPEAT_FP16   = 128;
 // V pipe round-down granularity (= B32 / sizeof(float) = 8)
@@ -29,7 +48,8 @@ public:
     __aicore__ inline GemvBatchedAIV() {}
     __aicore__ inline void Init(
         GM_ADDR A, GM_ADDR x, GM_ADDR y, const GemvBatchedTilingData& tdata);
-    __aicore__ inline void Process();
+    __aicore__ inline void SetBatchPointers(GM_ADDR A, GM_ADDR x, GM_ADDR y);
+    __aicore__ inline void Process(uint32_t batchCountToProcess = 0);
 
     __aicore__ inline void InitUbuf();
     __aicore__ inline void ParseTilingData(const GemvBatchedTilingData& tdata);
@@ -88,7 +108,6 @@ private:
     uint32_t dotTile = 0;        // dotTile — 点积维度切分
     uint32_t mCurr = 0;
     uint32_t calMatNum  = 0;
-    uint32_t startMatId = 0;
     uint32_t batchGroupSize = 0;  // 一次搬多个batch进UB时使用
     uint32_t maxMatEleNum = 0;
     uint32_t maxVecEleNum = 0;
@@ -116,6 +135,24 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Init(
     InitUbuf();
 }
 
+// Update per-batch GM pointers only — does not re-allocate UB buffers.
+// Used in transpose AIV path where Init() is called once before the batch loop,
+// then SetBatchPointers() is called inside the loop to point at each batch's data.
+template <typename T, const bool TRANS_T, bool HSS_MODE>
+__aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::SetBatchPointers(
+    GM_ADDR A, GM_ADDR x, GM_ADDR y)
+{
+    this->inAGM.SetGlobalBuffer((__gm__ T *)A);
+    this->inxGM.SetGlobalBuffer((__gm__ T *)x);
+    if constexpr (HSS_MODE) {
+        this->inyFloatGM.SetGlobalBuffer((__gm__ float *)y);
+        this->outFloatGM.SetGlobalBuffer((__gm__ float *)y);
+    } else {
+        this->inyGM.SetGlobalBuffer((__gm__ T *)y);
+        this->outGM.SetGlobalBuffer((__gm__ T *)y);
+    }
+}
+
 template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ParseTilingData(const GemvBatchedTilingData& tdata)
 {
@@ -136,7 +173,6 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::ParseTilingData(con
     this->szVecTmp       = tdata.bufVecTmp;
     this->lda            = tdata.lda;
 
-    this->startMatId = this->vecIdx * tdata.batchPerCore;
     this->calMatNum  = (this->vecIdx == tdata.usedCoreNum - 1) ? tdata.batchTail : tdata.batchPerCore;
 }
 
@@ -188,7 +224,7 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyInMatAndVec(
     LocalTensor<T> inALocal = inABuf.Get<T>();
     LocalTensor<T> inxLocal = inxBuf.Get<T>();
 
-    uint64_t inABase = (this->startMatId + curBatchId) * this->lda * this->n
+    uint64_t inABase = curBatchId * this->lda * this->n
                      + nOffset * (uint32_t)this->lda + mOffset;
 
     // Align mCurr for dstStride only; DataCopyPad handles non-32B blockLen internally.
@@ -202,7 +238,7 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyInMatAndVec(
     DataCopyPadExtParams<T> pp{false, 0, 0, 0};
     DataCopyPad(inALocal, this->inAGM[inABase], cp, pp);
 
-    uint64_t inxOffset = (this->startMatId + curBatchId) * this->dotDim + mOffset;
+    uint64_t inxOffset = curBatchId * this->dotDim + mOffset;
     DataCopyPad(inxLocal, this->inxGM[inxOffset],
         DataCopyExtParams{1, static_cast<uint32_t>(mCurr * sizeof(T)), 0, 0, 0},
         DataCopyPadExtParams<T>{false, 0, 0, 0});
@@ -212,7 +248,7 @@ template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyInY(uint32_t curBatchId,
     uint32_t mOffset, uint32_t mCurr)
 {
-    uint64_t offset = (this->startMatId + curBatchId) * this->outDim + mOffset;
+    uint64_t offset = curBatchId * this->outDim + mOffset;
     if constexpr (HSS_MODE) {
         auto inyLocal = inyBuf.Get<float>();
         DataCopyExtParams copyParams{uint16_t(1), uint32_t(mCurr * sizeof(float)), 0, 0, 0};
@@ -285,7 +321,7 @@ template <typename T, const bool TRANS_T, bool HSS_MODE>
 __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyOutRsltFloat(uint32_t curBatchId,
     uint32_t mOffset, uint32_t mCurr)
 {
-    uint64_t outOffset = (this->startMatId + curBatchId) * this->outDim + mOffset;
+    uint64_t outOffset = curBatchId * this->outDim + mOffset;
     DataCopyExtParams copyParams{uint16_t(1), uint32_t(mCurr * sizeof(float)), 0, 0, 0};
     if constexpr (HSS_MODE)
         DataCopyPad(this->outFloatGM[outOffset], this->sumResultLocal, copyParams);
@@ -298,15 +334,16 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::CopyOutRsltHalf(uin
     uint32_t mOffset, uint32_t mCurr)
 {
     LocalTensor<T> outLocal = outBuf.Get<T>();
-    uint64_t outOffset = (this->startMatId + curBatchId) * this->outDim + mOffset;
+    uint64_t outOffset = curBatchId * this->outDim + mOffset;
     DataCopyExtParams copyParams{uint16_t(1), uint32_t(mCurr * sizeof(T)), 0, 0, 0};
     DataCopyPad(this->outGM[outOffset], outLocal, copyParams);
 }
 
 template <typename T, const bool TRANS_T, bool HSS_MODE>
-__aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Process()
+__aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Process(uint32_t batchCountToProcess)
 {
-    if (0 == this->calMatNum)
+    uint32_t effectiveBatchCount = (batchCountToProcess > 0) ? batchCountToProcess : this->calMatNum;
+    if (0 == effectiveBatchCount)
         return;
 
     uint32_t outTile = this->outTile;
@@ -314,7 +351,7 @@ __aicore__ inline void GemvBatchedAIV<T, TRANS_T, HSS_MODE>::Process()
     uint32_t outDim = this->outDim;
     uint32_t dotDim = this->dotDim;
 
-    for (uint32_t b = 0; b < this->calMatNum; b++) {
+    for (uint32_t b = 0; b < effectiveBatchCount; b++) {
         for (uint32_t outOff = 0; outOff < outDim; outOff += outTile) {
             uint32_t outCnt = (outOff + outTile > outDim) ? (outDim - outOff) : outTile;
             // outCntAlign may exceed outTile by up to VEC_FLOAT_PER_REPEAT-1;
@@ -432,7 +469,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(GEMV_SIMT_MAX_THREADS)
 inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
                       float alpha, float beta,
                       int32_t lda, int32_t incx, int32_t incy,
-                      __gm__ const T_IN *aGm, __gm__ const T_IN *xGm, __gm__ T_OUT *yGm)
+                      GM_ADDR AarrayBase, GM_ADDR xarrayBase, GM_ADDR yarrayBase)
 {
     constexpr bool IN_FP16  = IsSameType<T_IN, half>::value;
     constexpr bool IN_BF16  = IsSameType<T_IN, bfloat16_t>::value;
@@ -440,15 +477,16 @@ inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
     constexpr bool OUT_BF16 = IsSameType<T_OUT, bfloat16_t>::value;
     uint32_t outDim = IS_TRANS ? n : m, dotDim = IS_TRANS ? m : n;
     uint32_t total = numB * outDim;
-    uint32_t aBatch = (uint32_t)lda * n;
-    uint32_t xBatch = 1u + (dotDim - 1u) * (uint32_t)abs(incx);
-    uint32_t yBatch = 1u + (outDim - 1u) * (uint32_t)abs(incy);
     for (uint32_t tid = threadIdx.x; tid < total; tid += blockDim.x) {
         uint32_t b = tid / outDim, outIdx = tid % outDim;
         float acc = 0.0f;
-        int32_t aOff = (int32_t)((startB + b) * aBatch);
-        int32_t xOff = (int32_t)((startB + b) * xBatch);
-        int32_t yOff = (int32_t)((startB + b) * yBatch);
+        // Read per-batch pointers from pointer arrays (cublas-style batched interface)
+        __gm__ T_IN *batchA = ReadPtrFromArray<T_IN>(AarrayBase, startB + b);
+        __gm__ T_IN *batchX = ReadPtrFromArray<T_IN>(xarrayBase, startB + b);
+        __gm__ T_OUT *batchY = ReadPtrFromArray<T_OUT>(yarrayBase, startB + b);
+        int32_t aOff = 0;
+        int32_t xOff = 0;
+        int32_t yOff = 0;
         if (incx < 0) xOff += (int32_t)((dotDim - 1u) * (uint32_t)(-incx));
         if (incy < 0) yOff += (int32_t)((outDim - 1u) * (uint32_t)(-incy));
         for (uint32_t dotIdx = 0; dotIdx < dotDim; dotIdx++) {
@@ -457,23 +495,23 @@ inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
             int32_t xIdx = (int32_t)dotIdx * incx;
             float av, xv;
             if constexpr (IN_BF16) {
-                av = __bfloat162float(aGm[aOff + aIdx]);
-                xv = __bfloat162float(xGm[xOff + xIdx]);
+                av = __bfloat162float(batchA[aOff + aIdx]);
+                xv = __bfloat162float(batchX[xOff + xIdx]);
             } else if constexpr (IN_FP16) {
-                av = __half2float(aGm[aOff + aIdx]);
-                xv = __half2float(xGm[xOff + xIdx]);
+                av = __half2float(batchA[aOff + aIdx]);
+                xv = __half2float(batchX[xOff + xIdx]);
             } else {
-                av = (float)aGm[aOff + aIdx];
-                xv = (float)xGm[xOff + xIdx];
+                av = (float)batchA[aOff + aIdx];
+                xv = (float)batchX[xOff + xIdx];
             }
             acc += av * xv;
         }
         int32_t yIdx = (int32_t)outIdx * incy;
-        float oldY = OUT_BF16 ? __bfloat162float(yGm[yOff + yIdx]) : OUT_FP16 ? __half2float(yGm[yOff + yIdx]) : (float)yGm[yOff + yIdx];
+        float oldY = OUT_BF16 ? __bfloat162float(batchY[yOff + yIdx]) : OUT_FP16 ? __half2float(batchY[yOff + yIdx]) : (float)batchY[yOff + yIdx];
         float result = alpha * acc + beta * oldY;
-        if constexpr (OUT_BF16)      yGm[yOff + yIdx] = __float2bfloat16_rn_sat(result);
-        else if constexpr (OUT_FP16) yGm[yOff + yIdx] = __float2half_rn_sat(result);
-        else                         yGm[yOff + yIdx] = (T_OUT)result;
+        if constexpr (OUT_BF16)      batchY[yOff + yIdx] = __float2bfloat16_rn_sat(result);
+        else if constexpr (OUT_FP16) batchY[yOff + yIdx] = __float2half_rn_sat(result);
+        else                         batchY[yOff + yIdx] = (T_OUT)result;
     }
 }
 
@@ -483,33 +521,47 @@ inline void GemvSimt(uint32_t m, uint32_t n, uint32_t numB, uint32_t startB,
 template <typename T_IN, typename T_OUT>
 __aicore__ inline void DispatchNormal(const GemvBatchedTilingData& td, uint32_t nB, uint32_t sB,
                                        int32_t lda, int32_t incx, int32_t incy,
-                                       GM_ADDR A, GM_ADDR x, GM_ADDR y)
+                                       GM_ADDR Aarray, GM_ADDR xarray, GM_ADDR yarray)
 {
     asc_vf_call<GemvSimt<T_IN, T_OUT, false>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
         td.m, td.n, nB, sB, td.alpha, td.beta, lda, incx, incy,
-        reinterpret_cast<__gm__ const T_IN *>(A), reinterpret_cast<__gm__ const T_IN *>(x),
-        reinterpret_cast<__gm__ T_OUT *>(y));
+        Aarray, xarray, yarray);
 }
 
 template <typename T, bool HSS>
 __aicore__ inline void DispatchTranspose(const GemvBatchedTilingData& td, uint32_t nB, uint32_t sB,
                                           int32_t lda, int32_t incx, int32_t incy,
-                                          GM_ADDR A, GM_ADDR x, GM_ADDR y)
+                                          GM_ADDR Aarray, GM_ADDR xarray, GM_ADDR yarray)
 {
+    using TO = typename std::conditional<HSS, float, T>::type;
     if (td.incx == 1 && td.incy == 1) {
         GemvBatchedAIV<T, true, HSS> op;
-        op.Init(A, x, y, td); op.Process();
+        // Init once: parse tiling data and allocate UB buffers
+        __gm__ T *batchA0 = ReadPtrFromAivArray<T>(Aarray, sB);
+        __gm__ T *batchX0 = ReadPtrFromAivArray<T>(xarray, sB);
+        __gm__ TO *batchY0 = ReadPtrFromAivArray<TO>(yarray, sB);
+        op.Init(reinterpret_cast<GM_ADDR>(batchA0),
+                reinterpret_cast<GM_ADDR>(batchX0),
+                reinterpret_cast<GM_ADDR>(batchY0), td);
+        op.Process(1);
+        for (uint32_t b = 1; b < nB; b++) {
+            __gm__ T *batchA = ReadPtrFromAivArray<T>(Aarray, sB + b);
+            __gm__ T *batchX = ReadPtrFromAivArray<T>(xarray, sB + b);
+            __gm__ TO *batchY = ReadPtrFromAivArray<TO>(yarray, sB + b);
+            op.SetBatchPointers(reinterpret_cast<GM_ADDR>(batchA),
+                                reinterpret_cast<GM_ADDR>(batchX),
+                                reinterpret_cast<GM_ADDR>(batchY));
+            op.Process(1);
+        }
         return;
     }
-    using TO = typename std::conditional<HSS, float, T>::type;
     asc_vf_call<GemvSimt<T, TO, true>>(dim3{GEMV_SIMT_MAX_THREADS, 1, 1},
         td.m, td.n, nB, sB, td.alpha, td.beta, lda, incx, incy,
-        reinterpret_cast<__gm__ const T *>(A), reinterpret_cast<__gm__ const T *>(x),
-        reinterpret_cast<__gm__ TO *>(y));
+        Aarray, xarray, yarray);
 }
 
 extern "C" __global__ __aicore__ void gemv_batched(
-    GM_ADDR A, GM_ADDR x, GM_ADDR y, GemvBatchedTilingData td)
+    GM_ADDR Aarray, GM_ADDR xarray, GM_ADDR yarray, GemvBatchedTilingData td)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     uint32_t sB = GetBlockIdx() * td.batchPerCore;
@@ -517,8 +569,8 @@ extern "C" __global__ __aicore__ void gemv_batched(
     if (nB == 0) return;
     int32_t lda = td.lda, incx = td.incx, incy = td.incy;
 
-#define D_NORM(T_IN, T_OUT) DispatchNormal<T_IN, T_OUT>(td, nB, sB, lda, incx, incy, A, x, y)
-#define D_TRANS(T, HSS)     DispatchTranspose<T, HSS>(td, nB, sB, lda, incx, incy, A, x, y)
+#define D_NORM(T_IN, T_OUT) DispatchNormal<T_IN, T_OUT>(td, nB, sB, lda, incx, incy, Aarray, xarray, yarray)
+#define D_TRANS(T, HSS)     DispatchTranspose<T, HSS>(td, nB, sB, lda, incx, incy, Aarray, xarray, yarray)
 
     if (td.trans == 0) {
         if      (td.dtype == 1) D_NORM(float,      float);
