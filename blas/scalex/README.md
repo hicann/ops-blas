@@ -122,6 +122,13 @@ private:
     bool deviceSet_ = false;
 };
 
+struct AclMemDeleter {
+    void operator()(void* p) const { aclrtFree(p); }
+};
+struct BlasHandleDeleter {
+    void operator()(aclblasHandle_t h) const { aclblasDestroy(h); }
+};
+
 int aclblasScalexTest(AclContext& ctx)
 {
     aclrtStream stream = ctx.Stream();
@@ -131,9 +138,9 @@ int aclblasScalexTest(AclContext& ctx)
     auto blasRet = aclblasCreate(&rawHandle);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
               return blasRet);
-    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+    std::unique_ptr<std::remove_pointer<aclblasHandle_t>::type, BlasHandleDeleter> handlePtr(rawHandle);
 
-    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    blasRet = aclblasSetStream(handlePtr.get(), stream);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
               return blasRet);
 
@@ -151,15 +158,13 @@ int aclblasScalexTest(AclContext& ctx)
     void* rawMem = nullptr;
     auto aclRet = aclrtMalloc(&rawMem, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for x failed. ERROR: %d\n", aclRet); return aclRet);
-    std::unique_ptr<void, aclError (*)(void*)> xDevicePtr(rawMem, aclrtFree);
+    std::unique_ptr<void, AclMemDeleter> xDevicePtr(rawMem);
 
     aclRet = aclrtMemcpy(xDevicePtr.get(), xBytes, xHostData.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for x failed. ERROR: %d\n", aclRet); return aclRet);
 
     // 4. 调用 aclblasScalex（原地缩放）
-    blasRet = aclblasScalex(
-        static_cast<aclblasHandle_t>(handlePtr.get()), n, &alpha, alphaType,
-        xDevicePtr.get(), xType, incx, executionType);
+    blasRet = aclblasScalex(handlePtr.get(), n, &alpha, alphaType, xDevicePtr.get(), xType, incx, executionType);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasScalex failed. ERROR: %d\n", blasRet);
               return blasRet);
 

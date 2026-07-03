@@ -123,6 +123,13 @@ private:
     bool deviceSet_ = false;
 };
 
+struct AclMemDeleter {
+    void operator()(void* p) const { aclrtFree(p); }
+};
+struct BlasHandleDeleter {
+    void operator()(aclblasHandle_t h) const { aclblasDestroy(h); }
+};
+
 int aclblasSnrm2Test(AclContext& ctx)
 {
     aclrtStream stream = ctx.Stream();
@@ -132,9 +139,9 @@ int aclblasSnrm2Test(AclContext& ctx)
     auto blasRet = aclblasCreate(&rawHandle);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
               return blasRet);
-    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+    std::unique_ptr<std::remove_pointer<aclblasHandle_t>::type, BlasHandleDeleter> handlePtr(rawHandle);
 
-    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    blasRet = aclblasSetStream(handlePtr.get(), stream);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
               return blasRet);
 
@@ -147,21 +154,18 @@ int aclblasSnrm2Test(AclContext& ctx)
     void* rawMemX = nullptr;
     auto aclRet = aclrtMalloc(&rawMemX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for x failed. ERROR: %d\n", aclRet); return aclRet);
-    std::unique_ptr<void, aclError (*)(void*)> xDevicePtr(rawMemX, aclrtFree);
+    std::unique_ptr<float, AclMemDeleter> xDevicePtr(static_cast<float*>(rawMemX));
 
     void* rawMemResult = nullptr;
     aclRet = aclrtMalloc(&rawMemResult, sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc for result failed. ERROR: %d\n", aclRet); return aclRet);
-    std::unique_ptr<void, aclError (*)(void*)> resultDevicePtr(rawMemResult, aclrtFree);
+    std::unique_ptr<float, AclMemDeleter> resultDevicePtr(static_cast<float*>(rawMemResult));
 
     aclRet = aclrtMemcpy(xDevicePtr.get(), xBytes, xHostData.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy for x failed. ERROR: %d\n", aclRet); return aclRet);
 
     // 4. 调用 aclblasSnrm2
-    blasRet = aclblasSnrm2(
-        static_cast<aclblasHandle_t>(handlePtr.get()), n,
-        static_cast<const float*>(xDevicePtr.get()), incx,
-        static_cast<float*>(resultDevicePtr.get()));
+    blasRet = aclblasSnrm2(handlePtr.get(), n, xDevicePtr.get(), incx, resultDevicePtr.get());
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSnrm2 failed. ERROR: %d\n", blasRet);
               return blasRet);
 
