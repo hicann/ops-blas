@@ -22,6 +22,10 @@
 #include "aclblas_handle_internal.h"
 #include "log/log.h"
 
+#ifndef OP_MODULE_ID
+#define OP_MODULE_ID 63
+#endif
+
 namespace AclBlas {
 
 struct _aclblas_logger_configure {
