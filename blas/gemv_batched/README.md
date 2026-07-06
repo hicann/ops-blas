@@ -134,6 +134,7 @@ private:
 
 int aclblasSgemvBatchedTest(AclContext& ctx)
 {
+    aclError aclRet;
     aclrtStream stream = ctx.Stream();
 
     aclblasHandle_t rawHandle = nullptr;
@@ -383,6 +384,7 @@ static float fp16_to_float(uint16_t h)
 
 int aclblasHSHgemvBatchedTest(AclContext& ctx)
 {
+    aclError aclRet;
     aclrtStream stream = ctx.Stream();
 
     aclblasHandle_t rawHandle = nullptr;
@@ -613,6 +615,7 @@ private:
 
 int aclblasHSSgemvBatchedTest(AclContext& ctx)
 {
+    aclError aclRet;
     aclrtStream stream = ctx.Stream();
 
     aclblasHandle_t rawHandle = nullptr;
@@ -1046,6 +1049,7 @@ static float bf16_to_float(uint16_t bf)
 
 int aclblasTSTgemvBatchedTest(AclContext& ctx)
 {
+    aclError aclRet;
     aclrtStream stream = ctx.Stream();
 
     aclblasHandle_t rawHandle = nullptr;
@@ -1276,6 +1280,7 @@ private:
 
 int aclblasTSSgemvBatchedTest(AclContext& ctx)
 {
+    aclError aclRet;
     aclrtStream stream = ctx.Stream();
 
     aclblasHandle_t rawHandle = nullptr;
