@@ -159,7 +159,7 @@ inline aclblasStatus_t MatinvEnsureWorkspace(
     expandedWs = nullptr;
     const size_t alignedWs = (requiredWs + 4095U) & ~static_cast<size_t>(4095U);
     auto* h = reinterpret_cast<_aclblas_handle*>(internalHandleRef);
-    size_t currentWs = aclblasGetEffectiveWorkspaceSize(h);
+    size_t currentWs = GetEffectiveWorkspaceSize(h);
 
     if (alignedWs > currentWs) {
         aclError aclRet = aclrtMalloc(&expandedWs, alignedWs, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -177,12 +177,25 @@ inline aclblasStatus_t MatinvEnsureWorkspace(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-inline void MatinvRestoreWorkspace(aclblasHandle_t handle, void* expandedWs, bool wsExpanded)
+inline aclblasStatus_t MatinvRestoreWorkspace(aclblasHandle_t handle, void* expandedWs, bool wsExpanded)
 {
-    if (wsExpanded) {
-        aclblasSetWorkspace(handle, nullptr, 0);
-        aclrtFree(expandedWs);
+    if (!wsExpanded) {
+        return ACLBLAS_STATUS_SUCCESS;
     }
+
+    aclrtStream stream = nullptr;
+    aclblasStatus_t getStreamStatus = aclblasGetStream(handle, &stream);
+    if (getStreamStatus != ACLBLAS_STATUS_SUCCESS) {
+        return getStreamStatus;
+    }
+
+    aclblasStatus_t setStreamStatus = aclblasSetStream(handle, stream);
+    if (setStreamStatus != ACLBLAS_STATUS_SUCCESS) {
+        return setStreamStatus;
+    }
+
+    aclrtFree(expandedWs);
+    return ACLBLAS_STATUS_SUCCESS;
 }
 
 inline aclblasStatus_t MatinvCopyResultsD2H(
@@ -221,12 +234,19 @@ inline aclblasStatus_t MatinvExecuteKernelAndSync(
 
     aclError aclRet = aclrtSynchronizeDevice();
     if (aclRet != ACL_SUCCESS) {
-        MatinvRestoreWorkspace(handle, expandedWs, wsExpanded);
+        const aclblasStatus_t restoreStatus = MatinvRestoreWorkspace(handle, expandedWs, wsExpanded);
         bufs.Cleanup();
+        if (restoreStatus != ACLBLAS_STATUS_SUCCESS) {
+            return restoreStatus;
+        }
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
-    MatinvRestoreWorkspace(handle, expandedWs, wsExpanded);
+    const aclblasStatus_t restoreStatus = MatinvRestoreWorkspace(handle, expandedWs, wsExpanded);
+    if (restoreStatus != ACLBLAS_STATUS_SUCCESS) {
+        bufs.Cleanup();
+        return restoreStatus;
+    }
 
     if (ret == ACLBLAS_STATUS_SUCCESS) {
         aclblasStatus_t d2hStatus = MatinvCopyResultsD2H(bufs, Ainv, info, batchSize, invBytes, infoBytes);

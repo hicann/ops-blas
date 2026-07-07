@@ -21,45 +21,6 @@
 #include "common/helper/aclblas_handle_internal.h"
 #include "strmm_tiling_data.h"
 
-static aclblasStatus_t EnsureWorkspace(_aclblas_handle* h, size_t requiredSize)
-{
-    if (h == nullptr) {
-        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
-    }
-    size_t availableSize = aclblasGetEffectiveWorkspaceSize(h);
-    if (requiredSize <= availableSize) {
-        return ACLBLAS_STATUS_SUCCESS;
-    }
-    if (h->use_user_workspace) {
-        OP_LOGE("aclblasStrmm", "user workspace too small: required=%zu, available=%zu",
-                 requiredSize, availableSize);
-        return ACLBLAS_STATUS_ALLOC_FAILED;
-    }
-    if (h->stream != nullptr) {
-        aclError aclRet = aclrtSynchronizeStream(h->stream);
-        if (aclRet != ACL_SUCCESS) {
-            return ACLBLAS_STATUS_INTERNAL_ERROR;
-        }
-    }
-    size_t newSize = std::max(requiredSize, h->default_workspace_size * 2);
-    if (h->default_workspace != nullptr) {
-        aclError freeRet = aclrtFree(h->default_workspace);
-        if (freeRet != ACL_SUCCESS) {
-            OP_LOGE("aclblasStrmm", "aclrtFree old workspace failed, ret=%d", freeRet);
-        }
-        h->default_workspace = nullptr;
-        h->default_workspace_size = 0;
-    }
-    void* ptr = nullptr;
-    aclError aclRet = aclrtMalloc(&ptr, newSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        return ACLBLAS_STATUS_ALLOC_FAILED;
-    }
-    h->default_workspace = ptr;
-    h->default_workspace_size = newSize;
-    return ACLBLAS_STATUS_SUCCESS;
-}
-
 struct StrmmMirrorTilingData;
 void strmm_mirror_kernel_do(const uint8_t* gmA, uint8_t* gmWorkspaceA, const StrmmMirrorTilingData &tiling,
                               uint32_t numBlocks, void *stream);
@@ -204,13 +165,13 @@ static aclblasStatus_t LaunchStrmmPipeline(
     size_t tempSize = static_cast<size_t>(uM) * static_cast<size_t>(gemmTiling.tempRowStride) * STRMM_ARCH35_FP32_SIZE;
     size_t requiredBytes = workspaceASizeAligned + tempSize;
 
-    aclblasStatus_t wsRet = EnsureWorkspace(h, requiredBytes);
+    aclblasStatus_t wsRet = EnsureDefaultWorkspace(h, requiredBytes);
     if (wsRet != ACLBLAS_STATUS_SUCCESS) {
         OP_LOGE("aclblasStrmm", "workspace ensure failed, required=%zu, ret=%d", requiredBytes, wsRet);
         return wsRet;
     }
 
-    uint8_t* wsBase = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    uint8_t* wsBase = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
     uint8_t* workspaceADevice = wsBase;
     uint8_t* tempDevice = wsBase + workspaceASizeAligned;
 

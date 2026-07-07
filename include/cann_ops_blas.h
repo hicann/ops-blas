@@ -27,7 +27,7 @@ extern "C" {
 /**
  * @brief Creates an ops-blas handle.
  *
- * Allocates a handle on the heap and returns it via @p handle. A 4 MiB default workspace
+ * Allocates a handle on the heap and returns it via @p handle. A 32 MiB default workspace
  * (device memory, managed by the library) is pre-allocated at creation time. The internal
  * structure is opaque to callers.
  *
@@ -81,31 +81,17 @@ aclblasStatus_t aclblasGetStream(aclblasHandle_t handle, aclrtStream* stream);
  *
  * Borrows user device memory for temporary operator storage; the library does not take
  * ownership. Supports grow-only updates: the setting is updated only when the new size is
- * larger than the current user workspace size. Passing nullptr restores the library default
- * workspace. User workspace must be set again after switching streams.
+ * larger than the current user workspace size. Both @p workspace and @p workspaceSize must
+ * be valid; use aclblasSetStream() to restore the library default workspace (cuBLAS-compatible).
  *
  * @param handle aclblas handle (void*).
- * @param workspace User-allocated device memory; nullptr restores the default workspace.
- * @param workspaceSize Workspace size in bytes; must be greater than 0 when workspace is non-null.
+ * @param workspace User-allocated device memory; must not be nullptr.
+ * @param workspaceSize Workspace size in bytes; must be greater than 0.
  * @return ACLBLAS_STATUS_SUCCESS on success.
  *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
- *         ACLBLAS_STATUS_INVALID_VALUE if workspace is non-null but workspaceSize is 0.
+ *         ACLBLAS_STATUS_INVALID_VALUE if workspace is null or workspaceSize is 0.
  */
 aclblasStatus_t aclblasSetWorkspace(aclblasHandle_t handle, void* workspace, size_t workspaceSize);
-
-/**
- * @brief Gets the currently active workspace of a handle.
- *
- * Returns the default or user workspace pointer and size depending on which one is active.
- *
- * @param handle aclblas handle (void*).
- * @param workspace Output parameter for the active workspace pointer.
- * @param workspaceSize Output parameter for the active workspace size in bytes.
- * @return ACLBLAS_STATUS_SUCCESS on success.
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
- *         ACLBLAS_STATUS_INVALID_VALUE if an output parameter is null.
- */
-aclblasStatus_t aclblasGetWorkspace(aclblasHandle_t handle, void** workspace, size_t* workspaceSize);
 
 /**
  * @brief Gets the ops-blas library version.

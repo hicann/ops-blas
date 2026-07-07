@@ -146,10 +146,10 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n,
     uint32_t paddedCoreNum = (tiling.useCoreNum + SNRM2_WORKSPACE_ALIGN_FLOATS - 1) /
                              SNRM2_WORKSPACE_ALIGN_FLOATS * SNRM2_WORKSPACE_ALIGN_FLOATS;
     size_t requiredBytes = static_cast<size_t>(paddedCoreNum) * sizeof(float);
-    CHECK_RET(requiredBytes <= aclblasGetEffectiveWorkspaceSize(h),
-              OP_LOGE("aclblasSnrm2", "workspace %zu > handle %zu", requiredBytes, aclblasGetEffectiveWorkspaceSize(h));
+    CHECK_RET(requiredBytes <= GetEffectiveWorkspaceSize(h),
+              OP_LOGE("aclblasSnrm2", "workspace %zu > handle %zu", requiredBytes, GetEffectiveWorkspaceSize(h));
               return ACLBLAS_STATUS_EXECUTION_FAILED);
-    void* workspace = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    void* workspace = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
 
     // Zero-init workspace on the host side: compute cores write only their own
     // workspace[blockIdx] slot, but the reduce kernel sums paddedCount (useCoreNum

@@ -93,8 +93,8 @@ static aclblasStatus_t LaunchIsaminKernel(aclblasHandle_t handle, int n, const f
         "aclblasIsamin", "tiling: totalN=%u perCoreN=%u lastCoreN=%u useCoreNum=%u tileSize=%u nthreads=%u",
         tiling.totalN, tiling.perCoreN, tiling.lastCoreN, tiling.useCoreNum, tiling.tileSize, tiling.nthreads);
 
-    void* workSpace = aclblasGetEffectiveWorkspace(h);
-    size_t workspaceBytes = aclblasGetEffectiveWorkspaceSize(h);
+    void* workSpace = GetEffectiveWorkspace(h);
+    size_t workspaceBytes = GetEffectiveWorkspaceSize(h);
     constexpr uint32_t ALIGN_FLOATS = 64;
     uint32_t totalFloats = numBlocks * 2;
     uint32_t alignedFloats = ((totalFloats + ALIGN_FLOATS - 1) / ALIGN_FLOATS) * ALIGN_FLOATS;

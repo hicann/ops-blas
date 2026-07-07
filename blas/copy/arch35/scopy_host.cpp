@@ -89,8 +89,8 @@ static uint8_t* PrepareOffsetWorkspace(_aclblas_handle* h, int incx, int incy, u
     if (!needReorder)
         return nullptr;
 
-    void* ws = aclblasGetEffectiveWorkspace(h);
-    size_t wsSize = aclblasGetEffectiveWorkspaceSize(h);
+    void* ws = GetEffectiveWorkspace(h);
+    size_t wsSize = GetEffectiveWorkspaceSize(h);
     uint32_t offsetBytes = tileSize * sizeof(uint32_t);
     if (ws == nullptr || wsSize < offsetBytes) {
         OP_LOGD(

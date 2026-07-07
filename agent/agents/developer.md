@@ -133,7 +133,7 @@ blas/{operator_name}/
    - 创建 `{operator_name}_kernel.cpp`：基于模板中的 kernel.cpp 实现 AscendC Kernel 类 + `__aicore__` 入口 + `kernel_do` 启动器；kernel 函数以 **by value** 方式接收 `const {{Op}}TilingData tiling`（运行时自动拷贝），`kernel_do` 以 **const 引用**（`const {{Op}}TilingData&`）接收 tiling 并通过 `<<<>>>` 异步 launch kernel
    - 创建 `{operator_name}_host.cpp`：基于模板中的 host.cpp，必须拆分为 `Validate{Op}Params(...)`（参数校验）+ `Launch{Op}Kernel(...)`（Tiling 计算 + launch）两个静态函数，API 入口 `aclblas{OpName}` 只做调度；**禁止**对 tiling 使用 `aclrtMalloc`/`aclrtMemcpy(H2D)`，**禁止**调用 `aclrtSynchronizeStream`（上层调用方负责同步）
    - **强制集成 dlog**：host.cpp 必须 `#include "log/log.h"`，使用 `OP_LOGE` 记录参数校验/Runtime 失败、`OP_LOGD` 记录 tiling、`OP_LOGI` 记录 kernel launch；**禁止**使用 printf/cout
-   - **Workspace 使用**：host 侧**禁止**自行 `aclrtMalloc` workspace。如需 workspace，使用 `aclblasGetEffectiveWorkspace(h)` 获取当前 handle 生效的 workspace 指针，使用 `aclblasGetEffectiveWorkspaceSize(h)` 校验大小是否满足需求。若默认 4 MiB 不足，应在设计文档中说明，由上层在调用前通过 `aclblasSetWorkspace` 注入
+   - **Workspace 使用**：host 侧**禁止**自行 `aclrtMalloc` workspace。如需 workspace，使用 `GetEffectiveWorkspace(h)` 获取当前 handle 生效的 workspace 指针，使用 `GetEffectiveWorkspaceSize(h)` 校验大小是否满足需求。若默认 32 MiB 不足，应在设计文档中说明，由上层在调用前通过 `aclblasSetWorkspace` 注入
    - 架构特定代码放在 `archXX/` 子目录
    - **RegBase 路线**：若设计方案明确选择 RegBase 路线，加载 `ascendc-regbase-best-practice` 获取 API 约束和参考实现（仅参考算法实现，不参考代码结构）
    - **接口规范**：实现 Host 侧接口签名时，参考 `blas-lib-rules` skill 确保接口命名、参数顺序、参数类型符合 BLAS 标准

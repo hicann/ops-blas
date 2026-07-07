@@ -501,11 +501,11 @@ static aclblasStatus_t SetupPostProcessWorkspace(aclblasHandle_t handle,
     // Workspace layout: [tempPtrArray | tempABData]
     size_t totalWorkspaceBytes = ptrArrayBytes + static_cast<size_t>(prob.batchCount) * perBatchBytes;
 
-    if (!aclblasCheckEffectiveWorkspaceSize(h, totalWorkspaceBytes)) {
+    if (!CheckEffectiveWorkspaceSize(h, totalWorkspaceBytes)) {
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
-    workspace = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    workspace = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
 
     // Build temp C pointer array on host, then copy to workspace
     std::vector<uint64_t> tempPtrs(prob.batchCount);

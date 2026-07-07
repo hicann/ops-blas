@@ -128,10 +128,10 @@ static aclblasStatus_t SasumExecuteKernel(_aclblas_handle* h, const float* x, fl
     uint8_t* workspaceDevice = nullptr;
     if (incx != 1) {
         size_t workspaceBytes = static_cast<size_t>(numBlocks) * sizeof(float);
-        CHECK_RET(workspaceBytes <= aclblasGetEffectiveWorkspaceSize(h),
-            OP_LOGE("aclblasSasum", "workspace %zu > handle %zu", workspaceBytes, aclblasGetEffectiveWorkspaceSize(h));
+        CHECK_RET(workspaceBytes <= GetEffectiveWorkspaceSize(h),
+            OP_LOGE("aclblasSasum", "workspace %zu > handle %zu", workspaceBytes, GetEffectiveWorkspaceSize(h));
             return ACLBLAS_STATUS_EXECUTION_FAILED);
-        workspaceDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+        workspaceDevice = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
     }
 
     OP_LOGI("aclblasSasum", "launching kernel: blocks=%u", numBlocks);

@@ -48,9 +48,9 @@ description: ops-blas 算子全流程开发技能，协调 agent 团队完成设
    - Kernel 侧 `kernel` 函数参数中，tiling 为 **by value**（`const {{Op}}TilingData tiling`），通过运行时 launch 参数自动拷贝，不得再解析 `GM_ADDR tilingGm`
    - 数据 GM 指针仍通过 `uint8_t*`（host 侧）/ `GM_ADDR`（kernel 侧）传递，仅 tiling 参数采用 const 引用
 7. **Workspace 由 handle 统一管理**
-   - 算子内部**禁止**使用 `aclrtMalloc` 额外分配 workspace。`aclblasCreate` 会预分配 4 MiB 默认 workspace，用户也可通过 `aclblasSetWorkspace` 注入自定义 workspace
-   - 需要从 handle 获取当前生效的 workspace：指针用 `aclblasGetEffectiveWorkspace(h)`，大小用 `aclblasGetEffectiveWorkspaceSize(h)`
-   - 若算子所需 workspace 超过默认 4 MiB，应在需求分析文档（1.2）和开发方案设计（1.3.A）中明确说明，由上层调用方在调用前通过 `aclblasSetWorkspace` 注入；**不得**在算子代码中自行扩容
+   - 算子内部**禁止**使用 `aclrtMalloc` 额外分配 workspace。`aclblasCreate` 会预分配 32 MiB 默认 workspace，用户也可通过 `aclblasSetWorkspace` 注入自定义 workspace
+   - 需要从 handle 获取当前生效的 workspace：指针用 `GetEffectiveWorkspace(h)`，大小用 `GetEffectiveWorkspaceSize(h)`
+   - 若算子所需 workspace 超过默认 32 MiB，应在需求分析文档（1.2）和开发方案设计（1.3.A）中明确说明，由上层调用方在调用前通过 `aclblasSetWorkspace` 注入；**不得**在算子代码中自行扩容
 8. **2 层目录结构**
    - 算子代码位于 `blas/{operator_name}/archXX/`（**2 层**，不再使用 `{family}/` 中间层目录）
    - 测试代码位于 `test/{operator_name}/`（同样 2 层）

@@ -620,7 +620,7 @@ static aclblasStatus_t UploadScratchAndLaunchKernel(
     const GemmGroupedHostPtrArrays& hostPtrs, uint32_t usedCoreNum)
 {
     GemmGroupedScratchLayout scratch = ComputeScratchLayout(groupParams.size(), totalB);
-    size_t availableBytes = aclblasGetEffectiveWorkspaceSize(h);
+    size_t availableBytes = GetEffectiveWorkspaceSize(h);
     if (scratch.totalBytes > availableBytes) {
         OP_LOGE("aclblasGemmGroupedBatched",
                 "scratch required %zu bytes, but only %zu bytes available. "
@@ -629,7 +629,7 @@ static aclblasStatus_t UploadScratchAndLaunchKernel(
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
-    uint8_t* workspace = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    uint8_t* workspace = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
     GemmGroupedScratchDevicePtrs devPtrs{};
     devPtrs.devTiling = workspace + scratch.tilingOff;
     devPtrs.devGroupParams = workspace + scratch.groupParamsOff;

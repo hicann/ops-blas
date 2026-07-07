@@ -154,10 +154,10 @@ aclblasStatus_t aclblasStbmv(
     uint8_t* workspaceDevice = nullptr;
     if (k > 0) {
         CHECK_RET(
-            workspaceSize <= aclblasGetEffectiveWorkspaceSize(h),
-            OP_LOGE("aclblasStbmv", "workspace %zu > handle %zu", workspaceSize, aclblasGetEffectiveWorkspaceSize(h));
+            workspaceSize <= GetEffectiveWorkspaceSize(h),
+            OP_LOGE("aclblasStbmv", "workspace %zu > handle %zu", workspaceSize, GetEffectiveWorkspaceSize(h));
             return ACLBLAS_STATUS_EXECUTION_FAILED);
-        workspaceDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+        workspaceDevice = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
     }
     return LaunchStbmvKernel(
         h, A, x, workspaceDevice, workspaceSize, tilingData, useFastPath, fastTilingData, fastBlocks, useNumBlocks);

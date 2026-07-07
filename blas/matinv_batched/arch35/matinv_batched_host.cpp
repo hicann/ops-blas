@@ -102,7 +102,7 @@ static aclblasStatus_t CheckAndPartitionWorkspace(
     size_t pivBytes = static_cast<size_t>(n) * static_cast<size_t>(batchSize) * sizeof(int);
     out.totalWsBytes = ptrArrayBytes + matTmpBytes + pivBytes;
 
-    size_t availableBytes = aclblasGetEffectiveWorkspaceSize(h);
+    size_t availableBytes = GetEffectiveWorkspaceSize(h);
     if (out.totalWsBytes > availableBytes) {
         OP_LOGE(TAG,
                 "workspace required %zu bytes (ptrArray=%zu + matTmp=%zu + piv=%zu), "
@@ -111,7 +111,7 @@ static aclblasStatus_t CheckAndPartitionWorkspace(
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
-    auto* ws = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    auto* ws = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
     out.matPtrArray = ws;
     out.matTmpBuf = ws + ptrArrayBytes;
     out.pivBuf = ws + ptrArrayBytes + matTmpBytes;

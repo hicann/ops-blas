@@ -58,10 +58,10 @@ Tiling 通过 const 引用传递（不分配 GM），workspace 由 handle 统一
 
 ```cpp
 size_t workSpaceNeed = ...;  // 算子所需的 workspace 大小
-if (workSpaceNeed > aclblasGetEffectiveWorkspaceSize(h)) {
+if (workSpaceNeed > GetEffectiveWorkspaceSize(h)) {
     OP_LOGE("aclblasSgemv",
             "workspace not enough: need=%zu, have=%zu",
-            workSpaceNeed, aclblasGetEffectiveWorkspaceSize(h));
+            workSpaceNeed, GetEffectiveWorkspaceSize(h));
     return ACLBLAS_STATUS_EXECUTION_FAILED;
 }
 ```
@@ -152,7 +152,7 @@ static aclblasStatus_t LaunchSgemvKernel(aclblasHandle_t handle, aclblasOperatio
     sgemv_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(A)),
                     reinterpret_cast<GM_ADDR>(const_cast<float*>(x)),
                     reinterpret_cast<GM_ADDR>(y),
-                    reinterpret_cast<GM_ADDR>(aclblasGetEffectiveWorkspace(h)),
+                    reinterpret_cast<GM_ADDR>(GetEffectiveWorkspace(h)),
                     useNumBlocks, tiling, h->stream);
     return ACLBLAS_STATUS_SUCCESS;
 }

@@ -231,16 +231,16 @@ if (aivCoreNum == 0) {
 
 ## 7. Workspace 管理（handle 统一）
 
-> **注意**：Tiling 数据不再通过 `aclrtMalloc`/`aclrtMemcpy(H2D)` 传递（改用 `const TilingData&` 引用直接传给 `kernel_do`，运行时 launch 参数自动拷贝），workspace 由 `aclblasCreate` 预分配 4 MiB 默认容量，也可由用户通过 `aclblasSetWorkspace` 注入。**算子内禁止再 `aclrtMalloc` 分配 tilingDevice 或 workspace**。
+> **注意**：Tiling 数据不再通过 `aclrtMalloc`/`aclrtMemcpy(H2D)` 传递（改用 `const TilingData&` 引用直接传给 `kernel_do`，运行时 launch 参数自动拷贝），workspace 由 `aclblasCreate` 预分配 32 MiB 默认容量，也可由用户通过 `aclblasSetWorkspace` 注入。**算子内禁止再 `aclrtMalloc` 分配 tilingDevice 或 workspace**。
 
 ### 7.1 Workspace 容量校验（必须）
 
 ```cpp
 size_t workSpaceNeed = /* 算子所需 workspace 大小 */;
-if (workSpaceNeed > aclblasGetEffectiveWorkspaceSize(h)) {
+if (workSpaceNeed > GetEffectiveWorkspaceSize(h)) {
     OP_LOGE("aclblasXxx",
             "workspace not enough: need=%zu, have=%zu",
-            workSpaceNeed, aclblasGetEffectiveWorkspaceSize(h));
+            workSpaceNeed, GetEffectiveWorkspaceSize(h));
     return ACLBLAS_STATUS_EXECUTION_FAILED;
 }
 ```
@@ -248,7 +248,7 @@ if (workSpaceNeed > aclblasGetEffectiveWorkspaceSize(h)) {
 ### 7.2 获取当前生效 workspace 指针
 
 ```cpp
-void* workSpace = aclblasGetEffectiveWorkspace(h);
+void* workSpace = GetEffectiveWorkspace(h);
 ```
 
 ### 7.3 aclrtMemcpy（Device → Host）

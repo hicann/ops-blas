@@ -100,10 +100,10 @@ aclblasStatus_t aclblasStrmv(
 
     const size_t workspaceNeed = static_cast<size_t>(n) * sizeof(float);
     CHECK_RET(
-        workspaceNeed <= aclblasGetEffectiveWorkspaceSize(h),
-        OP_LOGE("aclblasStrmv", "workspace %zu > handle %zu", workspaceNeed, aclblasGetEffectiveWorkspaceSize(h));
+        workspaceNeed <= GetEffectiveWorkspaceSize(h),
+        OP_LOGE("aclblasStrmv", "workspace %zu > handle %zu", workspaceNeed, GetEffectiveWorkspaceSize(h));
         return ACLBLAS_STATUS_EXECUTION_FAILED);
-    uint8_t* workspaceDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    uint8_t* workspaceDevice = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
 
     strmv_arch35_kernel_do(A, x, workspaceDevice, tilingData, useNumBlocks, useStream);
 

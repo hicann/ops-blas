@@ -16,19 +16,30 @@
 #pragma once
 
 #include <acl/acl.h>
+#include <algorithm>
 #include <cstddef>
 #include "log/log.h"
 
 #include "cann_ops_blas_common.h"
 
-/** @brief Default initial workspace size: 4 MiB. */
-constexpr size_t ACLBLAS_DEFAULT_WORKSPACE_SIZE = 4U * 1024U * 1024U;
+/** @brief Default initial workspace size: 32 MiB. */
+constexpr size_t ACLBLAS_DEFAULT_WORKSPACE_SIZE = 32U * 1024U * 1024U;
+
+/** @brief Maximum workspace size: 2 GiB. Allocations beyond this fail. */
+constexpr size_t ACLBLAS_MAX_WORKSPACE_SIZE = 2ULL * 1024ULL * 1024ULL * 1024ULL;
+
+/** @brief Ownership of the active workspace buffer. */
+enum class AclblasWorkspaceOwner {
+    Library, /**< Allocated and freed by the library; may grow in place. */
+    User,    /**< Injected by the user via aclblasSetWorkspace; never freed by the library. */
+};
 
 /**
  * @brief Internal ops-blas handle structure.
  *
- * Maintains default workspace (allocated/freed by the library) and user workspace
- * (allocated/freed by the user). The use_user_workspace flag selects which one is active.
+ * Maintains a single active workspace buffer. When the user switches back to the
+ * library workspace, the library re-allocates using library_workspace_size rather
+ * than keeping two device buffers resident.
  *
  * This structure is visible only inside implementation files. Public APIs use void* / void**
  * as the handle type.
@@ -37,58 +48,162 @@ struct _aclblas_handle {
     /* ========== Stream ========== */
     aclrtStream stream = nullptr;
 
-    /* ========== Default workspace (library managed) ========== */
-    void* default_workspace = nullptr;
-    size_t default_workspace_size = 0;
+    /* ========== Active workspace ========== */
+    void* workspace = nullptr;
+    size_t workspace_size = 0;
+    AclblasWorkspaceOwner workspace_owner = AclblasWorkspaceOwner::Library;
 
-    /* ========== User workspace (user managed) ========== */
-    void* user_workspace = nullptr;
-    size_t user_workspace_size = 0;
-
-    bool use_user_workspace = false;
+    /** Size of the last library-managed workspace buffer (preserved across user switches). */
+    size_t library_workspace_size = 0;
 };
 
 /**
  * @brief Returns the pointer of the currently active workspace.
  */
-inline void* aclblasGetEffectiveWorkspace(const _aclblas_handle* h)
+inline void* GetEffectiveWorkspace(const _aclblas_handle* h)
 {
     if (h == nullptr) {
         return nullptr;
     }
-    return h->use_user_workspace ? h->user_workspace : h->default_workspace;
+    return h->workspace;
 }
 
 /**
  * @brief Returns the size in bytes of the currently active workspace.
  */
-inline size_t aclblasGetEffectiveWorkspaceSize(const _aclblas_handle* h)
+inline size_t GetEffectiveWorkspaceSize(const _aclblas_handle* h)
 {
     if (h == nullptr) {
         return 0;
     }
-    return h->use_user_workspace ? h->user_workspace_size : h->default_workspace_size;
+    return h->workspace_size;
 }
 
 /**
  * @brief check the size in bytes of the currently active workspace.
  */
- inline bool aclblasCheckEffectiveWorkspaceSize(const _aclblas_handle* h, size_t workSize)
- {
-    size_t availableBytes = aclblasGetEffectiveWorkspaceSize(h);
+inline bool CheckEffectiveWorkspaceSize(const _aclblas_handle* h, size_t workSize)
+{
+    size_t availableBytes = GetEffectiveWorkspaceSize(h);
     OP_CHECK_IF(availableBytes < workSize, OP_LOGE("aclblasHandle",
         "workspace required %zu bytes, but only %zu bytes available. "
         "Please call aclblasSetWorkspace with size >= %zu bytes",
         workSize, availableBytes, workSize), return false);
     return true;
- }
+}
+
+inline aclblasStatus_t SynchronizeHandleStream(_aclblas_handle* h)
+{
+    if (h == nullptr) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    const aclError aclRet = aclrtSynchronizeStream(h->stream);
+    return aclRet == ACL_SUCCESS ? ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_EXECUTION_FAILED;
+}
+
+inline void FreeLibraryWorkspace(_aclblas_handle* h)
+{
+    if (h == nullptr || h->workspace_owner != AclblasWorkspaceOwner::Library || h->workspace == nullptr) {
+        return;
+    }
+    aclrtFree(h->workspace);
+    h->workspace = nullptr;
+    h->workspace_size = 0;
+}
+
+inline aclblasStatus_t AllocateLibraryWorkspace(_aclblas_handle* h, size_t size)
+{
+    if (h == nullptr || size == 0) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    void* ptr = nullptr;
+    const aclError aclRet = aclrtMalloc(&ptr, size, ACL_MEM_MALLOC_HUGE_FIRST);
+    if (aclRet != ACL_SUCCESS) {
+        return ACLBLAS_STATUS_ALLOC_FAILED;
+    }
+
+    h->workspace = ptr;
+    h->workspace_size = size;
+    h->library_workspace_size = size;
+    h->workspace_owner = AclblasWorkspaceOwner::Library;
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+inline aclblasStatus_t ResetToDefaultWorkspace(_aclblas_handle* h)
+{
+    if (h == nullptr) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    if (h->workspace_owner == AclblasWorkspaceOwner::Library && h->workspace != nullptr) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    const aclblasStatus_t syncStatus = SynchronizeHandleStream(h);
+    if (syncStatus != ACLBLAS_STATUS_SUCCESS) {
+        return syncStatus;
+    }
+
+    h->workspace = nullptr;
+    h->workspace_size = 0;
+    h->workspace_owner = AclblasWorkspaceOwner::Library;
+
+    const size_t allocSize =
+        h->library_workspace_size > 0 ? h->library_workspace_size : ACLBLAS_DEFAULT_WORKSPACE_SIZE;
+    return AllocateLibraryWorkspace(h, allocSize);
+}
 
 /**
- * @brief Switches back to the default workspace without clearing cached user workspace fields.
+ * @brief Ensures the active library workspace is at least @p requiredSize bytes.
+ *
+ * User-owned workspace is never reallocated; requests beyond the current size fail.
+ * Library-owned workspace grows in place via free + malloc with a doubling policy.
  */
-inline void aclblasResetToDefaultWorkspace(_aclblas_handle* h)
+inline aclblasStatus_t EnsureDefaultWorkspace(_aclblas_handle* h, size_t requiredSize)
 {
-    if (h != nullptr) {
-        h->use_user_workspace = false;
+    if (h == nullptr) {
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
+    if (h->workspace_owner == AclblasWorkspaceOwner::User) {
+        if (requiredSize > h->workspace_size) {
+            OP_LOGE("aclblasHandle",
+                "user workspace too small: required=%zu, available=%zu",
+                requiredSize, h->workspace_size);
+            return ACLBLAS_STATUS_ALLOC_FAILED;
+        }
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    if (requiredSize <= h->workspace_size) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    if (requiredSize > ACLBLAS_MAX_WORKSPACE_SIZE) {
+        OP_LOGE("aclblasHandle",
+            "workspace required %zu bytes exceeds maximum limit %zu bytes",
+            requiredSize, ACLBLAS_MAX_WORKSPACE_SIZE);
+        return ACLBLAS_STATUS_ALLOC_FAILED;
+    }
+
+    const aclblasStatus_t syncStatus = SynchronizeHandleStream(h);
+    if (syncStatus != ACLBLAS_STATUS_SUCCESS) {
+        return syncStatus;
+    }
+
+    const size_t doubledSize = h->workspace_size > 0 ? h->workspace_size * 2 : ACLBLAS_DEFAULT_WORKSPACE_SIZE;
+    const size_t newSize =
+        std::min(std::max(requiredSize, doubledSize), ACLBLAS_MAX_WORKSPACE_SIZE);
+
+    OP_LOGW("aclblasHandle",
+        "library workspace (%zu bytes) insufficient, expanding to %zu bytes",
+        h->workspace_size, newSize);
+
+    FreeLibraryWorkspace(h);
+
+    const aclblasStatus_t allocStatus = AllocateLibraryWorkspace(h, newSize);
+    if (allocStatus != ACLBLAS_STATUS_SUCCESS) {
+        OP_LOGE("aclblasHandle", "workspace expansion to %zu bytes failed", newSize);
+        return allocStatus;
+    }
+    return ACLBLAS_STATUS_SUCCESS;
 }

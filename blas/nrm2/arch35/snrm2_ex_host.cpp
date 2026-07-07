@@ -120,10 +120,10 @@ static aclblasStatus_t LaunchSnrm2ExKernel(
     // 复用 handle workspace，每个 core 2 个 FP32（scale_local, ssq_local）。
     size_t workspaceBytes = static_cast<size_t>(tiling.useCoreNum) * 2 * sizeof(float);
     CHECK_RET(
-        workspaceBytes <= aclblasGetEffectiveWorkspaceSize(h),
-        OP_LOGE("aclblasSnrm2Ex", "workspace %zu > handle %zu", workspaceBytes, aclblasGetEffectiveWorkspaceSize(h));
+        workspaceBytes <= GetEffectiveWorkspaceSize(h),
+        OP_LOGE("aclblasSnrm2Ex", "workspace %zu > handle %zu", workspaceBytes, GetEffectiveWorkspaceSize(h));
         return ACLBLAS_STATUS_ALLOC_FAILED);
-    auto* workspaceDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    auto* workspaceDevice = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
 
     aclError aclRet = aclrtMemsetAsync(workspaceDevice, workspaceBytes, 0, workspaceBytes, h->stream);
     if (aclRet != ACL_SUCCESS) {

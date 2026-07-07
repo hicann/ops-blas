@@ -67,10 +67,10 @@ static aclblasStatus_t LaunchSdotKernel(
 {
     size_t workspaceNeed = tiling.useCoreNum * sizeof(float);
     CHECK_RET(
-        workspaceNeed <= aclblasGetEffectiveWorkspaceSize(h),
-        OP_LOGE("aclblasSdot", "workspace %zu > handle %zu", workspaceNeed, aclblasGetEffectiveWorkspaceSize(h));
+        workspaceNeed <= GetEffectiveWorkspaceSize(h),
+        OP_LOGE("aclblasSdot", "workspace %zu > handle %zu", workspaceNeed, GetEffectiveWorkspaceSize(h));
         return ACLBLAS_STATUS_EXECUTION_FAILED);
-    uint8_t* workspaceDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    uint8_t* workspaceDevice = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
 
     OP_LOGI("aclblasSdot", "launching kernel with %u cores", tiling.useCoreNum);
 

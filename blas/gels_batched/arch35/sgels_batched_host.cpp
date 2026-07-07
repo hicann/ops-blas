@@ -126,7 +126,7 @@ static aclblasStatus_t LaunchGelsKernel(
     size_t tempABytes = tempAPerCoreBytes * tiling.usedCoreNum;
     size_t workspaceBytes = tauBytes + tempABytes;
 
-    size_t availableBytes = aclblasGetEffectiveWorkspaceSize(h);
+    size_t availableBytes = GetEffectiveWorkspaceSize(h);
     if (workspaceBytes > availableBytes) {
         OP_LOGE(TAG, "workspace required %zu bytes, but only %zu bytes available. "
                      "Please call aclblasSetWorkspace with size >= %zu bytes",
@@ -134,7 +134,7 @@ static aclblasStatus_t LaunchGelsKernel(
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
-    uint8_t* workspace = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    uint8_t* workspace = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
 
     OP_LOGI(
         TAG, "launching SIMT kernel: cores=%u, batches=%u, threads=%u", tiling.usedCoreNum, tiling.batchSize,

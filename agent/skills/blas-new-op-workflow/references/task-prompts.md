@@ -246,7 +246,7 @@ subagent: developer
     - "**公共代码提取**：算子代码中发现通用工具函数、宏、常量或类型（不包含算子特有逻辑），必须提取到 blas/common/ 下对应模块（如 helper/、arch/、memory/ 等），禁止定义在算子代码中"
     - Tiling 传递方式（强制）：host 侧 `kernel_do` 以 `const TilingData&` 接收 tiling；kernel 函数以 by value（`const TilingData tiling`）接收；**禁止**使用 `aclrtMalloc` + `aclrtMemcpy(H2D)` + `GM_ADDR tilingGm` 传递 tiling
     - 异步 launch（强制）：host 侧 launch kernel 后直接返回，**禁止**调用 `aclrtSynchronizeStream`
-    - Workspace（强制）：host 侧**禁止**自行 `aclrtMalloc` workspace；如需 workspace 必须使用 `aclblasGetEffectiveWorkspace(h)` 获取
+    - Workspace（强制）：host 侧**禁止**自行 `aclrtMalloc` workspace；如需 workspace 必须使用 `GetEffectiveWorkspace(h)` 获取
     - kernel.h 数据指针类型（强制）：`kernel_do` 数据指针参数统一用 `GM_ADDR`（与 kernel.cpp 签名一致），禁止 `uint8_t*`
     - kernel 入口 `extern "C"`（强制，reviewer HIGH）：kernel 入口函数必须使用 `extern "C" __global__ __aicore__ void ...`，禁止不加 `extern "C"`
     - host 公共函数（强制）：host.cpp **禁止**在文件内定义 `static GetAivCoreCount`/`GetVectorCoreCount`，必须 `#include "common/helper/host_utils.h"` 使用公共 `GetAivCoreCount()`；GetAivCoreCount 失败时错误信息统一为 `OP_LOGE("aclblas{Op}", "GetAivCoreCount failed")` 并返回 `ACLBLAS_STATUS_INTERNAL_ERROR`

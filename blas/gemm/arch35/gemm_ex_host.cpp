@@ -358,7 +358,7 @@ static aclblasStatus_t CheckWorkspaceSize(bool useFP32Output, aclDataType Ctype,
 {
     size_t tempElemSize = useFP32Output ? 4 : ((Ctype == ACL_FLOAT) ? 4 : 2);
     size_t tempABBytes = static_cast<size_t>(m) * n * tempElemSize;
-    size_t availableBytes = aclblasGetEffectiveWorkspaceSize(h);
+    size_t availableBytes = GetEffectiveWorkspaceSize(h);
     if (tempABBytes > availableBytes) {
         OP_LOGE(
             "aclblasGemmEx",
@@ -423,7 +423,7 @@ static aclblasStatus_t AllocateAndLaunchKernel(
             return st;
         }
     }
-    tempABDevice = reinterpret_cast<uint8_t*>(aclblasGetEffectiveWorkspace(h));
+    tempABDevice = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
 
     uint8_t* aDevicePtr = reinterpret_cast<uint8_t*>(const_cast<void*>(B));
     uint8_t* bDevicePtr = reinterpret_cast<uint8_t*>(const_cast<void*>(A));
