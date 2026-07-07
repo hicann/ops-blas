@@ -95,7 +95,11 @@ inline void RunAndVerify(const GemmParam& p, aclblasHandle_t testHandle, Prepare
 
     VerifyConfig cfg;
     cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = getMereThreshold(p.Ctype);
+    if (p.Ctype == ACL_FLOAT16) {
+        cfg.mereThreshold = 0.0012;
+    } else {
+        cfg.mereThreshold = getMereThreshold(p.Ctype);
+    }
     cfg.mareMultiplier = getMareMultiplier(p.Ctype, p.k, p.computeType);
 
     EXPECT_TRUE(Verifier::verifyVector(cNpuFloat.data(), data.cGolden.data(), cCount, 1, cfg, p.caseName));

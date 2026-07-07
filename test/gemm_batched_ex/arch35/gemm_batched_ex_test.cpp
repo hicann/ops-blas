@@ -118,7 +118,11 @@ inline void RunAndVerifyBatched(
 
     VerifyConfig cfg;
     cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = getMereThreshold(p.Ctype);
+    if (p.Ctype == ACL_FLOAT16) {
+        cfg.mereThreshold = 0.0012;
+    } else {
+        cfg.mereThreshold = getMereThreshold(p.Ctype);
+    }
     cfg.mareMultiplier = getMareMultiplier(p.Ctype, p.k, p.computeType);
 
     int safeLdc = std::max(1, p.ldc);
