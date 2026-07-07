@@ -18,9 +18,9 @@
 #include <vector>
 #include <algorithm>
 #include <iterator>
-#include <complex>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "complex_ops.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -34,13 +34,13 @@
         printf(message, ##__VA_ARGS__); \
     } while (0)
 
-uint32_t VerifyCaxpyResult(std::vector<std::complex<float>>& output, std::vector<std::complex<float>>& golden)
+uint32_t VerifyCaxpyResult(std::vector<aclblasComplex>& output, std::vector<aclblasComplex>& golden)
 {
-    auto printTensor = [](std::vector<std::complex<float>>& tensor, const char* name) {
+    auto printTensor = [](std::vector<aclblasComplex>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 10;
         std::cout << name << ": ";
         for (size_t i = 0; i < std::min(tensor.size(), maxPrintSize); i++) {
-            std::cout << "(" << tensor[i].real() << "," << tensor[i].imag() << ") ";
+            std::cout << "(" << tensor[i].real << "," << tensor[i].imag << ") ";
         }
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -51,10 +51,10 @@ uint32_t VerifyCaxpyResult(std::vector<std::complex<float>>& output, std::vector
     printTensor(golden, "Golden");
     constexpr float EPSILON = 1e-3f;
     for (size_t i = 0; i < output.size(); i++) {
-        float diff = std::abs(output[i] - golden[i]);
+        float diff = aclblasAbs(output[i] - golden[i]);
         if (diff > EPSILON) {
-            std::cout << "[Failed] Caxpy Index " << i << ": output=(" << output[i].real() << "," << output[i].imag()
-                      << ") golden=(" << golden[i].real() << "," << golden[i].imag() << ") diff=" << diff << std::endl;
+            std::cout << "[Failed] Caxpy Index " << i << ": output=(" << output[i].real << "," << output[i].imag
+                      << ") golden=(" << golden[i].real << "," << golden[i].imag << ") diff=" << diff << std::endl;
             return 1;
         }
     }
@@ -65,18 +65,18 @@ uint32_t VerifyCaxpyResult(std::vector<std::complex<float>>& output, std::vector
 int32_t TestCaxpy(aclblasHandle handle, aclrtStream stream)
 {
     constexpr uint32_t totalLength = 8 * 2048;
-    constexpr std::complex<float> valueX(1.0f, 0.5f);
-    constexpr std::complex<float> valueY(2.0f, 1.0f);
-    constexpr std::complex<float> alpha(2.0f, 1.0f);
-    std::vector<std::complex<float>> x(totalLength, valueX);
-    std::vector<std::complex<float>> y(totalLength, valueY);
+    constexpr aclblasComplex valueX{1.0f, 0.5f};
+    constexpr aclblasComplex valueY{2.0f, 1.0f};
+    constexpr aclblasComplex alpha{2.0f, 1.0f};
+    std::vector<aclblasComplex> x(totalLength, valueX);
+    std::vector<aclblasComplex> y(totalLength, valueY);
     int64_t incx = 1;
     int64_t incy = 1;
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    size_t xByteSize = totalLength * sizeof(std::complex<float>);
-    size_t yByteSize = totalLength * sizeof(std::complex<float>);
+    aclblasComplex* xDevice = nullptr;
+    aclblasComplex* yDevice = nullptr;
+    size_t xByteSize = totalLength * sizeof(aclblasComplex);
+    size_t yByteSize = totalLength * sizeof(aclblasComplex);
     aclError aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMalloc((void**)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -94,9 +94,9 @@ int32_t TestCaxpy(aclblasHandle handle, aclrtStream stream)
 
     std::cout << "========== Testing aclblasCaxpy ==========" << std::endl;
     std::cout << "Formula: y = alpha * x + y" << std::endl;
-    std::cout << "alpha = (" << alpha.real() << ", " << alpha.imag() << ")" << std::endl;
-    std::cout << "x = (" << valueX.real() << ", " << valueX.imag() << ") * " << totalLength << std::endl;
-    std::cout << "y = (" << valueY.real() << ", " << valueY.imag() << ") * " << totalLength << std::endl;
+    std::cout << "alpha = (" << alpha.real << ", " << alpha.imag << ")" << std::endl;
+    std::cout << "x = (" << valueX.real << ", " << valueX.imag << ") * " << totalLength << std::endl;
+    std::cout << "y = (" << valueY.real << ", " << valueY.imag << ") * " << totalLength << std::endl;
 
     auto ret = aclblasCaxpy(handle, totalLength, alpha, xDevice, incx, yDevice, incy);
     CHECK_RET(
@@ -114,7 +114,7 @@ int32_t TestCaxpy(aclblasHandle handle, aclrtStream stream)
     aclrtFree(xDevice);
     aclrtFree(yDevice);
 
-    std::vector<std::complex<float>> golden(totalLength);
+    std::vector<aclblasComplex> golden(totalLength);
     for (size_t i = 0; i < totalLength; i++) {
         golden[i] = alpha * x[i] + valueY;
     }

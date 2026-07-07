@@ -208,7 +208,7 @@ int main()
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCaxpy(aclblasHandle_t handle, const int64_t n, const std::complex<float> alpha, uint8_t* x, int64_t incx, uint8_t* y, int64_t incy)
+aclblasStatus_t aclblasCaxpy(aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, int64_t incx, aclblasComplex* y, int64_t incy)
 ```
 
 #### 参数说明
@@ -217,10 +217,10 @@ aclblasStatus_t aclblasCaxpy(aclblasHandle_t handle, const int64_t n, const std:
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
 | n | 输入 | const int64_t | 向量元素个数，Host 内存 |
-| alpha | 输入 | const std::complex<float> | 复数标量系数，Host 内存 |
-| x | 输入 | uint8_t* | 输入复向量，Device 内存 |
+| alpha | 输入 | const aclblasComplex | 复数标量系数，Host 内存 |
+| x | 输入 | aclblasComplex* | 输入复向量，Device 内存 |
 | incx | 输入 | int64_t | x 的步长，Host 内存 |
-| y | 输入/输出 | uint8_t* | 输入/输出复向量，Device 内存 |
+| y | 输入/输出 | aclblasComplex* | 输入/输出复向量，Device 内存 |
 | incy | 输入 | int64_t | y 的步长，Host 内存 |
 
 #### 约束说明
@@ -312,11 +312,11 @@ int aclblasCaxpyTest(AclContext& ctx)
     constexpr int64_t n = 4;
     constexpr int64_t incx = 1;
     constexpr int64_t incy = 1;
-    constexpr size_t bytes = static_cast<size_t>(n) * sizeof(std::complex<float>);
-    std::complex<float> alpha(2.0f, 1.0f);
+    constexpr size_t bytes = static_cast<size_t>(n) * sizeof(aclblasComplex);
+    aclblasComplex alpha{2.0f, 1.0f};
 
-    std::complex<float> hX[n] = {{1.0f, 0.0f}, {2.0f, 0.0f}, {3.0f, 0.0f}, {4.0f, 0.0f}};
-    std::complex<float> hY[n] = {{10.0f, 0.0f}, {20.0f, 0.0f}, {30.0f, 0.0f}, {40.0f, 0.0f}};
+    aclblasComplex hX[n] = {{1.0f, 0.0f}, {2.0f, 0.0f}, {3.0f, 0.0f}, {4.0f, 0.0f}};
+    aclblasComplex hY[n] = {{10.0f, 0.0f}, {20.0f, 0.0f}, {30.0f, 0.0f}, {40.0f, 0.0f}};
 
     void *rawX = nullptr;
     auto aclRet = aclrtMalloc(&rawX, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -343,8 +343,8 @@ int aclblasCaxpyTest(AclContext& ctx)
 
     blasRet = aclblasCaxpy(
         static_cast<aclblasHandle_t>(handle.get()), n, alpha,
-        static_cast<uint8_t*>(dX.get()), incx,
-        static_cast<uint8_t*>(dY.get()), incy);
+        static_cast<aclblasComplex*>(dX.get()), incx,
+        static_cast<aclblasComplex*>(dY.get()), incy);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
 
     aclRet = aclrtSynchronizeStream(ctx.Stream());
@@ -355,7 +355,7 @@ int aclblasCaxpyTest(AclContext& ctx)
 
     // 预期结果：y = alpha*x + y
     for (int64_t i = 0; i < n; i++) {
-        printf("y[%lld] = (%f, %f)\n", static_cast<long long>(i), hY[i].real(), hY[i].imag());
+        printf("y[%lld] = (%f, %f)\n", static_cast<long long>(i), hY[i].real, hY[i].imag);
     }
 
     return 0;

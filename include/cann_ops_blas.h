@@ -289,8 +289,8 @@ aclblasStatus_t aclblasCswap(
     aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy);
 
 aclblasStatus_t aclblasCaxpy(
-    aclblasHandle_t handle, const int64_t n, const std::complex<float> alpha, uint8_t* x, int64_t incx, uint8_t* y,
-    int64_t incy);
+    aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, int64_t incx,
+    aclblasComplex* y, int64_t incy);
 
 aclblasStatus_t aclblasCgemv(
     aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const std::complex<float>& alpha,
