@@ -107,7 +107,7 @@ ops-blas 提供基于 C 的 BLAS 标准接口，以及轻量化 GEMM / 矩阵变
 
 ### aclblasLogLevel_t
 
-配置 aclBLAS 库日志输出级别，用于 `aclblasLoggerConfigure` 等接口。
+日志级别枚举，预留供未来日志级别控制接口使用。当前日志级别通过环境变量 `ASCEND_GLOBAL_LOG_LEVEL` 控制。
 
 | 取值 | 含义 |
 |---|---|
@@ -241,17 +241,17 @@ aclblasStatus_t aclblasGetVersion(aclblasHandle_t handle, int* version);
 
 ```cpp
 aclblasStatus_t aclblasLoggerConfigure(
-    const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel);
+    int logIsOn, int logToStdOut, int logToStdErr, const char* logFile);
 ```
 
 配置 ops-blas 库运行时日志行为。
 
 | 参数 | 说明 |
 |---|---|
-| `logFile` | 日志文件路径；为 `nullptr` 或空字符串时不写文件。 |
-| `logToStdOut` | 是否输出到标准输出。 |
-| `logToKdlls` | 是否输出到内核日志。 |
-| `logLevel` | 日志级别，见 [aclblasLogLevel_t](#aclblasloglevel_t)。 |
+| `logIsOn` | 是否开启日志（总开关），非零为开启、0 为关闭。 |
+| `logToStdOut` | 是否输出到标准输出，非零为是、0 为否。 |
+| `logToStdErr` | 是否输出到标准错误，非零为是、0 为否。 |
+| `logFile` | 日志文件路径；为 `nullptr` 时不写文件。调用方需保证该指针在日志输出期间有效（内部不拷贝）。 |
 
 | 返回值 | 含义 |
 |---|---|
@@ -260,20 +260,19 @@ aclblasStatus_t aclblasLoggerConfigure(
 #### aclblasSetLoggerCallback()
 
 ```cpp
-aclblasStatus_t aclblasSetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+aclblasStatus_t aclblasSetLoggerCallback(aclblasLogCallback userCallback);
 ```
 
-安装用户自定义日志回调函数。回调类型为 `void (*)(char*)`。
+安装用户自定义日志回调函数。回调类型为 `void (*)(const char*)`。传入 `nullptr` 可清除已安装的回调。
 
 | 返回值 | 含义 |
 |---|---|
 | `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
-| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
 
 #### aclblasGetLoggerCallback()
 
 ```cpp
-aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+aclblasStatus_t aclblasGetLoggerCallback(aclblasLogCallback* userCallback);
 ```
 
 获取当前已安装的用户自定义日志回调函数指针。
@@ -281,7 +280,7 @@ aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallbac
 | 返回值 | 含义 |
 |---|---|
 | `ACLBLAS_STATUS_SUCCESS` | 获取成功。 |
-| `ACLBLAS_STATUS_HANDLE_IS_NULLPTR` | `handle` 为空指针。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `userCallback` 为空指针。 |
 
 ### aclBLASLt Helper
 

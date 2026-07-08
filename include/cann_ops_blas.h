@@ -15,7 +15,7 @@
 #include "cann_ops_blas_common.h"
 
 using aclblasHandle = void*;
-using aclblasLogCallback = void (*)(char*);
+using aclblasLogCallback = void (*)(const char*);
 
 typedef void* aclblasHandle_t;
 
@@ -106,32 +106,31 @@ aclblasStatus_t aclblasGetVersion(aclblasHandle_t handle, int* version);
 
 /**
  * @brief Configures logging for the ops-blas library.
- * @param logFile Log file path; no file output when null or empty.
- * @param logToStdOut Whether to write logs to standard output.
- * @param logToKdlls Whether to write logs to the kernel log.
- * @param logLevel Log level.
+ * @param logIsOn Whether to turn logging on/off completely (non-zero = on, 0 = off).
+ * @param logToStdOut Whether to write logs to standard output (non-zero = yes, 0 = no).
+ * @param logToStdErr Whether to write logs to standard error (non-zero = yes, 0 = no).
+ * @param logFile Log file path; no file output when null. Caller must ensure the
+ *                pointer remains valid during logging output (not copied).
  * @return ACLBLAS_STATUS_SUCCESS on success.
  */
 aclblasStatus_t aclblasLoggerConfigure(
-    const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel);
+    int logIsOn, int logToStdOut, int logToStdErr, const char* logFile);
 
 /**
  * @brief Sets the log callback function.
- * @param handle Handle.
- * @param userCallback User-defined log callback function.
+ * @param userCallback User-defined log callback function. Pass nullptr to clear
+ *                     the previously installed callback.
  * @return ACLBLAS_STATUS_SUCCESS on success.
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
  */
-aclblasStatus_t aclblasSetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+aclblasStatus_t aclblasSetLoggerCallback(aclblasLogCallback userCallback);
 
 /**
  * @brief Gets the log callback function.
- * @param handle Handle.
  * @param userCallback Output parameter for the user-defined log callback function.
  * @return ACLBLAS_STATUS_SUCCESS on success.
- *         ACLBLAS_STATUS_HANDLE_IS_NULLPTR if handle is null.
+ *         ACLBLAS_STATUS_INVALID_VALUE if userCallback is null.
  */
-aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+aclblasStatus_t aclblasGetLoggerCallback(aclblasLogCallback* userCallback);
 
 aclblasStatus_t aclblasScopy_legacy(
     aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy);

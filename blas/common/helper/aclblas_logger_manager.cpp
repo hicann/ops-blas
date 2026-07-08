@@ -14,7 +14,6 @@
  */
 
 #include "aclblas_logger_manager.h"
-#include "dlog_pub.h"
 
 namespace {
 static AclBlas::_aclblas_logger_configure configure;
@@ -22,44 +21,29 @@ static AclBlas::_aclblas_logger_configure configure;
 
 namespace AclBlas {
 
-aclblasStatus_t aclblasLoggerConfigure(const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel)
+aclblasStatus_t aclblasLoggerConfigure(int logIsOn, int logToStdOut, int logToStdErr, const char* logFile)
 {
-    configure.logFile = logFile;
+    // Configuration is stored for consumption by the logging output path.
+    // logFile is NOT copied; caller must ensure it remains valid during logging.
+    configure.logIsOn = logIsOn;
     configure.logToStdOut = logToStdOut;
-    configure.logToKdlls = logToKdlls;
-    configure.logLevel = logLevel;
-    switch (configure.logLevel) {
-        case aclblasLogLevel::ACLBLAS_LOG_LEVEL_INFO:
-            dlog_setlevel(OP_MODULE_ID, DLOG_INFO, 1);
-            break;
-        case aclblasLogLevel::ACLBLAS_LOG_LEVEL_ERROR:
-            dlog_setlevel(OP_MODULE_ID, DLOG_ERROR, 1);
-            break;
-        case aclblasLogLevel::ACLBLAS_LOG_LEVEL_DEBUG:
-            dlog_setlevel(OP_MODULE_ID, DLOG_DEBUG, 1);
-            break;
-        default:
-            dlog_setlevel(OP_MODULE_ID, DLOG_INFO, 1);
-            break;
-    }
+    configure.logToStdErr = logToStdErr;
+    configure.logFile = logFile;
     return aclblasStatus_t::ACLBLAS_STATUS_SUCCESS;
 }
 
-aclblasStatus_t aclblasSetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback)
+aclblasStatus_t aclblasSetLoggerCallback(aclblasLogCallback userCallback)
 {
-    if (handle == nullptr) {
-        return aclblasStatus_t::ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
-    }
     configure.userCallback = userCallback;
     return aclblasStatus_t::ACLBLAS_STATUS_SUCCESS;
 }
 
-aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback)
+aclblasStatus_t aclblasGetLoggerCallback(aclblasLogCallback* userCallback)
 {
-    if (handle == nullptr) {
-        return aclblasStatus_t::ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    if (userCallback == nullptr) {
+        return aclblasStatus_t::ACLBLAS_STATUS_INVALID_VALUE;
     }
-    userCallback = configure.userCallback;
+    *userCallback = configure.userCallback;
     return aclblasStatus_t::ACLBLAS_STATUS_SUCCESS;
 }
 

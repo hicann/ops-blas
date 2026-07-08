@@ -6,92 +6,67 @@ ops-blas 提供 3 个日志配置接口，声明在 `include/cann_ops_blas.h`。
 
 ### aclblasLoggerConfigure
 
-配置日志输出目标和日志级别。
+配置日志输出目标和总开关。
 
 ```cpp
 aclblasStatus_t aclblasLoggerConfigure(
-    const char* logFile,
-    bool logToStdOut,
-    bool logToKdlls,
-    aclblasLogLevel_t logLevel);
+    int logIsOn,
+    int logToStdOut,
+    int logToStdErr,
+    const char* logFile);
 ```
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| logFile | `const char*` | 日志文件路径，`nullptr` 表示不输出到文件 |
-| logToStdOut | `bool` | 是否输出到标准输出 |
-| logToKdlls | `bool` | 是否输出到内核日志 |
-| logLevel | `aclblasLogLevel_t` | 日志级别 |
+| logIsOn | `int` | 是否开启日志（总开关），非零为开启、0 为关闭 |
+| logToStdOut | `int` | 是否输出到标准输出，非零为是、0 为否 |
+| logToStdErr | `int` | 是否输出到标准错误，非零为是、0 为否 |
+| logFile | `const char*` | 日志文件路径，`nullptr` 表示不输出到文件。内部不拷贝，调用方需保证指针在日志输出期间有效 |
 
 **返回值**：`ACLBLAS_STATUS_SUCCESS` 成功
 
 **调用示例**：
 
 ```cpp
-aclblasLoggerConfigure("ops_blas.log", true, false, ACLBLAS_LOG_LEVEL_DEBUG);
+aclblasLoggerConfigure(1, 1, 0, "ops_blas.log");
 ```
 
 ### aclblasSetLoggerCallback
 
-设置用户自定义日志回调函数。
+设置用户自定义日志回调函数。传入 `nullptr` 可清除已安装的回调。
 
 ```cpp
-aclblasStatus_t aclblasSetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+aclblasStatus_t aclblasSetLoggerCallback(aclblasLogCallback userCallback);
 ```
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| handle | `aclblasHandle` | ops-blas handle |
-| userCallback | `aclblasLogCallback` | 回调函数，签名 `void (*)(char*)` |
+| userCallback | `aclblasLogCallback` | 回调函数，签名 `void (*)(const char*)`；`nullptr` 表示清除回调 |
 
-**返回值**：`ACLBLAS_STATUS_SUCCESS` 成功，`ACLBLAS_STATUS_HANDLE_IS_NULLPTR` handle 为空
+**返回值**：`ACLBLAS_STATUS_SUCCESS` 成功
 
 ### aclblasGetLoggerCallback
 
 获取当前日志回调函数。
 
 ```cpp
-aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+aclblasStatus_t aclblasGetLoggerCallback(aclblasLogCallback* userCallback);
 ```
 
-## 日志级别枚举
+| 返回值 | 含义 |
+|------|------|
+| `ACLBLAS_STATUS_SUCCESS` | 获取成功 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `userCallback` 为空指针 |
 
-定义在 `include/cann_ops_blas_common.h`：
+## 日志级别控制
 
-```cpp
-typedef enum aclblasLogLevel {
-    ACLBLAS_LOG_LEVEL_DEBUG = 0,
-    ACLBLAS_LOG_LEVEL_INFO = 1,
-    ACLBLAS_LOG_LEVEL_ERROR = 2,
-} aclblasLogLevel_t;
-```
+`aclblasLoggerConfigure` 不包含日志级别参数（对齐业界主流 BLAS 库设计）。日志级别通过环境变量 `ASCEND_GLOBAL_LOG_LEVEL` 控制，详见下方"环境变量配置"。
 
-| 级别 | 值 | 说明 |
-|------|-----|------|
-| `ACLBLAS_LOG_LEVEL_DEBUG` | 0 | 最详细，包含 Tiling dump、入口追踪 |
-| `ACLBLAS_LOG_LEVEL_INFO` | 1 | 设备信息、Kernel 启动参数 |
-| `ACLBLAS_LOG_LEVEL_ERROR` | 2 | 仅错误信息 |
+`aclblasLogLevel_t` 枚举（定义在 `include/cann_ops_blas_common.h`）保留供未来日志级别控制接口使用。
 
 ## 底层实现
 
-`aclblasLoggerConfigure` 内部通过 `dlog_setlevel` 将日志级别传递到底层 dlog 系统：
-
-```cpp
-switch (logLevel) {
-    case ACLBLAS_LOG_LEVEL_INFO:
-        dlog_setlevel(OP, DLOG_INFO, 1);
-        break;
-    case ACLBLAS_LOG_LEVEL_ERROR:
-        dlog_setlevel(OP, DLOG_ERROR, 1);
-        break;
-    case ACLBLAS_LOG_LEVEL_DEBUG:
-        dlog_setlevel(OP, DLOG_DEBUG, 1);
-        break;
-}
-```
-
-- `OP` 是 dlog 模块标识符（算子模块）
-- 第三个参数 `1` 是设备 ID
+`aclblasLoggerConfigure` 将配置存储到内部全局结构体，供日志输出逻辑消费。日志级别由 dlog 全局配置（环境变量）控制，与业界主流 BLAS 库通过环境变量控制级别的方式一致。
 
 ## 环境变量配置
 

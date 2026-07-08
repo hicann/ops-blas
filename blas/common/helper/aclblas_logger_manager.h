@@ -19,7 +19,6 @@
 #include <cstddef>
 
 #include "cann_ops_blas.h"
-#include "aclblas_handle_internal.h"
 #include "log/log.h"
 
 #ifndef OP_MODULE_ID
@@ -29,16 +28,16 @@
 namespace AclBlas {
 
 struct _aclblas_logger_configure {
+    int logIsOn = 0;
+    int logToStdOut = 0;
+    int logToStdErr = 0;
     const char* logFile = nullptr;
-    bool logToStdOut = false;
-    bool logToKdlls = false;
-    aclblasLogLevel_t logLevel = aclblasLogLevel_t::ACLBLAS_LOG_LEVEL_INFO;
     aclblasLogCallback userCallback = nullptr;
 };
 
-aclblasStatus_t aclblasLoggerConfigure(const char* logFile, bool logToStdOut, bool logToKdlls, aclblasLogLevel_t logLevel);
-aclblasStatus_t aclblasSetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
-aclblasStatus_t aclblasGetLoggerCallback(aclblasHandle handle, aclblasLogCallback userCallback);
+aclblasStatus_t aclblasLoggerConfigure(int logIsOn, int logToStdOut, int logToStdErr, const char* logFile);
+aclblasStatus_t aclblasSetLoggerCallback(aclblasLogCallback userCallback);
+aclblasStatus_t aclblasGetLoggerCallback(aclblasLogCallback* userCallback);
 
 }
 
