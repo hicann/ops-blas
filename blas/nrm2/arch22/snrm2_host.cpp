@@ -162,7 +162,7 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n, const float* x, int 
                             numBlocks, useStream);
 }
 
-aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result)
+aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, float* result)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -171,5 +171,6 @@ aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* 
 
     Nrm2TilingData tiling = CalTilingData(n * 2, numBlocks);
 
-    return Nrm2LaunchKernel(tiling, x, result, numBlocks, useStream);
+    return Nrm2LaunchKernel(tiling, reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(result), numBlocks,
+                            useStream);
 }

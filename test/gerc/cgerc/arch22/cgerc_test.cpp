@@ -17,9 +17,9 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <complex>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "complex.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -34,7 +34,7 @@
     } while (0)
 
 uint32_t VerifyResult(
-    const std::vector<std::complex<float>>& output, const std::vector<std::complex<float>>& golden,
+    const std::vector<aclblasComplex>& output, const std::vector<aclblasComplex>& golden,
     const char* test_name)
 {
     std::cout << "\n========== " << test_name << " ==========" << std::endl;
@@ -46,8 +46,8 @@ uint32_t VerifyResult(
     std::cout << "-------|---------------------------|----------------------------|--------" << std::endl;
     for (size_t i = 0; i < std::min(output.size(), maxPrintCount); i++) {
         printf(
-            "%-6zu | (%8.4f, %8.4f) | (%8.4f, %8.4f)  | %8.6f\n", i, output[i].real(), output[i].imag(),
-            golden[i].real(), golden[i].imag(), std::abs(output[i] - golden[i]));
+            "%-6zu | (%8.4f, %8.4f) | (%8.4f, %8.4f)  | %8.6f\n", i, output[i].real, output[i].imag,
+            golden[i].real, golden[i].imag, blasComplexAbs(output[i] - golden[i]));
     }
 
     const float epsilon = 1e-3;
@@ -56,7 +56,7 @@ uint32_t VerifyResult(
     size_t maxErrorIndex = 0;
 
     for (size_t i = 0; i < output.size(); i++) {
-        float error = std::abs(output[i] - golden[i]);
+        float error = blasComplexAbs(output[i] - golden[i]);
         if (error > maxError) {
             maxError = error;
             maxErrorIndex = i;
@@ -64,8 +64,8 @@ uint32_t VerifyResult(
         if (error > epsilon) {
             if (errors < 5) { // Only print first 5 errors
                 printf(
-                    "Mismatch[%zu]: out=(%.4f,%.4f) gold=(%.4f,%.4f) diff=%.6f\n", i, output[i].real(),
-                    output[i].imag(), golden[i].real(), golden[i].imag(), error);
+                    "Mismatch[%zu]: out=(%.4f,%.4f) gold=(%.4f,%.4f) diff=%.6f\n", i, output[i].real,
+                    output[i].imag, golden[i].real, golden[i].imag, error);
             }
             errors++;
         }
@@ -87,14 +87,15 @@ uint32_t VerifyResult(
 
 // Compute golden result for cgerc: A = alpha * x * conj(y^T) + A
 void computeGolden(
-    std::vector<std::complex<float>>& A, const std::vector<std::complex<float>>& x,
-    const std::vector<std::complex<float>>& y, const std::complex<float>& alpha, int64_t m, int64_t n)
+    std::vector<aclblasComplex>& A, const std::vector<aclblasComplex>& x,
+    const std::vector<aclblasComplex>& y, const aclblasComplex& alpha, int64_t m, int64_t n)
 {
     // A = alpha * x * conj(y^T) + A
     // For each element A[i][j] = alpha * x[i] * conj(y[j]) + A[i][j]
     for (int64_t i = 0; i < m; i++) {
         for (int64_t j = 0; j < n; j++) {
-            A[i * n + j] = alpha * x[i] * std::conj(y[j]) + A[i * n + j];
+            aclblasComplex conjY{y[j].real, -y[j].imag};
+            A[i * n + j] = alpha * x[i] * conjY + A[i * n + j];
         }
     }
 }
@@ -123,33 +124,33 @@ int32_t main(int32_t argc, char* argv[])
     constexpr int64_t incy = 1;
     constexpr int64_t lda = m;
 
-    std::complex<float> alpha(1.0f, 0.0f);
+    aclblasComplex alpha{1.0f, 0.0f};
 
-    std::vector<std::complex<float>> xHost(m);
+    std::vector<aclblasComplex> xHost(m);
     for (int64_t i = 0; i < m; i++) {
-        xHost[i] = std::complex<float>(i + 1.0f, i + 0.5f);
+        xHost[i] = aclblasComplex{i + 1.0f, i + 0.5f};
     }
 
-    std::vector<std::complex<float>> yHost(n);
+    std::vector<aclblasComplex> yHost(n);
     for (int64_t i = 0; i < n; i++) {
-        yHost[i] = std::complex<float>(i + 2.0f, i + 1.5f);
+        yHost[i] = aclblasComplex{i + 2.0f, i + 1.5f};
     }
 
-    std::vector<std::complex<float>> AHost(m * n);
+    std::vector<aclblasComplex> AHost(m * n);
     for (int64_t i = 0; i < m * n; i++) {
-        AHost[i] = std::complex<float>(i * 0.1f, i * 0.2f);
+        AHost[i] = aclblasComplex{i * 0.1f, i * 0.2f};
     }
 
-    std::vector<std::complex<float>> goldenHost = AHost;
+    std::vector<aclblasComplex> goldenHost = AHost;
     computeGolden(goldenHost, xHost, yHost, alpha, m, n);
 
-    size_t xSize = m * sizeof(std::complex<float>);
-    size_t ySize = n * sizeof(std::complex<float>);
-    size_t aSize = m * n * sizeof(std::complex<float>);
+    size_t xSize = m * sizeof(aclblasComplex);
+    size_t ySize = n * sizeof(aclblasComplex);
+    size_t aSize = m * n * sizeof(aclblasComplex);
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    uint8_t* ADevice = nullptr;
+    aclblasComplex* xDevice = nullptr;
+    aclblasComplex* yDevice = nullptr;
+    aclblasComplex* ADevice = nullptr;
 
     aclError aclRet = aclrtMalloc((void**)&xDevice, xSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);

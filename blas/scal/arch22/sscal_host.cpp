@@ -18,7 +18,6 @@
 #include <vector>
 #include <algorithm>
 #include <iterator>
-#include <complex>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
@@ -130,7 +129,7 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
 }
 
 aclblasStatus_t aclblasCsscal(
-    aclblasHandle_t handle, const int64_t n, const float alpha, uint8_t* x, const int64_t incx)
+    aclblasHandle_t handle, const int64_t n, const float alpha, aclblasComplex* x, const int64_t incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -152,7 +151,7 @@ aclblasStatus_t aclblasCsscal(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    sscal_kernel_do(x, nullptr, tilingDevice, numBlocks, useStream);
+    sscal_kernel_do(reinterpret_cast<uint8_t*>(x), nullptr, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);

@@ -53,7 +53,6 @@ uint32_t VerifyResult(
     printTensor(outputY, "Output Y");
     printTensor(goldenY, "Golden Y");
 
-    // Use relative error for floating point comparison
     constexpr float epsilon = 1e-5f;
     size_t errorCount = 0;
 
@@ -84,17 +83,14 @@ int32_t main(int32_t argc, char* argv[])
 {
     int32_t deviceId = 0;
 
-    // Test with 1024 elements
     constexpr uint32_t n = 1024;
 
-    // Rotation parameters: c = cos(θ), s = sin(θ) where θ = 45°
-    constexpr float theta = M_PI / 4;       // 45 degrees
-    constexpr float c = 0.7071067811865476; // cos(45°) ≈ 0.707
-    constexpr float s = 0.7071067811865476; // sin(45°) ≈ 0.707
+    constexpr float theta = M_PI / 4;
+    constexpr float c = 0.7071067811865476;
+    constexpr float s = 0.7071067811865476;
 
-    // Initialize input vectors
-    std::vector<float> x(n, 1.0f); // x = [1, 1, 1, ...]
-    std::vector<float> y(n, 2.0f); // y = [2, 2, 2, ...]
+    std::vector<float> x(n, 1.0f);
+    std::vector<float> y(n, 2.0f);
 
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
@@ -108,8 +104,8 @@ int32_t main(int32_t argc, char* argv[])
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
+    aclblasComplex* xDevice = nullptr;
+    aclblasComplex* yDevice = nullptr;
     size_t inputByteSize = n * sizeof(float);
 
     aclError aclRet = aclrtMalloc((void**)&xDevice, inputByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -139,9 +135,6 @@ int32_t main(int32_t argc, char* argv[])
     aclrtResetDevice(deviceId);
     aclFinalize();
 
-    // Calculate golden result
-    // x[i] = c*x[i] + s*y[i] = 0.707*1 + 0.707*2 = 2.121
-    // y[i] = c*y[i] - s*x[i] = 0.707*2 - 0.707*1 = 0.707
     std::vector<float> goldenX(n, c * 1.0f + s * 2.0f);
     std::vector<float> goldenY(n, c * 2.0f - s * 1.0f);
 

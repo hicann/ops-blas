@@ -208,7 +208,7 @@ int main()
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCscal(aclblasHandle_t handle, const int64_t n, const std::complex<float> alpha, uint8_t* x, const int64_t incx)
+aclblasStatus_t aclblasCscal(aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, const int64_t incx)
 ```
 
 #### 参数说明
@@ -217,8 +217,8 @@ aclblasStatus_t aclblasCscal(aclblasHandle_t handle, const int64_t n, const std:
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
 | n | 输入 | int64_t | 向量 x 中的复数元素个数，Host 内存 |
-| alpha | 输入 | const std::complex<float> | 用于乘法的复数标量，Host 内存 |
-| x | 输入/输出 | uint8_t*（FP32 complex） | 复数向量，包含 n 个 complex<float> 元素，Device 内存 |
+| alpha | 输入 | const aclblasComplex | 用于乘法的复数标量，Host 内存 |
+| x | 输入/输出 | aclblasComplex*（FP32 complex） | 复数向量，包含 n 个 aclblasComplex 元素，Device 内存 |
 | incx | 输入 | int64_t | x 中连续元素之间的步长，Host 内存 |
 
 #### 约束说明

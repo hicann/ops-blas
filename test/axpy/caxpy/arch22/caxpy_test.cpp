@@ -20,7 +20,7 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include "complex_ops.h"
+#include "complex.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -51,7 +51,7 @@ uint32_t VerifyCaxpyResult(std::vector<aclblasComplex>& output, std::vector<aclb
     printTensor(golden, "Golden");
     constexpr float EPSILON = 1e-3f;
     for (size_t i = 0; i < output.size(); i++) {
-        float diff = aclblasAbs(output[i] - golden[i]);
+        float diff = blasComplexAbs(output[i] - golden[i]);
         if (diff > EPSILON) {
             std::cout << "[Failed] Caxpy Index " << i << ": output=(" << output[i].real << "," << output[i].imag
                       << ") golden=(" << golden[i].real << "," << golden[i].imag << ") diff=" << diff << std::endl;

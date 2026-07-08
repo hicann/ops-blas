@@ -62,15 +62,15 @@ void CreateMaskData(uint32_t* maskData)
 }
 
 aclblasStatus_t aclblasCscal(
-    aclblasHandle_t handle, const int64_t n, const std::complex<float> alpha, uint8_t* x, const int64_t incx)
+    aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, const int64_t incx)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 40;
 
-    float alphaReal = alpha.real();
-    float alphaImag = alpha.imag();
+    float alphaReal = alpha.real;
+    float alphaImag = alpha.imag;
 
     CscalTilingData tiling = CalTilingData(n, alphaReal, alphaImag);
 
@@ -105,7 +105,7 @@ aclblasStatus_t aclblasCscal(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice);
         aclrtFree(tilingDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    cscal_kernel_do(x, maskDevice, nullptr, tilingDevice, numBlocks, useStream);
+    cscal_kernel_do(reinterpret_cast<uint8_t*>(x), maskDevice, nullptr, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(maskDevice);

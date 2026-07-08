@@ -11,7 +11,6 @@
 #include <cstdint>
 #include <iostream>
 #include <vector>
-#include <complex>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
@@ -60,9 +59,9 @@ static uint32_t* CreateCgemvMask(int64_t m)
 }
 
 aclblasStatus_t aclblasCgemv(
-    aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const std::complex<float>& alpha,
-    uint8_t* A, const int64_t lda, uint8_t* x, const int64_t incx, const std::complex<float>& beta, uint8_t* y,
-    const int64_t incy)
+    aclblasHandle_t handle, aclblasOperation_t trans, const int64_t m, const int64_t n, const aclblasComplex alpha,
+    aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta,
+    aclblasComplex* y, const int64_t incy)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -77,10 +76,10 @@ aclblasStatus_t aclblasCgemv(
     tiling.incx = incx;
     tiling.incy = incy;
     tiling.sectionDim = 4;
-    tiling.alphaReal = alpha.real();
-    tiling.alphaImag = alpha.imag();
-    tiling.betaReal = beta.real();
-    tiling.betaImag = beta.imag();
+    tiling.alphaReal = alpha.real;
+    tiling.alphaImag = alpha.imag;
+    tiling.betaReal = beta.real;
+    tiling.betaImag = beta.imag;
 
     uint32_t* mask = CreateCgemvMask(m);
     size_t maskSize = MASK_OFFSET_BASE * 2 * sizeof(uint32_t);
@@ -117,9 +116,13 @@ aclblasStatus_t aclblasCgemv(
         aclrtFree(workSpaceDevice); aclrtFree(maskDevice); delete[] mask; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     if (trans == ACLBLAS_OP_N) {
-        cgemv_no_trans_kernel_do(A, x, y, maskDevice, y, workSpaceDevice, tilingDevice, numBlocks, useStream);
+        cgemv_no_trans_kernel_do(reinterpret_cast<uint8_t*>(A), reinterpret_cast<uint8_t*>(x),
+                                 reinterpret_cast<uint8_t*>(y), maskDevice, reinterpret_cast<uint8_t*>(y),
+                                 workSpaceDevice, tilingDevice, numBlocks, useStream);
     } else {
-        cgemv_do_trans_kernel_do(A, x, y, maskDevice, y, workSpaceDevice, tilingDevice, numBlocks, useStream);
+        cgemv_do_trans_kernel_do(reinterpret_cast<uint8_t*>(A), reinterpret_cast<uint8_t*>(x),
+                                 reinterpret_cast<uint8_t*>(y), maskDevice, reinterpret_cast<uint8_t*>(y),
+                                 workSpaceDevice, tilingDevice, numBlocks, useStream);
     }
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(

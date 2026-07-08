@@ -746,7 +746,7 @@ int main()
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCgemvBatched(aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const std::complex<float>& alpha, uint8_t* A, const int64_t lda, uint8_t* x, const int64_t incx, const std::complex<float>& beta, uint8_t* y, const int64_t incy, const int64_t batchCount)
+aclblasStatus_t aclblasCgemvBatched(aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const aclblasComplex alpha, aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta, aclblasComplex* y, const int64_t incy, const int64_t batchCount)
 ```
 
 #### 参数说明
@@ -757,13 +757,13 @@ aclblasStatus_t aclblasCgemvBatched(aclblasHandle_t handle, aclblasOperation tra
 | trans | 输入 | aclblasOperation | 矩阵操作类型：N=不转置，T=转置，C=共轭转置，Host 内存 |
 | m | 输入 | int64_t | 矩阵 A 的行数，Host 内存 |
 | n | 输入 | int64_t | 矩阵 A 的列数，Host 内存 |
-| alpha | 输入 | const std::complex<float>&（FP32 complex） | 复数标量 alpha，Host 内存 |
-| A | 输入 | uint8_t* | 批量复数矩阵，batchCount 个 m x n 矩阵，Device 内存 |
+| alpha | 输入 | const aclblasComplex | 复数标量 alpha，Host 内存 |
+| A | 输入 | aclblasComplex* | 批量复数矩阵，batchCount 个 m x n 矩阵，Device 内存 |
 | lda | 输入 | int64_t | 矩阵 A 的主维长度，Host 内存 |
-| x | 输入 | uint8_t* | 批量复数向量，Device 内存 |
+| x | 输入 | aclblasComplex* | 批量复数向量，Device 内存 |
 | incx | 输入 | int64_t | x 中连续元素之间的步长，Host 内存 |
-| beta | 输入 | const std::complex<float>&（FP32 complex） | 复数标量 beta，Host 内存 |
-| y | 输入/输出 | uint8_t* | 批量复数向量，Device 内存 |
+| beta | 输入 | const aclblasComplex | 复数标量 beta，Host 内存 |
+| y | 输入/输出 | aclblasComplex* | 批量复数向量，Device 内存 |
 | incy | 输入 | int64_t | y 中连续元素之间的步长，Host 内存 |
 | batchCount | 输入 | int64_t | 批次数，Host 内存 |
 
@@ -778,7 +778,6 @@ aclblasStatus_t aclblasCgemvBatched(aclblasHandle_t handle, aclblasOperation tra
 
 ```cpp
 #include <cstdio>
-#include <complex>
 #include <memory>
 #include <vector>
 
@@ -864,18 +863,18 @@ int aclblasCgemvBatchedTest(AclContext& ctx)
     constexpr size_t aElem = static_cast<size_t>(batchCount) * lda * n;
     constexpr size_t xElem = static_cast<size_t>(batchCount) * n;
     constexpr size_t yElem = static_cast<size_t>(batchCount) * m;
-    constexpr size_t aSize = aElem * sizeof(std::complex<float>);
-    constexpr size_t xSize = xElem * sizeof(std::complex<float>);
-    constexpr size_t ySize = yElem * sizeof(std::complex<float>);
+    constexpr size_t aSize = aElem * sizeof(aclblasComplex);
+    constexpr size_t xSize = xElem * sizeof(aclblasComplex);
+    constexpr size_t ySize = yElem * sizeof(aclblasComplex);
 
-    std::complex<float> alpha = {1.0f, 0.0f};
-    std::complex<float> beta = {0.0f, 0.0f};
-    std::vector<std::complex<float>> hA = {
+    aclblasComplex alpha = {1.0f, 0.0f};
+    aclblasComplex beta = {0.0f, 0.0f};
+    std::vector<aclblasComplex> hA = {
         {1.0f, 0.0f}, {0.0f, 1.0f}, {2.0f, 0.0f}, {0.0f, 2.0f},
         {3.0f, 0.0f}, {0.0f, 3.0f}, {4.0f, 0.0f}, {0.0f, 4.0f}};
-    std::vector<std::complex<float>> hX = {
+    std::vector<aclblasComplex> hX = {
         {1.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 0.0f}, {1.0f, 0.0f}};
-    std::vector<std::complex<float>> hY(yElem);
+    std::vector<aclblasComplex> hY(yElem);
 
     void *rawA = nullptr, *rawX = nullptr, *rawY = nullptr;
     auto aclRet = aclrtMalloc(&rawA, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -899,8 +898,8 @@ int aclblasCgemvBatchedTest(AclContext& ctx)
 
     blasRet = aclblasCgemvBatched(
         static_cast<aclblasHandle_t>(handlePtr.get()), ACLBLAS_OP_N, m, n, alpha,
-        static_cast<uint8_t*>(dAPtr.get()), lda, static_cast<uint8_t*>(dXPtr.get()), incx, beta,
-        static_cast<uint8_t*>(dYPtr.get()), incy, batchCount);
+        static_cast<aclblasComplex*>(dAPtr.get()), lda, static_cast<aclblasComplex*>(dXPtr.get()), incx, beta,
+        static_cast<aclblasComplex*>(dYPtr.get()), incy, batchCount);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemvBatched failed. ERROR: %d\n", blasRet);
               return blasRet);
 
@@ -912,7 +911,7 @@ int aclblasCgemvBatchedTest(AclContext& ctx)
 
     for (int b = 0; b < batchCount; b++)
         for (int i = 0; i < m; i++)
-            LOG_PRINT("batch %d, hY[%d] = (%f, %f)\n", b, i, hY[b * m + i].real(), hY[b * m + i].imag());
+            LOG_PRINT("batch %d, hY[%d] = (%f, %f)\n", b, i, hY[b * m + i].real, hY[b * m + i].imag);
 
     return ACL_SUCCESS;
 }

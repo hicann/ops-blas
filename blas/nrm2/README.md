@@ -206,7 +206,7 @@ int main()
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
+aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, float* result);
 ```
 
 #### 参数说明
@@ -215,9 +215,9 @@ aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, uint8_t* 
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，内部携带 stream，Host 内存 |
 | n | 输入 | int64_t | 复数元素个数（kernel 内部处理 2\*n 个 float 元素），Host 内存 |
-| x | 输入 | uint8_t\* | 复数向量（交错实部/虚部存储，实际为 2\*n 个 float），Device 内存 |
+| x | 输入 | aclblasComplex\* | 复数向量（交错实部/虚部存储，实际为 2\*n 个 float），Device 内存 |
 | incx | 输入 | int64_t | x 中连续元素之间的步长（仅支持 incx == 1），Host 内存 |
-| result | 输出 | uint8_t\* | 复数向量的欧几里得范数（FP32 结果，通过 uint8_t\* 传出），Device 内存 |
+| result | 输出 | float\* | 复数向量的欧几里得范数（FP32 结果），Device 内存 |
 
 #### 约束说明
 
@@ -330,8 +330,8 @@ int aclblasScnrm2Test(AclContext& ctx)
     // 4. 调用 aclblasScnrm2
     blasRet = aclblasScnrm2(
         static_cast<aclblasHandle_t>(handlePtr.get()), n,
-        static_cast<uint8_t*>(xDevicePtr.get()), incx,
-        static_cast<uint8_t*>(resultDevicePtr.get()));
+        static_cast<aclblasComplex*>(xDevicePtr.get()), incx,
+        static_cast<float*>(resultDevicePtr.get()));
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasScnrm2 failed. ERROR: %d\n", blasRet);
               return blasRet);
 

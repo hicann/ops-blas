@@ -208,7 +208,7 @@ int main()
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCtrmv(aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n, uint8_t *A, int64_t lda, uint8_t *x, int64_t incx)
+aclblasStatus_t aclblasCtrmv(aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n, aclblasComplex *A, int64_t lda, aclblasComplex *x, int64_t incx)
 ```
 
 #### 参数说明
@@ -220,14 +220,14 @@ aclblasStatus_t aclblasCtrmv(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 | trans | 输入 | aclblasOperation_t | 指定对矩阵 A 的操作类型。ACLBLAS_OP_N(不转置)、ACLBLAS_OP_T(转置)、ACLBLAS_OP_C(共轭转置)，Host 内存 |
 | diag | 输入 | aclblasDiagType_t | 指定对角线元素是否为单位元。ACLBLAS_UNIT(单位对角线)或 ACLBLAS_NON_UNIT(非单位对角线)，Host 内存 |
 | n | 输入 | int64_t | 矩阵 A 的阶数，即向量的长度，Host 内存 |
-| A | 输入 | uint8_t* | n x lda 的复数矩阵，Device 内存 |
+| A | 输入 | aclblasComplex* | n x lda 的复数矩阵，Device 内存 |
 | lda | 输入 | int64_t | 矩阵 A 的主维度，Host 内存 |
-| x | 输入/输出 | uint8_t* | 复数向量，长度为 n。既是输入也是输出，Device 内存 |
+| x | 输入/输出 | aclblasComplex* | 复数向量，长度为 n。既是输入也是输出，Device 内存 |
 | incx | 输入 | int64_t | x 中连续元素之间的步长，Host 内存 |
 
 #### 约束说明
 
 - n 的取值范围为 [1, 8192]
-- 仅支持 complex<float> 数据类型
+- 仅支持 aclblasComplex 数据类型
 - incx > 0
 - lda > 0

@@ -48,7 +48,7 @@ int32_t test_scnrm2()
     constexpr float realVal = 1.5f;
     constexpr float imagVal = 2.0f;
 
-    std::vector<std::complex<float>> x(n, std::complex<float>(realVal, imagVal));
+    std::vector<aclblasComplex> x(n, aclblasComplex{realVal, imagVal});
     float result = 0.0f;
     int64_t incx = 1;
 
@@ -64,9 +64,9 @@ int32_t test_scnrm2()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* resultDevice = nullptr;
-    size_t inputByteSize = n * sizeof(std::complex<float>);
+    aclblasComplex* xDevice = nullptr;
+    float* resultDevice = nullptr;
+    size_t inputByteSize = n * sizeof(aclblasComplex);
     size_t outputByteSize = sizeof(float);
 
     aclError aclRet = aclrtMalloc((void**)&xDevice, inputByteSize, ACL_MEM_MALLOC_HUGE_FIRST);

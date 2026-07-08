@@ -18,7 +18,7 @@
 #include <vector>
 #include <algorithm>
 #include <iterator>
-#include <complex>
+#include <cmath>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
@@ -77,10 +77,10 @@ int32_t main(int32_t argc, char* argv[])
     int32_t deviceId = 0;
 
     constexpr uint32_t totalLength = 8 * 2048;
-    constexpr std::complex<float> valueX(1.5f, 0.5f);
-    constexpr std::complex<float> valueY(2.5f, 1.5f);
-    std::vector<std::complex<float>> x(totalLength, valueX);
-    std::vector<std::complex<float>> y(totalLength, valueY);
+    constexpr aclblasComplex valueX{1.5f, 0.5f};
+    constexpr aclblasComplex valueY{2.5f, 1.5f};
+    std::vector<aclblasComplex> x(totalLength, valueX);
+    std::vector<aclblasComplex> y(totalLength, valueY);
     int64_t incx = 1;
     int64_t incy = 1;
 
@@ -96,9 +96,9 @@ int32_t main(int32_t argc, char* argv[])
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    size_t totalByteSize = totalLength * sizeof(std::complex<float>);
+    aclblasComplex* xDevice = nullptr;
+    aclblasComplex* yDevice = nullptr;
+    size_t totalByteSize = totalLength * sizeof(aclblasComplex);
     aclError aclRet = aclrtMalloc((void**)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMalloc((void**)&yDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -125,8 +125,8 @@ int32_t main(int32_t argc, char* argv[])
     aclrtResetDevice(deviceId);
     aclFinalize();
 
-    std::vector<std::complex<float>> goldenX(totalLength, valueY);
-    std::vector<std::complex<float>> goldenY(totalLength, valueX);
+    std::vector<aclblasComplex> goldenX(totalLength, valueY);
+    std::vector<aclblasComplex> goldenY(totalLength, valueX);
     return VerifyResult(
         reinterpret_cast<float*>(x.data()), reinterpret_cast<float*>(y.data()),
         reinterpret_cast<float*>(goldenX.data()), reinterpret_cast<float*>(goldenY.data()), totalLength * 2);

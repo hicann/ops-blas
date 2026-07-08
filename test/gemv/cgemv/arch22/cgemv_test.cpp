@@ -11,9 +11,9 @@
 #include <cstdint>
 #include <iostream>
 #include <vector>
-#include <complex>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "complex.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -29,13 +29,13 @@
 
 constexpr float EPSILON = 1e-3f;
 
-uint32_t VerifyResult(std::vector<std::complex<float>>& output, std::vector<std::complex<float>>& golden)
+uint32_t VerifyResult(std::vector<aclblasComplex>& output, std::vector<aclblasComplex>& golden)
 {
-    auto printTensor = [](std::vector<std::complex<float>>& tensor, const char* name) {
+    auto printTensor = [](std::vector<aclblasComplex>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 10;
         std::cout << name << ": ";
         for (size_t i = 0; i < std::min(tensor.size(), maxPrintSize); i++) {
-            std::cout << "(" << tensor[i].real() << "," << tensor[i].imag() << ") ";
+            std::cout << "(" << tensor[i].real << "," << tensor[i].imag << ") ";
         }
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -46,10 +46,10 @@ uint32_t VerifyResult(std::vector<std::complex<float>>& output, std::vector<std:
     printTensor(golden, "Golden");
 
     for (size_t i = 0; i < output.size(); i++) {
-        float diff = std::abs(output[i] - golden[i]);
+        float diff = blasComplexAbs(output[i] - golden[i]);
         if (diff > EPSILON) {
-            std::cout << "[Failed] Index " << i << ": output=(" << output[i].real() << "," << output[i].imag()
-                      << ") golden=(" << golden[i].real() << "," << golden[i].imag() << ") diff=" << diff << std::endl;
+            std::cout << "[Failed] Index " << i << ": output=(" << output[i].real << "," << output[i].imag
+                      << ") golden=(" << golden[i].real << "," << golden[i].imag << ") diff=" << diff << std::endl;
             return 1;
         }
     }
@@ -58,12 +58,12 @@ uint32_t VerifyResult(std::vector<std::complex<float>>& output, std::vector<std:
 }
 
 void ComputeGoldenCgemvN(
-    const std::complex<float>* A, const std::complex<float>* x, std::complex<float>* y,
-    const std::complex<float>& alpha, const std::complex<float>& beta, int64_t m, int64_t n, int64_t lda, int64_t incx,
+    const aclblasComplex* A, const aclblasComplex* x, aclblasComplex* y,
+    const aclblasComplex& alpha, const aclblasComplex& beta, int64_t m, int64_t n, int64_t lda, int64_t incx,
     int64_t incy)
 {
     for (int64_t i = 0; i < m; i++) {
-        std::complex<float> sum(0.0f, 0.0f);
+        aclblasComplex sum{0.0f, 0.0f};
         for (int64_t j = 0; j < n; j++) {
             sum += A[i + j * lda] * x[j * incx];
         }
@@ -72,12 +72,12 @@ void ComputeGoldenCgemvN(
 }
 
 void ComputeGoldenCgemvT(
-    const std::complex<float>* A, const std::complex<float>* x, std::complex<float>* y,
-    const std::complex<float>& alpha, const std::complex<float>& beta, int64_t m, int64_t n, int64_t lda, int64_t incx,
+    const aclblasComplex* A, const aclblasComplex* x, aclblasComplex* y,
+    const aclblasComplex& alpha, const aclblasComplex& beta, int64_t m, int64_t n, int64_t lda, int64_t incx,
     int64_t incy)
 {
     for (int64_t j = 0; j < n; j++) {
-        std::complex<float> sum(0.0f, 0.0f);
+        aclblasComplex sum{0.0f, 0.0f};
         for (int64_t i = 0; i < m; i++) {
             sum += A[i + j * lda] * x[i * incx];
         }
@@ -96,13 +96,13 @@ int TestCgemvNoTrans()
     constexpr int64_t incx = 1;
     constexpr int64_t incy = 1;
 
-    constexpr std::complex<float> alpha(1.5f, 0.5f);
-    constexpr std::complex<float> beta(0.5f, 0.25f);
+    const aclblasComplex alpha{1.5f, 0.5f};
+    const aclblasComplex beta{0.5f, 0.25f};
 
-    std::vector<std::complex<float>> A(M * N, std::complex<float>(1.0f, 0.5f));
-    std::vector<std::complex<float>> x(N, std::complex<float>(2.0f, 1.0f));
-    std::vector<std::complex<float>> y(M, std::complex<float>(3.0f, 1.5f));
-    std::vector<std::complex<float>> yGolden = y;
+    std::vector<aclblasComplex> A(M * N, aclblasComplex{1.0f, 0.5f});
+    std::vector<aclblasComplex> x(N, aclblasComplex{2.0f, 1.0f});
+    std::vector<aclblasComplex> y(M, aclblasComplex{3.0f, 1.5f});
+    std::vector<aclblasComplex> yGolden = y;
 
     ComputeGoldenCgemvN(A.data(), x.data(), yGolden.data(), alpha, beta, M, N, lda, incx, incy);
 
@@ -118,12 +118,12 @@ int TestCgemvNoTrans()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    size_t aByteSize = M * N * sizeof(std::complex<float>);
-    size_t xByteSize = N * sizeof(std::complex<float>);
-    size_t yByteSize = M * sizeof(std::complex<float>);
+    aclblasComplex* aDevice = nullptr;
+    aclblasComplex* xDevice = nullptr;
+    aclblasComplex* yDevice = nullptr;
+    size_t aByteSize = M * N * sizeof(aclblasComplex);
+    size_t xByteSize = N * sizeof(aclblasComplex);
+    size_t yByteSize = M * sizeof(aclblasComplex);
     aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -167,13 +167,13 @@ int TestCgemvTrans()
     constexpr int64_t incx = 1;
     constexpr int64_t incy = 1;
 
-    constexpr std::complex<float> alpha(1.5f, 0.5f);
-    constexpr std::complex<float> beta(0.5f, 0.25f);
+    const aclblasComplex alpha{1.5f, 0.5f};
+    const aclblasComplex beta{0.5f, 0.25f};
 
-    std::vector<std::complex<float>> A(M * N, std::complex<float>(1.0f, 0.5f));
-    std::vector<std::complex<float>> x(M, std::complex<float>(2.0f, 1.0f));
-    std::vector<std::complex<float>> y(N, std::complex<float>(3.0f, 1.5f));
-    std::vector<std::complex<float>> yGolden = y;
+    std::vector<aclblasComplex> A(M * N, aclblasComplex{1.0f, 0.5f});
+    std::vector<aclblasComplex> x(M, aclblasComplex{2.0f, 1.0f});
+    std::vector<aclblasComplex> y(N, aclblasComplex{3.0f, 1.5f});
+    std::vector<aclblasComplex> yGolden = y;
 
     ComputeGoldenCgemvT(A.data(), x.data(), yGolden.data(), alpha, beta, M, N, lda, incx, incy);
 
@@ -189,12 +189,12 @@ int TestCgemvTrans()
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    size_t aByteSize = M * N * sizeof(std::complex<float>);
-    size_t xByteSize = M * sizeof(std::complex<float>);
-    size_t yByteSize = N * sizeof(std::complex<float>);
+    aclblasComplex* aDevice = nullptr;
+    aclblasComplex* xDevice = nullptr;
+    aclblasComplex* yDevice = nullptr;
+    size_t aByteSize = M * N * sizeof(aclblasComplex);
+    size_t xByteSize = M * sizeof(aclblasComplex);
+    size_t yByteSize = N * sizeof(aclblasComplex);
     aclError aclRet = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);

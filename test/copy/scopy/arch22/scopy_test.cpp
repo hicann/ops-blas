@@ -20,6 +20,7 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "complex.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -58,13 +59,13 @@ uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
     return 0;
 }
 
-uint32_t VerifyResultComplex(std::vector<std::complex<float>>& output, std::vector<std::complex<float>>& golden)
+uint32_t VerifyResultComplex(std::vector<aclblasComplex>& output, std::vector<aclblasComplex>& golden)
 {
-    auto printTensor = [](std::vector<std::complex<float>>& tensor, const char* name) {
+    auto printTensor = [](std::vector<aclblasComplex>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 10;
         std::cout << name << ": ";
         for (size_t i = 0; i < std::min(tensor.size(), maxPrintSize); i++) {
-            std::cout << "(" << tensor[i].real() << "," << tensor[i].imag() << ") ";
+            std::cout << "(" << tensor[i].real << "," << tensor[i].imag << ") ";
         }
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -151,12 +152,12 @@ int32_t main(int32_t argc, char* argv[])
     uint32_t scopyResult = VerifyResult(yHost, golden);
 
     constexpr uint32_t complexLength = 4 * 1024;
-    std::complex<float> valueComplexX(1.5f, 2.5f);
-    std::complex<float> valueComplexY(3.0f, 4.0f);
-    std::vector<std::complex<float>> cxHost(complexLength, valueComplexX);
-    std::vector<std::complex<float>> cyHost(complexLength, valueComplexY);
+    aclblasComplex valueComplexX{1.5f, 2.5f};
+    aclblasComplex valueComplexY{3.0f, 4.0f};
+    std::vector<aclblasComplex> cxHost(complexLength, valueComplexX);
+    std::vector<aclblasComplex> cyHost(complexLength, valueComplexY);
 
-    size_t complexByteSize = complexLength * sizeof(std::complex<float>);
+    size_t complexByteSize = complexLength * sizeof(aclblasComplex);
 
     aclblasHandle_t handle2 = nullptr;
     ret = aclblasCreate(&handle2);
@@ -171,8 +172,8 @@ int32_t main(int32_t argc, char* argv[])
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret);
               aclblasDestroy(handle2); aclrtDestroyStream(stream2); return ret);
 
-    uint8_t* cxDevice = nullptr;
-    uint8_t* cyDevice = nullptr;
+    aclblasComplex* cxDevice = nullptr;
+    aclblasComplex* cyDevice = nullptr;
 
     aclRet = aclrtMalloc((void**)&cxDevice, complexByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc cxDevice failed. ERROR: %d\n", aclRet);
@@ -208,7 +209,7 @@ int32_t main(int32_t argc, char* argv[])
     aclrtResetDevice(deviceId);
     aclFinalize();
 
-    std::vector<std::complex<float>> goldenComplex(complexLength, valueComplexX);
+    std::vector<aclblasComplex> goldenComplex(complexLength, valueComplexX);
     uint32_t ccopyResult = VerifyResultComplex(cyHost, goldenComplex);
 
     return (scopyResult + ccopyResult);

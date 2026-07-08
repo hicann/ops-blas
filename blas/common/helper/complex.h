@@ -15,6 +15,8 @@
 
 #ifdef __cplusplus
 
+/* ── aclblasComplex ── */
+
 inline aclblasComplex operator+(aclblasComplex a, aclblasComplex b) {
     return {a.real + b.real, a.imag + b.imag};
 }
@@ -27,7 +29,7 @@ inline aclblasComplex operator*(aclblasComplex a, aclblasComplex b) {
 inline aclblasComplex operator/(aclblasComplex a, aclblasComplex b) {
     float denom = b.real * b.real + b.imag * b.imag;
     if (denom == 0.0f) {
-        return {0.0f, 0.0f};
+        return {NAN, NAN};
     }
     return {(a.real * b.real + a.imag * b.imag) / denom,
             (a.imag * b.real - a.real * b.imag) / denom};
@@ -36,7 +38,34 @@ inline bool operator==(aclblasComplex a, aclblasComplex b) {
     return a.real == b.real && a.imag == b.imag;
 }
 inline bool operator!=(aclblasComplex a, aclblasComplex b) { return !(a == b); }
-inline float aclblasAbs(aclblasComplex z) { return sqrtf(z.real * z.real + z.imag * z.imag); }
+
+inline aclblasComplex& operator+=(aclblasComplex& a, aclblasComplex b) {
+    a.real += b.real; a.imag += b.imag; return a;
+}
+inline aclblasComplex& operator-=(aclblasComplex& a, aclblasComplex b) {
+    a.real -= b.real; a.imag -= b.imag; return a;
+}
+inline aclblasComplex& operator*=(aclblasComplex& a, aclblasComplex b) {
+    a = a * b; return a;
+}
+inline aclblasComplex& operator/=(aclblasComplex& a, aclblasComplex b) {
+    float denom = b.real * b.real + b.imag * b.imag;
+    if (denom == 0.0f) { a = {NAN, NAN}; return a; }
+    float r = (a.real * b.real + a.imag * b.imag) / denom;
+    float i = (a.imag * b.real - a.real * b.imag) / denom;
+    a = {r, i}; return a;
+}
+
+inline aclblasComplex operator*(aclblasComplex a, float s) {
+    return {a.real * s, a.imag * s};
+}
+inline aclblasComplex operator*(float s, aclblasComplex a) {
+    return {s * a.real, s * a.imag};
+}
+
+inline float blasComplexAbs(aclblasComplex z) { return hypotf(z.real, z.imag); }
+
+/* ── aclblasDoubleComplex ── */
 
 inline aclblasDoubleComplex operator+(aclblasDoubleComplex a, aclblasDoubleComplex b) {
     return {a.real + b.real, a.imag + b.imag};
@@ -50,7 +79,7 @@ inline aclblasDoubleComplex operator*(aclblasDoubleComplex a, aclblasDoubleCompl
 inline aclblasDoubleComplex operator/(aclblasDoubleComplex a, aclblasDoubleComplex b) {
     double denom = b.real * b.real + b.imag * b.imag;
     if (denom == 0.0) {
-        return {0.0, 0.0};
+        return {NAN, NAN};
     }
     return {(a.real * b.real + a.imag * b.imag) / denom,
             (a.imag * b.real - a.real * b.imag) / denom};
@@ -59,6 +88,31 @@ inline bool operator==(aclblasDoubleComplex a, aclblasDoubleComplex b) {
     return a.real == b.real && a.imag == b.imag;
 }
 inline bool operator!=(aclblasDoubleComplex a, aclblasDoubleComplex b) { return !(a == b); }
-inline double aclblasAbs(aclblasDoubleComplex z) { return sqrt(z.real * z.real + z.imag * z.imag); }
+
+inline aclblasDoubleComplex& operator+=(aclblasDoubleComplex& a, aclblasDoubleComplex b) {
+    a.real += b.real; a.imag += b.imag; return a;
+}
+inline aclblasDoubleComplex& operator-=(aclblasDoubleComplex& a, aclblasDoubleComplex b) {
+    a.real -= b.real; a.imag -= b.imag; return a;
+}
+inline aclblasDoubleComplex& operator*=(aclblasDoubleComplex& a, aclblasDoubleComplex b) {
+    a = a * b; return a;
+}
+inline aclblasDoubleComplex& operator/=(aclblasDoubleComplex& a, aclblasDoubleComplex b) {
+    double denom = b.real * b.real + b.imag * b.imag;
+    if (denom == 0.0) { a = {NAN, NAN}; return a; }
+    double r = (a.real * b.real + a.imag * b.imag) / denom;
+    double i = (a.imag * b.real - a.real * b.imag) / denom;
+    a = {r, i}; return a;
+}
+
+inline aclblasDoubleComplex operator*(aclblasDoubleComplex a, double s) {
+    return {a.real * s, a.imag * s};
+}
+inline aclblasDoubleComplex operator*(double s, aclblasDoubleComplex a) {
+    return {s * a.real, s * a.imag};
+}
+
+inline double blasComplexAbs(aclblasDoubleComplex z) { return hypot(z.real, z.imag); }
 
 #endif

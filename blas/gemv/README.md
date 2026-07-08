@@ -227,7 +227,7 @@ int main()
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCgemv(aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const std::complex<float>& alpha, uint8_t* A, const int64_t lda, uint8_t* x, const int64_t incx, const std::complex<float>& beta, uint8_t* y, const int64_t incy)
+aclblasStatus_t aclblasCgemv(aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const aclblasComplex alpha, aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta, aclblasComplex* y, const int64_t incy)
 ```
 
 #### 参数说明
@@ -238,13 +238,13 @@ aclblasStatus_t aclblasCgemv(aclblasHandle_t handle, aclblasOperation trans, con
 | trans | 输入 | aclblasOperation | 矩阵操作类型：N=不转置，T=转置，C=共轭转置，Host 内存 |
 | m | 输入 | int64_t | 矩阵 A 的行数，Host 内存 |
 | n | 输入 | int64_t | 矩阵 A 的列数，Host 内存 |
-| alpha | 输入 | const std::complex<float>&（FP32 complex） | 复数标量 alpha，Host 内存 |
-| A | 输入 | uint8_t* | m x n 复数矩阵，Device 内存 |
+| alpha | 输入 | const aclblasComplex | 复数标量 alpha，Host 内存 |
+| A | 输入 | aclblasComplex* | m x n 复数矩阵，Device 内存 |
 | lda | 输入 | int64_t | 矩阵 A 的主维长度，Host 内存 |
-| x | 输入 | uint8_t* | 向量 x（长度取决于 trans），Device 内存 |
+| x | 输入 | aclblasComplex* | 向量 x（长度取决于 trans），Device 内存 |
 | incx | 输入 | int64_t | x 中连续元素之间的步长，Host 内存 |
-| beta | 输入 | const std::complex<float>&（FP32 complex） | 复数标量 beta，Host 内存 |
-| y | 输入/输出 | uint8_t* | 向量 y（长度取决于 trans），Device 内存 |
+| beta | 输入 | const aclblasComplex | 复数标量 beta，Host 内存 |
+| y | 输入/输出 | aclblasComplex* | 向量 y（长度取决于 trans），Device 内存 |
 | incy | 输入 | int64_t | y 中连续元素之间的步长，Host 内存 |
 
 #### 约束说明
@@ -340,16 +340,16 @@ int aclblasCgemvTest(AclContext& ctx)
     constexpr int64_t lda = 2;
     constexpr int64_t incx = 1;
     constexpr int64_t incy = 1;
-    constexpr size_t aSize = static_cast<size_t>(lda) * n * sizeof(std::complex<float>);
-    constexpr size_t xSize = static_cast<size_t>(n) * sizeof(std::complex<float>);
-    constexpr size_t ySize = static_cast<size_t>(m) * sizeof(std::complex<float>);
-    std::complex<float> alpha(1.0f, 0.0f);
-    std::complex<float> beta(0.0f, 0.0f);
+    constexpr size_t aSize = static_cast<size_t>(lda) * n * sizeof(aclblasComplex);
+    constexpr size_t xSize = static_cast<size_t>(n) * sizeof(aclblasComplex);
+    constexpr size_t ySize = static_cast<size_t>(m) * sizeof(aclblasComplex);
+    aclblasComplex alpha = {1.0f, 0.0f};
+    aclblasComplex beta = {0.0f, 0.0f};
 
     // A 按列主序存储复数矩阵：[[1+0i,3+0i],[2+0i,4+0i]]
-    std::complex<float> hA[lda * n] = {{1.0f, 0.0f}, {2.0f, 0.0f}, {3.0f, 0.0f}, {4.0f, 0.0f}};
-    std::complex<float> hX[n] = {{1.0f, 0.0f}, {1.0f, 0.0f}};
-    std::complex<float> hY[m] = {{0.0f, 0.0f}, {0.0f, 0.0f}};
+    aclblasComplex hA[lda * n] = {{1.0f, 0.0f}, {2.0f, 0.0f}, {3.0f, 0.0f}, {4.0f, 0.0f}};
+    aclblasComplex hX[n] = {{1.0f, 0.0f}, {1.0f, 0.0f}};
+    aclblasComplex hY[m] = {{0.0f, 0.0f}, {0.0f, 0.0f}};
 
     void *rawA = nullptr;
     auto aclRet = aclrtMalloc(&rawA, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -381,9 +381,9 @@ int aclblasCgemvTest(AclContext& ctx)
 
     blasRet = aclblasCgemv(
         static_cast<aclblasHandle_t>(handle.get()), ACLBLAS_OP_N, m, n, alpha,
-        static_cast<uint8_t*>(dA.get()), lda,
-        static_cast<uint8_t*>(dX.get()), incx, beta,
-        static_cast<uint8_t*>(dY.get()), incy);
+        static_cast<aclblasComplex*>(dA.get()), lda,
+        static_cast<aclblasComplex*>(dX.get()), incx, beta,
+        static_cast<aclblasComplex*>(dY.get()), incy);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
 
     aclRet = aclrtSynchronizeStream(ctx.Stream());
@@ -394,7 +394,7 @@ int aclblasCgemvTest(AclContext& ctx)
 
     // 预期结果：y = A*x = {(4,0), (6,0)}
     for (int64_t i = 0; i < m; i++) {
-        printf("y[%lld] = (%f, %f)\n", static_cast<long long>(i), hY[i].real(), hY[i].imag());
+        printf("y[%lld] = (%f, %f)\n", static_cast<long long>(i), hY[i].real, hY[i].imag);
     }
 
     return 0;

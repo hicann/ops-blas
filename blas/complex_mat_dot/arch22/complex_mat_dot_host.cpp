@@ -95,7 +95,8 @@ uint32_t* CreateAugComplexMatDot()
 }
 
 aclblasStatus_t aclblasComplexMatDot(
-    aclblasHandle_t handle, const int64_t m, const int64_t n, uint8_t* matx, uint8_t* maty, uint8_t* result)
+    aclblasHandle_t handle, const int64_t m, const int64_t n, aclblasComplex* matx, aclblasComplex* maty,
+    aclblasComplex* result)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -133,7 +134,8 @@ aclblasStatus_t aclblasComplexMatDot(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    complex_mat_dot_kernel_do(matx, maty, augDevice, result, tilingDevice, numBlocks, useStream);
+    complex_mat_dot_kernel_do(reinterpret_cast<uint8_t*>(matx), reinterpret_cast<uint8_t*>(maty), augDevice,
+                              reinterpret_cast<uint8_t*>(result), tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);

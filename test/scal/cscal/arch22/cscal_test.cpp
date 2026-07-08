@@ -18,9 +18,9 @@
 #include <vector>
 #include <algorithm>
 #include <iterator>
-#include <complex>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "complex.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -34,13 +34,13 @@
         printf(message, ##__VA_ARGS__); \
     } while (0)
 
-uint32_t VerifyResult(std::vector<std::complex<float>>& output, std::vector<std::complex<float>>& golden)
+uint32_t VerifyResult(std::vector<aclblasComplex>& output, std::vector<aclblasComplex>& golden)
 {
-    auto printTensor = [](std::vector<std::complex<float>>& tensor, const char* name) {
+    auto printTensor = [](std::vector<aclblasComplex>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 10;
         std::cout << name << ": ";
         for (size_t i = 0; i < std::min(tensor.size(), maxPrintSize); i++) {
-            std::cout << "(" << tensor[i].real() << "," << tensor[i].imag() << ") ";
+            std::cout << "(" << tensor[i].real << "," << tensor[i].imag << ") ";
         }
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -51,10 +51,10 @@ uint32_t VerifyResult(std::vector<std::complex<float>>& output, std::vector<std:
     printTensor(golden, "Golden");
     constexpr float EPSILON = 1e-3f;
     for (size_t i = 0; i < output.size(); i++) {
-        float diff = std::abs(output[i] - golden[i]);
+        float diff = blasComplexAbs(output[i] - golden[i]);
         if (diff > EPSILON) {
-            std::cout << "[Failed] Index " << i << ": output=(" << output[i].real() << "," << output[i].imag()
-                      << ") golden=(" << golden[i].real() << "," << golden[i].imag() << ") diff=" << diff << std::endl;
+            std::cout << "[Failed] Index " << i << ": output=(" << output[i].real << "," << output[i].imag
+                      << ") golden=(" << golden[i].real << "," << golden[i].imag << ") diff=" << diff << std::endl;
             return 1;
         }
     }
@@ -67,9 +67,9 @@ int32_t main(int32_t argc, char* argv[])
     int32_t deviceId = 0;
 
     constexpr uint32_t totalLength = 8 * 2048;
-    constexpr std::complex<float> valueX(1.2f, 0.5f);
-    constexpr std::complex<float> alpha(2.5f, 1.0f);
-    std::vector<std::complex<float>> x(totalLength, valueX);
+    const aclblasComplex valueX{1.2f, 0.5f};
+    const aclblasComplex alpha{2.5f, 1.0f};
+    std::vector<aclblasComplex> x(totalLength, valueX);
     int64_t incx = 1;
 
     aclInit(nullptr);
@@ -84,8 +84,8 @@ int32_t main(int32_t argc, char* argv[])
     ret = aclblasSetStream(handle, stream);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", ret); return ret);
 
-    uint8_t* xDevice = nullptr;
-    size_t totalByteSize = totalLength * sizeof(std::complex<float>);
+    aclblasComplex* xDevice = nullptr;
+    size_t totalByteSize = totalLength * sizeof(aclblasComplex);
     aclError aclRet = aclrtMalloc((void**)&xDevice, totalByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", aclRet); return aclRet);
     aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
@@ -105,6 +105,6 @@ int32_t main(int32_t argc, char* argv[])
     aclrtResetDevice(deviceId);
     aclFinalize();
 
-    std::vector<std::complex<float>> golden(totalLength, valueX * alpha);
+    std::vector<aclblasComplex> golden(totalLength, valueX * alpha);
     return VerifyResult(x, golden);
 }

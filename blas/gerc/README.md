@@ -64,7 +64,6 @@ int aclblasCgerc(const int64_t m, const int64_t n, const void *alpha, const void
 ```cpp
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
-#include <complex>
 
 int main()
 {
@@ -78,9 +77,9 @@ int main()
     int64_t incx = 1;
     int64_t incy = 1;
     int64_t lda = n;
-    std::complex<float> alpha(1.0f, 0.0f);
+    aclblasComplex alpha{1.0f, 0.0f};
 
-    uint8_t *dx, *dy, *dA;
+    aclblasComplex *dx, *dy, *dA;
     aclrtMalloc((void **)&dx, 2 * m * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc((void **)&dy, 2 * n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
     aclrtMalloc((void **)&dA, 2 * m * n * sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);

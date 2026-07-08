@@ -2,7 +2,7 @@
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file in compliance with the License.
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
@@ -11,11 +11,11 @@
 #include <iostream>
 #include <vector>
 #include <cmath>
-#include <complex>
 #include <algorithm>
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "complex.h"
 
 using namespace std;
 
@@ -31,22 +31,23 @@ using namespace std;
         printf(message, ##__VA_ARGS__); \
     } while (0)
 
-complex<float> complexMul(const complex<float>& a, const complex<float>& b) { return a * b; }
+aclblasComplex complexMul(const aclblasComplex& a, const aclblasComplex& b) { return a * b; }
 
 void computeGolden(
-    const vector<complex<float>>& A, const vector<complex<float>>& x, vector<complex<float>>& y, int m, int n,
-    int trans, const complex<float>& alpha, const complex<float>& beta)
+    const vector<aclblasComplex>& A, const vector<aclblasComplex>& x, vector<aclblasComplex>& y, int m, int n,
+    int trans, const aclblasComplex& alpha, const aclblasComplex& beta)
 {
-    vector<complex<float>> yTemp(m);
+    vector<aclblasComplex> yTemp(m);
     for (int i = 0; i < m; i++) {
-        complex<float> sum(0.0f, 0.0f);
+        aclblasComplex sum{0.0f, 0.0f};
         for (int j = 0; j < n; j++) {
             if (trans == 0) {
                 sum += A[i * n + j] * x[j];
             } else if (trans == 1) {
                 sum += A[j * m + i] * x[j];
             } else {
-                sum += conj(A[j * m + i]) * x[j];
+                aclblasComplex conjA{A[j * m + i].real, -A[j * m + i].imag};
+                sum += conjA * x[j];
             }
         }
         yTemp[i] = sum;
@@ -57,13 +58,13 @@ void computeGolden(
     }
 }
 
-uint32_t VerifyResult(std::vector<complex<float>>& output, std::vector<complex<float>>& golden)
+uint32_t VerifyResult(std::vector<aclblasComplex>& output, std::vector<aclblasComplex>& golden)
 {
-    auto printTensor = [](std::vector<complex<float>>& tensor, const char* name) {
+    auto printTensor = [](std::vector<aclblasComplex>& tensor, const char* name) {
         constexpr size_t maxPrintSize = 10;
         std::cout << name << ": ";
         for (size_t i = 0; i < std::min(tensor.size(), maxPrintSize); i++) {
-            std::cout << "(" << tensor[i].real() << "," << tensor[i].imag() << ") ";
+            std::cout << "(" << tensor[i].real << "," << tensor[i].imag << ") ";
         }
         if (tensor.size() > maxPrintSize) {
             std::cout << "...";
@@ -78,7 +79,7 @@ uint32_t VerifyResult(std::vector<complex<float>>& output, std::vector<complex<f
     float maxError = 0.0f;
 
     for (size_t i = 0; i < output.size(); i++) {
-        float error = std::abs(output[i] - golden[i]);
+        float error = blasComplexAbs(output[i] - golden[i]);
         if (error > maxError) {
             maxError = error;
         }
@@ -129,36 +130,36 @@ int main()
     const int64_t n = 32;
     const aclblasOperation_t trans = ACLBLAS_OP_N;
 
-    complex<float> alpha(1.0f, 0.0f);
-    complex<float> beta(0.0f, 0.0f);
+    aclblasComplex alpha{1.0f, 0.0f};
+    aclblasComplex beta{0.0f, 0.0f};
 
     const int64_t lda = m;
     const int64_t incx = 1;
     const int64_t incy = 1;
 
-    vector<complex<float>> AHost(batchCount * m * n);
-    vector<complex<float>> xHost(batchCount * n);
-    vector<complex<float>> yHost(batchCount * m);
-    vector<complex<float>> yGolden(batchCount * m);
+    vector<aclblasComplex> AHost(batchCount * m * n);
+    vector<aclblasComplex> xHost(batchCount * n);
+    vector<aclblasComplex> yHost(batchCount * m);
+    vector<aclblasComplex> yGolden(batchCount * m);
 
     for (int b = 0; b < batchCount; b++) {
         for (int i = 0; i < m; i++) {
             for (int j = 0; j < n; j++) {
                 int idx = b * m * n + i * n + j;
-                AHost[idx] = complex<float>((i + j + b) * 0.1f, (i - j + b) * 0.1f);
+                AHost[idx] = aclblasComplex{(i + j + b) * 0.1f, (i - j + b) * 0.1f};
             }
         }
 
         for (int i = 0; i < n; i++) {
             int idx = b * n + i;
-            xHost[idx] = complex<float>((i + b) * 0.2f, (i - b) * 0.2f);
+            xHost[idx] = aclblasComplex{(i + b) * 0.2f, (i - b) * 0.2f};
         }
     }
 
     for (int b = 0; b < batchCount; b++) {
-        vector<complex<float>> AComplex(m * n);
-        vector<complex<float>> xComplex(n);
-        vector<complex<float>> yComplex(m);
+        vector<aclblasComplex> AComplex(m * n);
+        vector<aclblasComplex> xComplex(n);
+        vector<aclblasComplex> yComplex(m);
 
         for (int i = 0; i < m * n; i++) {
             AComplex[i] = AHost[b * m * n + i];
@@ -174,12 +175,12 @@ int main()
         }
     }
 
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    size_t aByteSize = batchCount * m * n * sizeof(complex<float>);
-    size_t xByteSize = batchCount * n * sizeof(complex<float>);
-    size_t yByteSize = batchCount * m * sizeof(complex<float>);
+    aclblasComplex* aDevice = nullptr;
+    aclblasComplex* xDevice = nullptr;
+    aclblasComplex* yDevice = nullptr;
+    size_t aByteSize = batchCount * m * n * sizeof(aclblasComplex);
+    size_t xByteSize = batchCount * n * sizeof(aclblasComplex);
+    size_t yByteSize = batchCount * m * sizeof(aclblasComplex);
     ret = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice);

@@ -98,9 +98,9 @@ int32_t main(int32_t argc, char* argv[])
 
     size_t dataSize = complexSize * sizeof(float);
 
-    uint8_t* matxDevice = nullptr;
-    uint8_t* matyDevice = nullptr;
-    uint8_t* resultDevice = nullptr;
+    aclblasComplex* matxDevice = nullptr;
+    aclblasComplex* matyDevice = nullptr;
+    aclblasComplex* resultDevice = nullptr;
 
     aclError aclRet = aclrtMalloc((void**)&matxDevice, dataSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc matxDevice failed. ERROR: %d\n", aclRet); return aclRet);

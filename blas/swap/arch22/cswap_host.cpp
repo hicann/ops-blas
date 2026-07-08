@@ -85,7 +85,8 @@ static CswapTilingData CalCswapTilingData(uint32_t n, uint32_t vecCoreNum)
 }
 
 aclblasStatus_t aclblasCswap(
-    aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy)
+    aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
+    const int64_t incy)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -106,7 +107,8 @@ aclblasStatus_t aclblasCswap(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    cswap_kernel_do(x, y, nullptr, tilingDevice, numBlocks, useStream);
+    cswap_kernel_do(reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice, numBlocks,
+                    useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);

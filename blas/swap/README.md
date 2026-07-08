@@ -209,7 +209,7 @@ int main()
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCswap(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy)
+aclblasStatus_t aclblasCswap(aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y, const int64_t incy)
 ```
 
 #### 参数说明
@@ -218,9 +218,9 @@ aclblasStatus_t aclblasCswap(aclblasHandle_t handle, const int64_t n, uint8_t* x
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
 | n | 输入 | const int64_t | 向量中的复数元素个数，Host 内存 |
-| x | 输入/输出 | uint8_t* | 指向复数向量的 device 指针，交换后包含原 y 的元素，Device 内存 |
+| x | 输入/输出 | aclblasComplex* | 指向复数向量的 device 指针，交换后包含原 y 的元素，Device 内存 |
 | incx | 输入 | const int64_t | x 中连续元素之间的步长，Host 内存 |
-| y | 输入/输出 | uint8_t* | 指向复数向量的 device 指针，交换后包含原 x 的元素，Device 内存 |
+| y | 输入/输出 | aclblasComplex* | 指向复数向量的 device 指针，交换后包含原 x 的元素，Device 内存 |
 | incy | 输入 | const int64_t | y 中连续元素之间的步长，Host 内存 |
 
 #### 约束说明
@@ -313,10 +313,10 @@ int aclblasCswapTest(AclContext& ctx)
     constexpr int64_t n = 4;
     constexpr int64_t incx = 1;
     constexpr int64_t incy = 1;
-    constexpr size_t bytes = static_cast<size_t>(n) * sizeof(std::complex<float>);
+    constexpr size_t bytes = static_cast<size_t>(n) * sizeof(aclblasComplex);
 
-    std::complex<float> hX[n] = {{1.0f, 0.0f}, {2.0f, 0.0f}, {3.0f, 0.0f}, {4.0f, 0.0f}};
-    std::complex<float> hY[n] = {{10.0f, 0.0f}, {20.0f, 0.0f}, {30.0f, 0.0f}, {40.0f, 0.0f}};
+    aclblasComplex hX[n] = {{1.0f, 0.0f}, {2.0f, 0.0f}, {3.0f, 0.0f}, {4.0f, 0.0f}};
+    aclblasComplex hY[n] = {{10.0f, 0.0f}, {20.0f, 0.0f}, {30.0f, 0.0f}, {40.0f, 0.0f}};
 
     void *rawX = nullptr;
     auto aclRet = aclrtMalloc(&rawX, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
@@ -343,8 +343,8 @@ int aclblasCswapTest(AclContext& ctx)
 
     blasRet = aclblasCswap(
         static_cast<aclblasHandle_t>(handle.get()), n,
-        static_cast<uint8_t*>(dX.get()), incx,
-        static_cast<uint8_t*>(dY.get()), incy);
+        static_cast<aclblasComplex*>(dX.get()), incx,
+        static_cast<aclblasComplex*>(dY.get()), incy);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
 
     aclRet = aclrtSynchronizeStream(ctx.Stream());
@@ -358,8 +358,8 @@ int aclblasCswapTest(AclContext& ctx)
     // 预期结果：x = {10,20,30,40}，y = {1,2,3,4}
     for (int64_t i = 0; i < n; i++) {
         printf("x[%lld] = (%f, %f), y[%lld] = (%f, %f)\n",
-               static_cast<long long>(i), hX[i].real(), hX[i].imag(),
-               static_cast<long long>(i), hY[i].real(), hY[i].imag());
+               static_cast<long long>(i), hX[i].real, hX[i].imag,
+               static_cast<long long>(i), hY[i].real, hY[i].imag);
     }
 
     return 0;

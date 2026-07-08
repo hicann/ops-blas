@@ -34,8 +34,8 @@ struct RotTilingData {
 };
 
 aclblasStatus_t aclblasCsrot(
-    aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
-    const float c, const float s)
+    aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
+    const int64_t incy, const float c, const float s)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
@@ -67,7 +67,8 @@ aclblasStatus_t aclblasCsrot(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(workSpaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    csrot_kernel_do(x, y, workSpaceDevice, tilingDevice, numBlocks, useStream);
+    csrot_kernel_do(reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y), workSpaceDevice, tilingDevice,
+                    numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);

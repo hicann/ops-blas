@@ -135,7 +135,8 @@ aclblasStatus_t aclblasScopy_legacy(
 }
 
 aclblasStatus_t aclblasCcopy(
-    aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy)
+    aclblasHandle_t handle, aclblasComplex* x, aclblasComplex* y, const int64_t n, const int64_t incx,
+    const int64_t incy)
 {
     if (n <= 0) {
         return ACLBLAS_STATUS_SUCCESS;
@@ -167,7 +168,8 @@ aclblasStatus_t aclblasCcopy(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    scopy_kernel_do(x, y, nullptr, tilingDevice, numBlocks, useStream);
+    scopy_kernel_do(reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y), nullptr, tilingDevice, numBlocks,
+                    useStream);
 
     aclrtFree(tilingDevice);
 

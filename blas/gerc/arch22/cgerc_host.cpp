@@ -102,14 +102,14 @@ uint32_t* CreateCgercOffset()
 }
 
 aclblasStatus_t aclblasCgerc(
-    aclblasHandle_t handle, const int64_t m, const int64_t n, const std::complex<float>& alpha, uint8_t* x,
-    const int64_t incx, uint8_t* y, const int64_t incy, uint8_t* A, const int64_t lda)
+    aclblasHandle_t handle, const int64_t m, const int64_t n, const aclblasComplex alpha, aclblasComplex* x,
+    const int64_t incx, aclblasComplex* y, const int64_t incy, aclblasComplex* A, const int64_t lda)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream useStream = h->stream;
 
-    float alphaReal = alpha.real();
-    float alphaImag = alpha.imag();
+    float alphaReal = alpha.real;
+    float alphaImag = alpha.imag;
 
     uint32_t numBlocks = 8;
 
@@ -149,7 +149,8 @@ aclblasStatus_t aclblasCgerc(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(workspaceDevice); aclrtFree(offsetDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    cgerc_kernel_do(x, y, offsetDevice, A, workspaceDevice, tilingDevice, numBlocks, useStream);
+    cgerc_kernel_do(reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y), offsetDevice,
+                    reinterpret_cast<uint8_t*>(A), workspaceDevice, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
