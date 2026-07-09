@@ -457,8 +457,9 @@ aclblasStatus_t aclblasStbsv(
     int n, int k, const float* A, int lda, float* x, int incx);
 
 aclblasStatus_t aclblasSdgmm(
-    aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n, const float* x, int incx,
-    const float* A, int lda, float* B, int ldb);
+    aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n,
+    const float* A, int lda, const float* x, int incx,
+    float* C, int ldc);
 
 #ifdef __cplusplus
 }

@@ -39,11 +39,11 @@ static constexpr uint32_t SDGMM_MODE_RIGHT = 1;
  */
 struct SdgmmTilingData {
     uint32_t mode;    // normalized: SDGMM_MODE_LEFT or SDGMM_MODE_RIGHT
-    uint32_t m;       // number of rows of matrix A/B
-    uint32_t n;       // number of columns of matrix A/B
+    uint32_t m;       // number of rows of matrix A/C
+    uint32_t n;       // number of columns of matrix A/C
     int32_t  incx;    // stride of vector x (may be negative)
     uint32_t lda;     // leading dimension of A (column-major)
-    uint32_t ldb;     // leading dimension of B (column-major)
+    uint32_t ldc;     // leading dimension of C (column-major)
 
     uint32_t perCoreN;      // base columns per col-block
     uint32_t remainder;     // first `remainder` col-blocks get +1 column

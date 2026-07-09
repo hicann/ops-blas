@@ -20,13 +20,13 @@ struct SdgmmParam : public BlasTestParamBase {
     int n    = 0;
     int incx = 1;
     int lda  = 0;
-    int ldb  = 0;
+    int ldc  = 0;
     BlasFillMode xFill = BlasFillMode("RANDOM_1_1");
     BlasFillMode aFill = BlasFillMode("RANDOM_1_1");
     std::string xFillRaw;
     int nullx = 0;
     int nullA = 0;
-    int nullB = 0;
+    int nullC = 0;
 
     SdgmmParam(const csv_map& csv) : BlasTestParamBase(csv)
     {
@@ -35,12 +35,12 @@ struct SdgmmParam : public BlasTestParamBase {
         n     = parseInt(ReadMap(csv, "n", "0"));
         incx  = parseInt(ReadMap(csv, "incx", "1"));
         lda   = parseInt(ReadMap(csv, "lda", std::to_string(std::max(1, m))));
-        ldb   = parseInt(ReadMap(csv, "ldb", std::to_string(std::max(1, m))));
+        ldc   = parseInt(ReadMap(csv, "ldc", std::to_string(std::max(1, m))));
         xFill = BlasFillMode(ReadMap(csv, "x_fill", "RANDOM_1_1"));
         xFillRaw = ReadMap(csv, "x_fill", "RANDOM_1_1");
         aFill = BlasFillMode(ReadMap(csv, "a_fill", "RANDOM_1_1"));
         nullx = parseInt(ReadMap(csv, "nullx", "0"));
         nullA = parseInt(ReadMap(csv, "nullA", "0"));
-        nullB = parseInt(ReadMap(csv, "nullB", "0"));
+        nullC = parseInt(ReadMap(csv, "nullC", "0"));
     }
 };

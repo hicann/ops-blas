@@ -35,11 +35,11 @@
  *
  * \param x         GM address of vector x (original pointer, not pre-offset)
  * \param A         GM address of matrix A (column-major, lda x n)
- * \param B         GM address of output matrix B (column-major, ldb x n)
+ * \param C         GM address of output matrix C (column-major, ldc x n)
  * \param tiling    host-computed tiling data (copied to device by value)
  * \param numBlocks block count for the <<<>>> launch
  * \param stream    aclrtStream handle
  */
-void sdgmm_kernel_do(GM_ADDR x, GM_ADDR A, GM_ADDR B,
+void sdgmm_kernel_do(GM_ADDR x, GM_ADDR A, GM_ADDR C,
                      const SdgmmTilingData& tiling,
                      uint32_t numBlocks, void* stream);

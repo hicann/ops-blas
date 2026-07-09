@@ -34,20 +34,20 @@ using namespace AscendC::Te;
 // scale the A column segment. x values are batch-copied to UB once per
 // core to reduce GM scalar reads.
 // ==========================================================================
-template <typename XGM, typename AGM, typename BGM>
+template <typename XGM, typename AGM, typename CGM>
 __aicore__ inline void SdgmmProcessRight(
-    XGM xGm, AGM aGm, BGM bGm,
+    XGM xGm, AGM aGm, CGM cGm,
     const SdgmmTilingData& tiling,
     uint32_t startCol, uint32_t endCol,
     uint32_t startM, uint32_t endM,
-    uint32_t ubOffsetA, uint32_t ubOffsetB, uint32_t ubOffsetX)
+    uint32_t ubOffsetA, uint32_t ubOffsetC, uint32_t ubOffsetX)
 {
     // UB tensors: 1D contiguous buffers (NDExt with 1 row).
     auto ubA = MakeTensor(
         MakeMemPtr<Location::UB, float>(ubOffsetA),
         MakeFrameLayout<NDExtLayoutPtn>(1u, tiling.tileM));
-    auto ubB = MakeTensor(
-        MakeMemPtr<Location::UB, float>(ubOffsetB),
+    auto ubC = MakeTensor(
+        MakeMemPtr<Location::UB, float>(ubOffsetC),
         MakeFrameLayout<NDExtLayoutPtn>(1u, tiling.tileM));
 
     auto copyGM2UB = MakeCopy(CopyGM2UB{});
@@ -100,12 +100,12 @@ __aicore__ inline void SdgmmProcessRight(
             Copy(copyGM2UB, ubASlice, gmACol);
             PipeBarrier<PIPE_MTE2>();
 
-            auto ubBSlice = ubB.Slice(MakeCoord(0u, 0u), MakeShape(1u, curM));
-            Transform<Inst::MulScalar>(ubBSlice, ubASlice, xj);
+            auto ubCSlice = ubC.Slice(MakeCoord(0u, 0u), MakeShape(1u, curM));
+            Transform<Inst::MulScalar>(ubCSlice, ubASlice, xj);
             PipeBarrier<PIPE_V>();
 
-            auto gmBCol = bGm.Slice(MakeCoord(j, rowOffset), MakeShape(1u, curM));
-            Copy(copyUB2GM, gmBCol, ubBSlice);
+            auto gmCCol = cGm.Slice(MakeCoord(j, rowOffset), MakeShape(1u, curM));
+            Copy(copyUB2GM, gmCCol, ubCSlice);
             PipeBarrier<PIPE_MTE3>();
 
             rowOffset += curM;
@@ -121,19 +121,19 @@ __aicore__ inline void SdgmmProcessRight(
 // incx==1: contiguous Copy GM→UB (fast path).
 // incx!=1: strided scalar load via tensor_api operator[] loop.
 // ==========================================================================
-template <typename XGM, typename AGM, typename BGM>
+template <typename XGM, typename AGM, typename CGM>
 __aicore__ inline void SdgmmProcessLeft(
-    XGM xGm, AGM aGm, BGM bGm,
+    XGM xGm, AGM aGm, CGM cGm,
     const SdgmmTilingData& tiling,
     uint32_t startCol, uint32_t endCol,
     uint32_t startM, uint32_t endM,
-    uint32_t ubOffsetA, uint32_t ubOffsetB, uint32_t ubOffsetX)
+    uint32_t ubOffsetA, uint32_t ubOffsetC, uint32_t ubOffsetX)
 {
     auto ubA = MakeTensor(
         MakeMemPtr<Location::UB, float>(ubOffsetA),
         MakeFrameLayout<NDExtLayoutPtn>(1u, tiling.tileM));
-    auto ubB = MakeTensor(
-        MakeMemPtr<Location::UB, float>(ubOffsetB),
+    auto ubC = MakeTensor(
+        MakeMemPtr<Location::UB, float>(ubOffsetC),
         MakeFrameLayout<NDExtLayoutPtn>(1u, tiling.tileM));
     auto ubX = MakeTensor(
         MakeMemPtr<Location::UB, float>(ubOffsetX),
@@ -182,13 +182,13 @@ __aicore__ inline void SdgmmProcessLeft(
             Copy(copyGM2UB, ubASlice, gmACol);
             PipeBarrier<PIPE_MTE2>();
 
-            // Compute: ubB = ubA * ubX (elementwise)
-            auto ubBSlice = ubB.Slice(MakeCoord(0u, 0u), MakeShape(1u, curM));
-            Transform<Inst::Mul>(ubBSlice, ubASlice, ubXSlice);
+            // Compute: ubC = ubA * ubX (elementwise)
+            auto ubCSlice = ubC.Slice(MakeCoord(0u, 0u), MakeShape(1u, curM));
+            Transform<Inst::Mul>(ubCSlice, ubASlice, ubXSlice);
             PipeBarrier<PIPE_V>();
 
-            auto gmBCol = bGm.Slice(MakeCoord(j, rowOffset), MakeShape(1u, curM));
-            Copy(copyUB2GM, gmBCol, ubBSlice);
+            auto gmCCol = cGm.Slice(MakeCoord(j, rowOffset), MakeShape(1u, curM));
+            Copy(copyUB2GM, gmCCol, ubCSlice);
             PipeBarrier<PIPE_MTE3>();
         }
 
@@ -202,7 +202,7 @@ __aicore__ inline void SdgmmProcessLeft(
 // 2D block decomposition: blockIdx = colBlock * mBlocks + mBlock.
 // ==========================================================================
 extern "C" __global__ __aicore__ void sdgmm_aiv_kernel(
-    GM_ADDR x, GM_ADDR A, GM_ADDR B, const SdgmmTilingData tiling)
+    GM_ADDR x, GM_ADDR A, GM_ADDR C, const SdgmmTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
@@ -264,31 +264,31 @@ extern "C" __global__ __aicore__ void sdgmm_aiv_kernel(
         MakeMemPtr<Location::GM>(reinterpret_cast<__gm__ float*>(A)),
         MakeFrameLayout<NDExtLayoutPtn>(static_cast<uint64_t>(tiling.n),
                                         static_cast<uint64_t>(tiling.lda)));
-    auto bGm = MakeTensor(
-        MakeMemPtr<Location::GM>(reinterpret_cast<__gm__ float*>(B)),
+    auto cGm = MakeTensor(
+        MakeMemPtr<Location::GM>(reinterpret_cast<__gm__ float*>(C)),
         MakeFrameLayout<NDExtLayoutPtn>(static_cast<uint64_t>(tiling.n),
-                                        static_cast<uint64_t>(tiling.ldb)));
+                                        static_cast<uint64_t>(tiling.ldc)));
 
     // UB buffer offsets (byte offsets from UB base).
     // tileM is aligned to 8 (ALIGN_UNIT), so tileM * sizeof(float) is 32-byte aligned.
     uint32_t ubOffsetA = 0;
-    uint32_t ubOffsetB = tiling.tileM * sizeof(float);
-    uint32_t ubOffsetX = ubOffsetB + tiling.tileM * sizeof(float);
+    uint32_t ubOffsetC = tiling.tileM * sizeof(float);
+    uint32_t ubOffsetX = ubOffsetC + tiling.tileM * sizeof(float);
 
     if (tiling.mode == SDGMM_MODE_RIGHT) {
-        SdgmmProcessRight(xGm, aGm, bGm, tiling, startCol, endCol,
-                          startM, endM, ubOffsetA, ubOffsetB, ubOffsetX);
+        SdgmmProcessRight(xGm, aGm, cGm, tiling, startCol, endCol,
+                          startM, endM, ubOffsetA, ubOffsetC, ubOffsetX);
     } else {
-        SdgmmProcessLeft(xGm, aGm, bGm, tiling, startCol, endCol,
-                         startM, endM, ubOffsetA, ubOffsetB, ubOffsetX);
+        SdgmmProcessLeft(xGm, aGm, cGm, tiling, startCol, endCol,
+                         startM, endM, ubOffsetA, ubOffsetC, ubOffsetX);
     }
 }
 
 // Kernel launcher: asynchronously launches the tensor_api kernel.
 // tiling.mode is the normalized value (SDGMM_MODE_LEFT / SDGMM_MODE_RIGHT).
-void sdgmm_kernel_do(GM_ADDR x, GM_ADDR A, GM_ADDR B,
+void sdgmm_kernel_do(GM_ADDR x, GM_ADDR A, GM_ADDR C,
                      const SdgmmTilingData& tiling,
                      uint32_t numBlocks, void* stream)
 {
-    sdgmm_aiv_kernel<<<numBlocks, nullptr, stream>>>(x, A, B, tiling);
+    sdgmm_aiv_kernel<<<numBlocks, nullptr, stream>>>(x, A, C, tiling);
 }

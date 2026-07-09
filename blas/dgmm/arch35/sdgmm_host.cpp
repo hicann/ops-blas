@@ -11,8 +11,8 @@
 /*!
  * \file sdgmm_host.cpp
  * \brief Host-side implementation of aclblasSdgmm (arch35).
- *        Diagonal matrix-matrix multiplication: B = diag(x) * A (mode=LEFT) or
- *        B = A * diag(x) (mode=RIGHT). Column-major storage (BLAS convention).
+ *        Diagonal matrix-matrix multiplication: C = diag(x) * A (mode=LEFT) or
+ *        C = A * diag(x) (mode=RIGHT). Column-major storage (BLAS convention).
  *        Single-path tensor API dispatch: all mode/incx combinations go through
  *        the same SIMD kernel (GetValue for strided scalar access).
  */
@@ -27,8 +27,9 @@
 #include "common/helper/kernel_constant.h"
 
 static aclblasStatus_t ValidateSdgmmParams(
-    aclblasSideMode_t mode, int m, int n, const float* x, int incx,
-    const float* A, int lda, float* B, int ldb)
+    aclblasSideMode_t mode, int m, int n,
+    const float* A, int lda, const float* x, int incx,
+    float* C, int ldc)
 {
     if (mode != ACLBLAS_SIDE_LEFT && mode != ACLBLAS_SIDE_RIGHT) {
         OP_LOGE("aclblasSdgmm", "mode must be SIDE_LEFT(141) or SIDE_RIGHT(142), got %d",
@@ -51,12 +52,12 @@ static aclblasStatus_t ValidateSdgmmParams(
         OP_LOGE("aclblasSdgmm", "lda must be >= max(1, m), got lda=%d, m=%d", lda, m);
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (ldb < std::max(1, m)) {
-        OP_LOGE("aclblasSdgmm", "ldb must be >= max(1, m), got ldb=%d, m=%d", ldb, m);
+    if (ldc < std::max(1, m)) {
+        OP_LOGE("aclblasSdgmm", "ldc must be >= max(1, m), got ldc=%d, m=%d", ldc, m);
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (m > 0 && n > 0 && (x == nullptr || A == nullptr || B == nullptr)) {
-        OP_LOGE("aclblasSdgmm", "x/A/B must not be nullptr when m>0 and n>0");
+    if (m > 0 && n > 0 && (x == nullptr || A == nullptr || C == nullptr)) {
+        OP_LOGE("aclblasSdgmm", "A/x/C must not be nullptr when m>0 and n>0");
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     return ACLBLAS_STATUS_SUCCESS;
@@ -68,7 +69,7 @@ static aclblasStatus_t ValidateSdgmmParams(
 // utilize idle cores. Each block handles [startCol,endCol) × [startM,endM).
 static SdgmmTilingData CalSdgmmTilingData(
     uint32_t mode, uint32_t m, uint32_t n, int32_t incx,
-    uint32_t lda, uint32_t ldb, uint32_t aivCoreNum)
+    uint32_t lda, uint32_t ldc, uint32_t aivCoreNum)
 {
     SdgmmTilingData tiling{};
     tiling.mode = mode;
@@ -76,12 +77,12 @@ static SdgmmTilingData CalSdgmmTilingData(
     tiling.n = n;
     tiling.incx = incx;
     tiling.lda = lda;
-    tiling.ldb = ldb;
+    tiling.ldc = ldc;
 
     constexpr uint32_t ALIGN_UNIT = 32 / sizeof(float);  // = 8
     constexpr uint32_t UB_RESERVE = 256;
 
-    // Both modes use 3 UB buffers (A + B + X). mode=R batch-copies an x segment
+    // Both modes use 3 UB buffers (A + C + X). mode=R batch-copies an x segment
     // to UB; mode=L keeps an x row-segment in UB.
     constexpr uint32_t buffersPerTile = 3;
     uint32_t maxTileM = (UB_SIZE - UB_RESERVE) / (buffersPerTile * sizeof(float));
@@ -118,14 +119,14 @@ static SdgmmTilingData CalSdgmmTilingData(
 
 static aclblasStatus_t LaunchSdgmmKernel(
     aclblasSideMode_t mode, int m, int n,
-    const float* x, int incx, const float* A, int lda,
-    float* B, int ldb, uint32_t aivCoreNum, aclrtStream stream)
+    const float* A, int lda, const float* x, int incx,
+    float* C, int ldc, uint32_t aivCoreNum, aclrtStream stream)
 {
     uint32_t modeNorm = (mode == ACLBLAS_SIDE_LEFT) ? SDGMM_MODE_LEFT : SDGMM_MODE_RIGHT;
 
     SdgmmTilingData tiling = CalSdgmmTilingData(
         modeNorm, static_cast<uint32_t>(m), static_cast<uint32_t>(n), incx,
-        static_cast<uint32_t>(lda), static_cast<uint32_t>(ldb), aivCoreNum);
+        static_cast<uint32_t>(lda), static_cast<uint32_t>(ldc), aivCoreNum);
 
     if (tiling.tileM == 0) {
         OP_LOGE("aclblasSdgmm",
@@ -141,8 +142,8 @@ static aclblasStatus_t LaunchSdgmmKernel(
     uint32_t numBlocks = colBlocks * tiling.mBlocks;
 
     OP_LOGD("aclblasSdgmm",
-            "params: mode=%d, m=%d, n=%d, incx=%d, lda=%d, ldb=%d, numBlocks=%u",
-            static_cast<int>(mode), m, n, incx, lda, ldb, numBlocks);
+            "params: mode=%d, m=%d, n=%d, incx=%d, lda=%d, ldc=%d, numBlocks=%u",
+            static_cast<int>(mode), m, n, incx, lda, ldc, numBlocks);
 
     OP_LOGD("aclblasSdgmm", "tiling: mode=%u, perCoreN=%u, remainder=%u, mBlocks=%u, tileM=%u",
             tiling.mode, tiling.perCoreN, tiling.remainder, tiling.mBlocks, tiling.tileM);
@@ -158,22 +159,22 @@ static aclblasStatus_t LaunchSdgmmKernel(
 
     sdgmm_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(x)),
                     reinterpret_cast<GM_ADDR>(const_cast<float*>(A)),
-                    reinterpret_cast<GM_ADDR>(B),
+                    reinterpret_cast<GM_ADDR>(C),
                     tiling, numBlocks, stream);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 aclblasStatus_t aclblasSdgmm(
     aclblasHandle_t handle, aclblasSideMode_t mode,
-    int m, int n, const float* x, int incx,
-    const float* A, int lda, float* B, int ldb)
+    int m, int n, const float* A, int lda,
+    const float* x, int incx, float* C, int ldc)
 {
     if (handle == nullptr) {
         OP_LOGE("aclblasSdgmm", "handle is nullptr");
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
 
-    aclblasStatus_t st = ValidateSdgmmParams(mode, m, n, x, incx, A, lda, B, ldb);
+    aclblasStatus_t st = ValidateSdgmmParams(mode, m, n, A, lda, x, incx, C, ldc);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
     }
@@ -189,5 +190,5 @@ aclblasStatus_t aclblasSdgmm(
     }
 
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    return LaunchSdgmmKernel(mode, m, n, x, incx, A, lda, B, ldb, aivCoreNum, h->stream);
+    return LaunchSdgmmKernel(mode, m, n, A, lda, x, incx, C, ldc, aivCoreNum, h->stream);
 }

@@ -39,24 +39,24 @@ static inline aclError SdgmmAllocCopyH2D(void*& dPtr, const void* hPtr, size_t b
     return ret;
 }
 
-static inline void SdgmmFreeAll(void* dX, void* dA, void* dB)
+static inline void SdgmmFreeAll(void* dX, void* dA, void* dC)
 {
     if (dX) aclrtFree(dX);
     if (dA) aclrtFree(dA);
-    if (dB) aclrtFree(dB);
+    if (dC) aclrtFree(dC);
 }
 
-static inline aclError SdgmmAllocAndFillB(void*& dB, float* B, size_t bBytes)
+static inline aclError SdgmmAllocAndFillC(void*& dC, float* C, size_t cBytes)
 {
-    dB = nullptr;
-    if (B == nullptr) return ACL_SUCCESS;
-    aclError ret = aclrtMalloc(&dB, bBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    dC = nullptr;
+    if (C == nullptr) return ACL_SUCCESS;
+    aclError ret = aclrtMalloc(&dC, cBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     if (ret != ACL_SUCCESS) return ret;
-    std::vector<float> sentinelBuf(bBytes / sizeof(float), kBlasSentinel);
-    ret = aclrtMemcpy(dB, bBytes, sentinelBuf.data(), bBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    std::vector<float> sentinelBuf(cBytes / sizeof(float), kBlasSentinel);
+    ret = aclrtMemcpy(dC, cBytes, sentinelBuf.data(), cBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     if (ret != ACL_SUCCESS) {
-        aclrtFree(dB);
-        dB = nullptr;
+        aclrtFree(dC);
+        dC = nullptr;
     }
     return ret;
 }
@@ -65,12 +65,12 @@ inline aclblasStatus_t aclblasSdgmm_npu(
     aclblasHandle_t handle,
     aclblasSideMode_t mode,
     int m, int n,
-    const float* x, int incx,
     const float* A, int lda,
-    float* B, int ldb)
+    const float* x, int incx,
+    float* C, int ldc)
 {
     if (SdgmmNeedPassThrough(handle, mode, m, n)) {
-        return aclblasSdgmm(handle, mode, m, n, x, incx, A, lda, B, ldb);
+        return aclblasSdgmm(handle, mode, m, n, A, lda, x, incx, C, ldc);
     }
 
     const int xLen = (mode == ACLBLAS_SIDE_LEFT) ? m : n;
@@ -79,42 +79,42 @@ inline aclblasStatus_t aclblasSdgmm_npu(
     const size_t xTotalEl = static_cast<size_t>(xLen - 1) * static_cast<size_t>(absIncx) + 1;
     const size_t xBytes = xTotalEl * sizeof(float);
     const size_t aBytes = static_cast<size_t>(lda) * static_cast<size_t>(n) * sizeof(float);
-    const size_t bBytes = static_cast<size_t>(ldb) * static_cast<size_t>(n) * sizeof(float);
+    const size_t cBytes = static_cast<size_t>(ldc) * static_cast<size_t>(n) * sizeof(float);
 
     void* dX = nullptr;
     void* dA = nullptr;
-    void* dB = nullptr;
+    void* dC = nullptr;
 
     if (SdgmmAllocCopyH2D(dX, x, xBytes) != ACL_SUCCESS) {
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
     if (SdgmmAllocCopyH2D(dA, A, aBytes) != ACL_SUCCESS) {
-        SdgmmFreeAll(dX, dA, dB);
+        SdgmmFreeAll(dX, dA, dC);
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
-    if (SdgmmAllocAndFillB(dB, B, bBytes) != ACL_SUCCESS) {
-        SdgmmFreeAll(dX, dA, dB);
+    if (SdgmmAllocAndFillC(dC, C, cBytes) != ACL_SUCCESS) {
+        SdgmmFreeAll(dX, dA, dC);
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
 
     aclblasStatus_t ret = aclblasSdgmm(
         handle, mode, m, n,
-        static_cast<const float*>(dX), incx,
         static_cast<const float*>(dA), lda,
-        static_cast<float*>(dB), ldb);
+        static_cast<const float*>(dX), incx,
+        static_cast<float*>(dC), ldc);
 
     if (aclrtSynchronizeDevice() != ACL_SUCCESS) {
-        SdgmmFreeAll(dX, dA, dB);
+        SdgmmFreeAll(dX, dA, dC);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    if (ret == ACLBLAS_STATUS_SUCCESS && B != nullptr && dB != nullptr) {
-        if (aclrtMemcpy(B, bBytes, dB, bBytes, ACL_MEMCPY_DEVICE_TO_HOST) != ACL_SUCCESS) {
-            SdgmmFreeAll(dX, dA, dB);
+    if (ret == ACLBLAS_STATUS_SUCCESS && C != nullptr && dC != nullptr) {
+        if (aclrtMemcpy(C, cBytes, dC, cBytes, ACL_MEMCPY_DEVICE_TO_HOST) != ACL_SUCCESS) {
+            SdgmmFreeAll(dX, dA, dC);
             return ACLBLAS_STATUS_INTERNAL_ERROR;
         }
     }
 
-    SdgmmFreeAll(dX, dA, dB);
+    SdgmmFreeAll(dX, dA, dC);
     return ret;
 }

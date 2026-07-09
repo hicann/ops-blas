@@ -17,8 +17,8 @@
 
 static inline aclblasStatus_t SdgmmValidateParams(
     aclblasHandle_t handle, aclblasSideMode_t mode,
-    int m, int n, const float* x, int incx,
-    const float* A, int lda, float* B, int ldb)
+    int m, int n, const float* A, int lda,
+    const float* x, int incx, float* C, int ldc)
 {
     if (handle == nullptr) {
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
@@ -29,28 +29,28 @@ static inline aclblasStatus_t SdgmmValidateParams(
     if (m < 0 || n < 0 || incx == 0) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (lda < std::max(1, m) || ldb < std::max(1, m)) {
+    if (lda < std::max(1, m) || ldc < std::max(1, m)) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (m > 0 && n > 0 && (x == nullptr || A == nullptr || B == nullptr)) {
+    if (m > 0 && n > 0 && (x == nullptr || A == nullptr || C == nullptr)) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 // DGMM (Diagonal General Matrix Multiply) — MAGMA extension, not in Netlib BLAS.
-//   mode = LEFT:  B[i,j] = x[i] * A[i,j]   (B = diag(x) * A)
-//   mode = RIGHT: B[i,j] = A[i,j] * x[j]   (B = A * diag(x))
+//   mode = LEFT:  C[i,j] = x[i] * A[i,j]   (C = diag(x) * A)
+//   mode = RIGHT: C[i,j] = A[i,j] * x[j]   (C = A * diag(x))
 // Column-major storage. incx stride: x_k = x[(incx<0) ? (len-1-k)*|incx| : k*incx]
 inline aclblasStatus_t aclblasSdgmm_cpu(
     aclblasHandle_t handle,
     aclblasSideMode_t mode,
     int m, int n,
-    const float* x, int incx,
     const float* A, int lda,
-    float* B, int ldb)
+    const float* x, int incx,
+    float* C, int ldc)
 {
-    aclblasStatus_t st = SdgmmValidateParams(handle, mode, m, n, x, incx, A, lda, B, ldb);
+    aclblasStatus_t st = SdgmmValidateParams(handle, mode, m, n, A, lda, x, incx, C, ldc);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
     }
@@ -70,7 +70,7 @@ inline aclblasStatus_t aclblasSdgmm_cpu(
                 : static_cast<int64_t>(k) * incx;
             float xVal = x[xIdx];
             float aVal = A[i + static_cast<int64_t>(j) * lda];
-            B[i + static_cast<int64_t>(j) * ldb] = xVal * aVal;
+            C[i + static_cast<int64_t>(j) * ldc] = xVal * aVal;
         }
     }
     return ACLBLAS_STATUS_SUCCESS;

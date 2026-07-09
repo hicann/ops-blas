@@ -26,7 +26,7 @@ class SdgmmArch35Test : public BlasTest<SdgmmParam> { };
 TEST_F(SdgmmArch35Test, NullHandle) {
     aclblasStatus_t ret = aclblasSdgmm_npu(
         nullptr, ACLBLAS_SIDE_LEFT, 4, 4,
-        nullptr, 1, nullptr, 4, nullptr, 4);
+        nullptr, 4, nullptr, 1, nullptr, 4);
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_HANDLE_IS_NULLPTR));
 }
 
@@ -61,21 +61,21 @@ TEST_P(SdgmmArch35Test, CsvDriven) {
         aHost = makeBlasMatrix(p.m, p.n, p.lda, p.aFill, p.randomSeed);
     }
 
-    // B is the output buffer; initialise with sentinel so unmodified padding
+    // C is the output buffer; initialise with sentinel so unmodified padding
     // (if any) matches the golden's untouched region.
-    std::vector<float> bHost;
-    if (p.nullB == 0 && p.m > 0 && p.n > 0) {
-        bHost.assign(static_cast<size_t>(p.ldb) * static_cast<size_t>(p.n), kBlasSentinel);
+    std::vector<float> cHost;
+    if (p.nullC == 0 && p.m > 0 && p.n > 0) {
+        cHost.assign(static_cast<size_t>(p.ldc) * static_cast<size_t>(p.n), kBlasSentinel);
     }
 
     const float* xPtr = xHost.empty() ? nullptr : xHost.data();
     const float* aPtr = aHost.empty() ? nullptr : aHost.data();
-    float*       bPtr = bHost.empty() ? nullptr : bHost.data();
+    float*       cPtr = cHost.empty() ? nullptr : cHost.data();
 
     // Step 2: Execute on NPU (wrapper handles nullptr passthrough, device memory)
     aclblasStatus_t ret = aclblasSdgmm_npu(
         SdgmmArch35Test::handle_, p.mode, p.m, p.n,
-        xPtr, p.incx, aPtr, p.lda, bPtr, p.ldb);
+        aPtr, p.lda, xPtr, p.incx, cPtr, p.ldc);
 
     // Step 3: Verify expected return code
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
@@ -85,12 +85,12 @@ TEST_P(SdgmmArch35Test, CsvDriven) {
     if (p.m == 0 || p.n == 0) return;
 
     // Step 4: Compute golden on CPU
-    // xHost and aHost are not modified by the NPU wrapper (only bHost is written
+    // xHost and aHost are not modified by the NPU wrapper (only cHost is written
     // via D2H), so they remain valid for golden computation.
-    std::vector<float> goldenB(bHost.size(), kBlasSentinel);
+    std::vector<float> goldenC(cHost.size(), kBlasSentinel);
     aclblasStatus_t cpuRet = aclblasSdgmm_cpu(
         SdgmmArch35Test::handle_, p.mode, p.m, p.n,
-        xPtr, p.incx, aPtr, p.lda, goldenB.data(), p.ldb);
+        aPtr, p.lda, xPtr, p.incx, goldenC.data(), p.ldc);
     EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
 
     // Step 5: Precision verification — MERE_MARE (FP32: MERE < 2^-13, MARE < 10*2^-13)
@@ -99,8 +99,8 @@ TEST_P(SdgmmArch35Test, CsvDriven) {
     cfg.mereThreshold = p.mereThreshold;
     cfg.mareMultiplier = p.mareMultiplier;
 
-    // Compare entire B storage (ldb * n elements, stride 1).
-    // Padding rows (if lda/ldb > m) are sentinel in both bHost and goldenB.
+    // Compare entire C storage (ldc * n elements, stride 1).
+    // Padding rows (if lda/ldc > m) are sentinel in both cHost and goldenC.
     EXPECT_TRUE(Verifier::verifyVector(
-        bPtr, goldenB.data(), bHost.size(), 1, cfg, p.caseName));
+        cPtr, goldenC.data(), cHost.size(), 1, cfg, p.caseName));
 }
