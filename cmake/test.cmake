@@ -12,8 +12,12 @@
 function(_ops_blas_has_blas_op_sources op_name out_var)
     set(has_sources FALSE)
 
-    # strmm 使用 tensor_api，需 asc-devkit >= 9.1；低版本跳过其实现与测试
+    # strmm/sdgmm 使用 tensor_api，需 asc-devkit >= 9.1；低版本跳过其实现与测试
     if(NOT ENABLE_BLAS_TRMM AND (op_name STREQUAL "strmm" OR op_name STREQUAL "trmm"))
+        set(${out_var} FALSE PARENT_SCOPE)
+        return()
+    endif()
+    if(NOT ENABLE_BLAS_DGMM AND (op_name STREQUAL "sdgmm" OR op_name STREQUAL "dgmm"))
         set(${out_var} FALSE PARENT_SCOPE)
         return()
     endif()

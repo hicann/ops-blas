@@ -360,6 +360,30 @@ inline std::vector<float> makeBlasStrided(int count, int inc, const std::string&
     return makeBlasStrided(count, inc, BlasFillMode(fillStr), seed);
 }
 
+// Mixed fill: first half RANDOM[-1, 1], second half special value (INF / NAN).
+// fillStr format: "MIXED_RANDOM_INF" or "MIXED_RANDOM_NAN".
+inline std::vector<float> makeBlasMixed(int count, int inc, const std::string& fillStr, uint32_t seed = 0)
+{
+    if (count <= 0) {
+        return {};
+    }
+    const int absInc = std::abs(inc);
+    const size_t size = static_cast<size_t>((count - 1) * absInc + 1);
+    std::vector<float> data(size, 0.0f);
+    float specialVal = INFINITY;
+    if (fillStr.find("_NAN") != std::string::npos) {
+        specialVal = NAN;
+    }
+    std::mt19937 rng(seed ? seed : 42);
+    std::uniform_real_distribution<float> dist(-1.0f, 1.0f);
+    const int halfCount = count / 2;
+    for (int i = 0; i < count; i++) {
+        int idx = (inc > 0) ? (i * inc) : ((count - 1 - i) * absInc);
+        data[idx] = (i < halfCount) ? dist(rng) : specialVal;
+    }
+    return data;
+}
+
 inline std::vector<float> makeBlasPacked(int n, const BlasFillMode& fill, uint32_t seed = 0)
 {
     if (fill.method == BlasFillMode::M_NULLPTR)

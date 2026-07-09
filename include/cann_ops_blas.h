@@ -456,6 +456,10 @@ aclblasStatus_t aclblasStbsv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag,
     int n, int k, const float* A, int lda, float* x, int incx);
 
+aclblasStatus_t aclblasSdgmm(
+    aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n, const float* x, int incx,
+    const float* A, int lda, float* B, int ldb);
+
 #ifdef __cplusplus
 }
 #endif
