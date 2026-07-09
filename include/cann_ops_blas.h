@@ -249,6 +249,31 @@ aclblasStatus_t aclblasTSSgemvBatched(
     const uint16_t *const Aarray[], int lda, const uint16_t *const xarray[], int incx,
     const float* beta, float *const yarray[], int incy, int batchCount);
 
+aclblasStatus_t aclblasSgemvStridedBatched(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const float* A, int lda, int64_t strideA, const float* x, int incx, int64_t stridex,
+    const float* beta, float* y, int incy, int64_t stridey, int batchCount);
+
+aclblasStatus_t aclblasHSHgemvStridedBatched(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const uint16_t* A, int lda, int64_t strideA, const uint16_t* x, int incx, int64_t stridex,
+    const float* beta, uint16_t* y, int incy, int64_t stridey, int batchCount);
+
+aclblasStatus_t aclblasHSSgemvStridedBatched(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const uint16_t* A, int lda, int64_t strideA, const uint16_t* x, int incx, int64_t stridex,
+    const float* beta, float* y, int incy, int64_t stridey, int batchCount);
+
+aclblasStatus_t aclblasTSTgemvStridedBatched(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const uint16_t* A, int lda, int64_t strideA, const uint16_t* x, int incx, int64_t stridex,
+    const float* beta, uint16_t* y, int incy, int64_t stridey, int batchCount);
+
+aclblasStatus_t aclblasTSSgemvStridedBatched(
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
+    const uint16_t* A, int lda, int64_t strideA, const uint16_t* x, int incx, int64_t stridex,
+    const float* beta, float* y, int incy, int64_t stridey, int batchCount);
+
 aclblasStatus_t aclblasCcopy(
     aclblasHandle_t handle, aclblasComplex* x, aclblasComplex* y, const int64_t n, const int64_t incx,
     const int64_t incy);
