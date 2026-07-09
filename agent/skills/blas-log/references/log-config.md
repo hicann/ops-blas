@@ -62,8 +62,6 @@ aclblasStatus_t aclblasGetLoggerCallback(aclblasLogCallback* userCallback);
 
 `aclblasLoggerConfigure` 不包含日志级别参数（对齐业界主流 BLAS 库设计）。日志级别通过环境变量 `ASCEND_GLOBAL_LOG_LEVEL` 控制，详见下方"环境变量配置"。
 
-`aclblasLogLevel_t` 枚举（定义在 `include/cann_ops_blas_common.h`）保留供未来日志级别控制接口使用。
-
 ## 底层实现
 
 `aclblasLoggerConfigure` 将配置存储到内部全局结构体，供日志输出逻辑消费。日志级别由 dlog 全局配置（环境变量）控制，与业界主流 BLAS 库通过环境变量控制级别的方式一致。

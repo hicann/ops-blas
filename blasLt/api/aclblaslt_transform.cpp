@@ -18,6 +18,7 @@
 
 #include "aclblaslt_handle_impl.h"
 #include "aclblaslt_layout_impl.h"
+#include "aclblaslt_logger_impl.h"
 #include "matrix_transform_engine.h"
 
 #include <acl/acl.h>
@@ -49,12 +50,18 @@ aclblasStatus_t aclblasLtMatrixTransform(
     aclblasLtMatrixLayout_t Cdesc, aclrtStream stream)
 {
     if (lightHandle == nullptr) {
+        AclBlasLt::LoggerManager::GetInstance().Log(ACLBLASLT_LOG_MASK_ERROR, "aclblasLtMatrixTransform",
+            "lightHandle is null");
         return ACLBLAS_STATUS_NOT_INITIALIZED;
     }
     if (transformDesc == nullptr || Adesc == nullptr || Cdesc == nullptr) {
+        AclBlasLt::LoggerManager::GetInstance().Log(ACLBLASLT_LOG_MASK_ERROR, "aclblasLtMatrixTransform",
+            "transformDesc, Adesc, or Cdesc is null");
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (alpha == nullptr) {
+        AclBlasLt::LoggerManager::GetInstance().Log(ACLBLASLT_LOG_MASK_ERROR, "aclblasLtMatrixTransform",
+            "alpha is null");
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
@@ -63,13 +70,17 @@ aclblasStatus_t aclblasLtMatrixTransform(
     auto* CLayout = reinterpret_cast<aclblasLtMatrixLayoutImpl*>(Cdesc);
     if (desc->magic != ACLBLASLT_TRANSFORM_DESC_MAGIC || ALayout->magic != ACLBLASLT_LAYOUT_MAGIC ||
         CLayout->magic != ACLBLASLT_LAYOUT_MAGIC) {
-        return ACLBLAS_STATUS_INVALID_VALUE; // corrupted / foreign descriptor or layout
+        AclBlasLt::LoggerManager::GetInstance().Log(ACLBLASLT_LOG_MASK_ERROR, "aclblasLtMatrixTransform",
+            "corrupted or foreign descriptor/layout (magic mismatch)");
+        return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
     auto* handleImpl = reinterpret_cast<aclblasLtHandle*>(lightHandle);
 
     const uint64_t rows = CLayout->rows;
     const uint64_t cols = CLayout->cols;
+    AclBlasLt::LoggerManager::GetInstance().Log(ACLBLASLT_LOG_MASK_TRACE, "aclblasLtMatrixTransform",
+        "rows=%lu, cols=%lu", static_cast<unsigned long>(rows), static_cast<unsigned long>(cols));
     if (rows == 0U || cols == 0U) {
         return ACLBLAS_STATUS_SUCCESS; // empty matrix, no-op (checked before B presence)
     }

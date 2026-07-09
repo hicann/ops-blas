@@ -92,15 +92,6 @@ typedef enum aclblasComputeType {
     ACLBLAS_COMPUTE_32I_PEDANTIC = 10, /**< compute will be exactly 32-bit integer precision */
 } aclblasComputeType_t;
 
-/*! \brief Log level enum (reserved, currently unused).
- *  Logging level is controlled via the ASCEND_GLOBAL_LOG_LEVEL environment variable.
- *  This enum is kept for future API-level log control. */
-typedef enum aclblasLogLevel {
-    ACLBLAS_LOG_LEVEL_DEBUG = 0,
-    ACLBLAS_LOG_LEVEL_INFO = 1,
-    ACLBLAS_LOG_LEVEL_ERROR = 2,
-} aclblasLogLevel_t;
-
 /*! \brief The algorithm to be used for GemmEx operations.
  *  Note that support for algorithms is largely dependent on backend. */
 typedef enum aclblasGemmAlgo {

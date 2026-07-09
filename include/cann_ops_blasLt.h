@@ -16,9 +16,11 @@
 #ifdef __cplusplus
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #else
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #endif
 
 #ifdef __cplusplus
@@ -252,6 +254,46 @@ typedef enum aclblasLtMatmulAlgoConfigAttributes {
     ACLBLASLT_ALGO_CONFIG_INNER_SHAPE_ID = 6, /**< Inner MMA shape (not supported). Type: uint16_t. */
     ACLBLASLT_ALGO_CONFIG_MAX,
 } aclblasLtMatmulAlgoConfigAttributes_t;
+
+/*! \ingroup type_module
+ *  \brief Logger callback function pointer type.
+ *
+ *  When set via aclblasLtLoggerSetCallback(), the library invokes this
+ *  function for each log message instead of writing to a file or stdout.
+ *
+ *  \param logLevel     The log level of this message. See aclblasLtLogLevel_t.
+ *  \param functionName Name of the API function that produced this message.
+ *  \param message      The log message text (null-terminated).
+ */
+typedef void (*aclblasLtLoggerCallback_t)(int logLevel, const char* functionName, const char* message);
+
+/*! \ingroup type_module
+ *  \brief Log level for aclblasLt logging.
+ *
+ *  Maps 1:1 to cuBLASLt's CUBLASLT_LOG_LEVEL values.
+ */
+typedef enum aclblasLtLogLevel {
+    ACLBLASLT_LOG_LEVEL_OFF       = 0, /**< Logging disabled (default). */
+    ACLBLASLT_LOG_LEVEL_ERROR     = 1, /**< Only errors. */
+    ACLBLASLT_LOG_LEVEL_TRACE     = 2, /**< API calls that launch kernels. */
+    ACLBLASLT_LOG_LEVEL_HINTS     = 3, /**< Performance hints. */
+    ACLBLASLT_LOG_LEVEL_INFO      = 4, /**< General library execution info. */
+    ACLBLASLT_LOG_LEVEL_API_TRACE = 5, /**< All API calls. */
+} aclblasLtLogLevel_t;
+
+/*! \ingroup type_module
+ *  \brief Log mask bit flags for aclblasLt logging.
+ *
+ *  Combine with bitwise OR. Maps 1:1 to cuBLASLt's CUBLASLT_LOG_MASK values.
+ */
+typedef enum aclblasLtLogMask {
+    ACLBLASLT_LOG_MASK_OFF       = 0,  /**< Off. */
+    ACLBLASLT_LOG_MASK_ERROR     = 1,  /**< Error messages. */
+    ACLBLASLT_LOG_MASK_TRACE     = 2,  /**< Kernel-launch trace. */
+    ACLBLASLT_LOG_MASK_HINTS     = 4,  /**< Performance hints. */
+    ACLBLASLT_LOG_MASK_INFO      = 8,  /**< General info. */
+    ACLBLASLT_LOG_MASK_API_TRACE = 16, /**< API trace. */
+} aclblasLtLogMask_t;
 
 /*! \ingroup library_module
  *  \brief Query aclBLASLt packed version number.
@@ -954,6 +996,90 @@ aclblasStatus_t aclblasLtMatrixTransform(aclblasLtHandle_t lightHandle,
                                          void* C,
                                          aclblasLtMatrixLayout_t Cdesc,
                                          aclrtStream stream);
+
+// ============================================================================
+// Logger (experimental)
+// ============================================================================
+
+/*! \ingroup library_module
+ *  \brief Set the logging output file handle.
+ *
+ *  \details Experimental. Sets the file handle where log messages are written.
+ *  Once registered, the provided file handle must not be closed unless this
+ *  function is called again to switch to a different handle. If never called,
+ *  log output goes to stdout.
+ *
+ *  \param[in] file Pointer to an open file with write permission.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If the logging file was successfully set.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p file is NULL.
+ */
+aclblasStatus_t aclblasLtLoggerSetFile(FILE* file);
+
+/*! \ingroup library_module
+ *  \brief Set the logging level.
+ *
+ *  \details Experimental. Sets the logging level. Messages at or below the
+ *  specified level are emitted (subject to the mask). See \ref aclblasLtLogLevel_t.
+ *
+ *  \param[in] level Logging level. Must be in [0, 5].
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If the logging level was successfully set.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p level is not a valid logging level.
+ */
+aclblasStatus_t aclblasLtLoggerSetLevel(int level);
+
+/*! \ingroup library_module
+ *  \brief Set the logging mask.
+ *
+ *  \details Experimental. Sets the logging mask as a bitmask of
+ *  aclblasLtLogMask_t flags. Only message categories whose bit is set are
+ *  emitted. See \ref aclblasLtLogMask_t.
+ *
+ *  \param[in] mask Logging mask (bitwise OR of ACLBLASLT_LOG_MASK_* values).
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If the logging mask was successfully set.
+ */
+aclblasStatus_t aclblasLtLoggerSetMask(int mask);
+
+/*! \ingroup library_module
+ *  \brief Force-disable logging for the entire run.
+ *
+ *  \details Experimental. Disables all logging unconditionally. Once called,
+ *  logging cannot be re-enabled by any other logger API or environment variable
+ *  for the remainder of the process lifetime.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If logging was successfully disabled.
+ */
+aclblasStatus_t aclblasLtLoggerForceDisable(void);
+
+/*! \ingroup library_module
+ *  \brief Set the logging callback function.
+ *
+ *  \details Experimental. When set, log messages are delivered to the callback
+ *  instead of file/stdout output. See \ref
+ *  aclblasLtLoggerCallback_t.
+ *
+ *  \param[in] callback Pointer to the callback function. Pass NULL to clear.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If the callback was successfully set.
+ */
+aclblasStatus_t aclblasLtLoggerSetCallback(aclblasLtLoggerCallback_t callback);
+
+/*! \ingroup library_module
+ *  \brief Open and set a logging output file by path.
+ *
+ *  \details Experimental. Opens the file at \p logFile for writing and sets it
+ *  as the logging output. The file handle is managed internally and will be
+ *  closed when the logger is reconfigured or at program exit.
+ *
+ *  \param[in] logFile Path to the logging output file.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If the logging file was successfully opened.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p logFile is NULL.
+ *  \retval ACLBLAS_STATUS_INTERNAL_ERROR If the file cannot be opened.
+ */
+aclblasStatus_t aclblasLtLoggerOpenFile(const char* logFile);
 
 #ifdef __cplusplus
 }

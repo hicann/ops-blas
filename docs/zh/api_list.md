@@ -105,16 +105,6 @@ ops-blas 提供基于 C 的 BLAS 标准接口，以及轻量化 GEMM / 矩阵变
 | `ACLBLAS_GEMM_DEFAULT` (0) | 默认算法，由后端自动选择。 |
 | `ACLBLAS_GEMM_ALGO0` (1) ~ `ACLBLAS_GEMM_ALGO7` (8) | 预留算法编号，供后续扩展。 |
 
-### aclblasLogLevel_t
-
-日志级别枚举，预留供未来日志级别控制接口使用。当前日志级别通过环境变量 `ASCEND_GLOBAL_LOG_LEVEL` 控制。
-
-| 取值 | 含义 |
-|---|---|
-| `ACLBLAS_LOG_LEVEL_DEBUG` (0) | 输出调试级别日志。 |
-| `ACLBLAS_LOG_LEVEL_INFO` (1) | 输出信息级别日志。 |
-| `ACLBLAS_LOG_LEVEL_ERROR` (2) | 仅输出错误级别日志。 |
-
 ### aclblasLapackInfo_t
 
 批量 LAPACK 风格接口（如 `aclblasSgetrfBatched`、`aclblasSgeqrfBatched`）中 `info` / `infoArray` 参数的取值约定，语义对齐 LAPACK `xINFO`：
@@ -715,6 +705,102 @@ aclblasStatus_t aclblasLtMatrixTransformDescGetAttribute(aclblasLtMatrixTransfor
 | `ACLBLAS_STATUS_INVALID_VALUE` | 参数为空或缓冲区过小。 |
 | `ACLBLAS_STATUS_NOT_SUPPORTED` | `attr` 不是已识别的属性。 |
 
+#### aclblasLtLoggerSetFile()
+
+```cpp
+aclblasStatus_t aclblasLtLoggerSetFile(FILE* file);
+```
+
+设置日志输出文件句柄。注册后该文件句柄不得关闭，除非再次调用本函数切换到其他文件句柄。若从未调用本函数，日志默认输出到 stdout。
+
+| 参数 | 说明 |
+|---|---|
+| `file` | 已打开且具有写权限的文件指针。 |
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `file` 为空指针。 |
+
+#### aclblasLtLoggerSetLevel()
+
+```cpp
+aclblasStatus_t aclblasLtLoggerSetLevel(int level);
+```
+
+设置日志级别。仅在掩码允许且级别匹配时输出日志消息。取值见 `aclblasLtLogLevel_t`，有效范围为 [0, 5]。
+
+| 参数 | 说明 |
+|---|---|
+| `level` | 日志级别，取值见 `aclblasLtLogLevel_t`。 |
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `level` 不是合法日志级别。 |
+
+#### aclblasLtLoggerSetMask()
+
+```cpp
+aclblasStatus_t aclblasLtLoggerSetMask(int mask);
+```
+
+设置日志掩码，以位掩码形式控制各类消息的输出。取值为 `aclblasLtLogMask_t` 标志的按位 OR 组合（例如 `5` = Error + Hints）。
+
+| 参数 | 说明 |
+|---|---|
+| `mask` | 日志掩码（`ACLBLASLT_LOG_MASK_*` 的按位 OR）。 |
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+
+#### aclblasLtLoggerForceDisable()
+
+```cpp
+aclblasStatus_t aclblasLtLoggerForceDisable(void);
+```
+
+强制禁用日志。调用后整个进程生命周期内无法通过任何其他 Logger API 或环境变量重新启用日志。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 已成功禁用日志。 |
+
+#### aclblasLtLoggerSetCallback()
+
+```cpp
+aclblasStatus_t aclblasLtLoggerSetCallback(aclblasLtLoggerCallback_t callback);
+```
+
+设置日志回调函数。设置后日志消息将传递给回调函数，而非写入文件或 stdout。传入 `nullptr` 可清除已设置的回调。
+
+| 参数 | 说明 |
+|---|---|
+| `callback` | 回调函数指针，见 `aclblasLtLoggerCallback_t`。传 `nullptr` 清除回调。 |
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 设置成功。 |
+
+#### aclblasLtLoggerOpenFile()
+
+```cpp
+aclblasStatus_t aclblasLtLoggerOpenFile(const char* logFile);
+```
+
+按路径打开日志文件并设为日志输出目标。文件句柄由库内部管理，在重新配置日志输出或程序退出时自动关闭。
+
+| 参数 | 说明 |
+|---|---|
+| `logFile` | 日志文件路径。 |
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 文件打开成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `logFile` 为空指针。 |
+| `ACLBLAS_STATUS_INTERNAL_ERROR` | 文件无法打开。 |
+
 ## aclBLAS Level 1 Function Reference
 
 Level 1 接口在向量之间进行运算，典型操作包括向量缩放（scal）、向量加法（axpy）、点积（dot）、范数（nrm2）、元素交换（swap）等。
@@ -812,6 +898,48 @@ BLAS-like Extension 提供标准 BLAS Level 3 之外的扩展 GEMM 接口（以 
 | [aclblasGemmGroupedBatchedEx](../../blas/gemm_grouped_batched_ex/README.md) | 通用矩阵乘法分组批量扩展接口 |
 
 ## aclBLASLt Datatypes Reference
+
+### aclblasLtLoggerCallback_t
+
+日志回调函数指针类型。通过 `aclblasLtLoggerSetCallback` 设置后，库内日志消息将通过该回调输出，替代文件或 stdout 输出。
+
+```c
+typedef void (*aclblasLtLoggerCallback_t)(int logLevel,
+                                          const char* functionName,
+                                          const char* message);
+```
+
+| 参数 | 说明 |
+|---|---|
+| `logLevel` | 日志消息的级别，见 `aclblasLtLogLevel_t`。 |
+| `functionName` | 产生该日志的 API 函数名。 |
+| `message` | 日志消息文本（以 null 结尾）。 |
+
+### aclblasLtLogLevel_t
+
+aclBLASLt 日志级别枚举。与 cuBLASLt 的 `CUBLASLT_LOG_LEVEL` 取值一一对应。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLASLT_LOG_LEVEL_OFF` (0) | 禁用日志（默认）。 |
+| `ACLBLASLT_LOG_LEVEL_ERROR` (1) | 仅记录错误。 |
+| `ACLBLASLT_LOG_LEVEL_TRACE` (2) | 记录启动 kernel 的 API 调用参数与关键信息。 |
+| `ACLBLASLT_LOG_LEVEL_HINTS` (3) | 记录可能提升性能的提示。 |
+| `ACLBLASLT_LOG_LEVEL_INFO` (4) | 记录库执行的通用信息。 |
+| `ACLBLASLT_LOG_LEVEL_API_TRACE` (5) | 记录所有 API 调用的参数与关键信息。 |
+
+### aclblasLtLogMask_t
+
+aclBLASLt 日志掩码位标志枚举，按位组合控制各类消息的输出。与 cuBLASLt 的 `CUBLASLT_LOG_MASK` 取值一一对应。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLASLT_LOG_MASK_OFF` (0) | 关闭。 |
+| `ACLBLASLT_LOG_MASK_ERROR` (1) | 错误消息。 |
+| `ACLBLASLT_LOG_MASK_TRACE` (2) | kernel 启动追踪。 |
+| `ACLBLASLT_LOG_MASK_HINTS` (4) | 性能提示。 |
+| `ACLBLASLT_LOG_MASK_INFO` (8) | 通用信息。 |
+| `ACLBLASLT_LOG_MASK_API_TRACE` (16) | API 追踪。 |
 
 ### aclblasLtOrder_t
 
