@@ -2,12 +2,16 @@
 
 ## 算子概述
 
-向量点积算子，实现两个向量的点积运算。包含实数点积（Sdot）和复数点积（Cdot）两类接口。广泛应用于信号处理、统计学、量子计算和线性代数等领域。
+Dot 算子实现了向量点积运算，核心运算为两个向量的内积累加。包含实数点积（Sdot）和复数点积（Cdotu/Cdotc）两类接口，广泛应用于信号处理、统计学、量子计算和线性代数等领域。
 
 数学表达式：
 
 ```
-result = x · y = Σ(x[i] * y[i])  for i = 0 to n-1
+Sdot:   result = x · y = Σ(x[i] * y[i])  for i = 0 to n-1
+
+Cdotu:  result = x · y = Σ(x[i] * y[i])  for i = 0 to n-1        （无共轭）
+
+Cdotc:  result = conj(x) · y = Σ(conj(x[i]) * y[i])  for i = 0 to n-1  （共轭）
 ```
 
 包含以下接口：
@@ -31,79 +35,389 @@ result = x · y = Σ(x[i] * y[i])  for i = 0 to n-1
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasSdot(aclblasHandle_t handle, const int64_t n, const float *x, const int64_t incx, const float *y, const int64_t incy, float *result)
+aclblasStatus_t aclblasSdot(aclblasHandle_t handle, int64_t n, const float* x, int64_t incx, const float* y, int64_t incy, float* result);
 ```
 
 #### 参数说明
 
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
-| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
-| n | 输入 | int64_t | 实数向量的元素个数，Host 内存 |
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，内部携带 stream 和 workspace，Host 内存 |
+| n | 输入 | int64_t | 向量元素个数，n >= 0，Host 内存 |
 | x | 输入 | const float*（FP32） | 实数向量，包含 n 个 float 元素，Device 内存 |
-| incx | 输入 | int64_t | 向量 x 的步长，不可为 0，Host 内存 |
+| incx | 输入 | int64_t | 向量 x 的步长，当前仅支持 incx = 1，Host 内存 |
 | y | 输入 | const float*（FP32） | 实数向量，包含 n 个 float 元素，Device 内存 |
-| incy | 输入 | int64_t | 向量 y 的步长，不可为 0，Host 内存 |
-| result | 输出 | float*（FP32） | 实数结果，包含 1 个 float 元素，Device 内存 |
+| incy | 输入 | int64_t | 向量 y 的步长，当前仅支持 incy = 1，Host 内存 |
+| result | 输出 | float*（FP32） | 点积结果，包含 1 个 float 元素，Device 内存 |
 
 #### 约束说明
 
-- n >= 0
-- incx != 0
-- incy != 0
+- n >= 0；n == 0 时直接返回成功，result 置 0
+- incx != 0，incy != 0
+- 当前实现仅支持 incx = 1 且 incy = 1，非单位步长尚未支持
+- n > 0 时，x、y、result 不能为 nullptr
+
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include <memory>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+int aclblasSdotTest(AclContext& ctx)
+{
+    aclrtStream stream = ctx.Stream();
+
+    // 1. 创建 ops-blas 句柄
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    // 2. 准备 Host 数据
+    int64_t n = 8;
+    int64_t incx = 1;
+    int64_t incy = 1;
+    std::vector<float> hX = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f};
+    std::vector<float> hY = {8.0f, 7.0f, 6.0f, 5.0f, 4.0f, 3.0f, 2.0f, 1.0f};
+    size_t bytes = static_cast<size_t>(n) * sizeof(float);
+
+    // 3. 申请 Device 内存并拷贝数据
+    void *dX = nullptr, *dY = nullptr, *dResult = nullptr;
+    auto aclRet = aclrtMalloc(&dX, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dX failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dXPtr(dX, aclrtFree);
+
+    aclRet = aclrtMalloc(&dY, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dY failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dYPtr(dY, aclrtFree);
+
+    aclRet = aclrtMalloc(&dResult, sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dResult failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dResultPtr(dResult, aclrtFree);
+
+    aclRet = aclrtMemcpy(dX, bytes, hX.data(), bytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dX failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(dY, bytes, hY.data(), bytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dY failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 4. 调用 aclblasSdot
+    blasRet = aclblasSdot(
+        static_cast<aclblasHandle_t>(handlePtr.get()), n,
+        static_cast<const float*>(dX), incx,
+        static_cast<const float*>(dY), incy,
+        static_cast<float*>(dResult));
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasSdot failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 5. 同步等待任务执行结束
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 6. 将结果从 Device 拷贝回 Host 并打印
+    float hResult = 0.0f;
+    aclRet = aclrtMemcpy(&hResult, sizeof(float), dResult, sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy D2H result failed. ERROR: %d\n", aclRet); return aclRet);
+    LOG_PRINT("sdot result = %.4f\n", static_cast<double>(hResult));
+
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasSdotTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasSdotTest failed. ERROR: %d\n", ret); return ret);
+    return 0;
+}
+```
 
 ### aclblasCdotu
 
 #### 产品支持情况
 
 - Ascend 950PR / Ascend 950DT：不支持
-- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
 - Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
 
 #### 函数原型
 
 ```cpp
-int aclblasCdotu(const float *x, const float *y, float *result, const int64_t n, void *stream)
+aclblasStatus_t aclblasCdotu(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy, uint8_t* result);
 ```
 
 #### 参数说明
 
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
-| x | 输入 | const float*（FP32） | 复数向量，包含 2*n 个 float 元素（实部和虚部交替存储），Device 内存 |
-| y | 输入 | const float*（FP32） | 复数向量，包含 2*n 个 float 元素（实部和虚部交替存储），Device 内存 |
-| result | 输出 | float*（FP32） | 复数结果，包含 2 个 float 元素（实部和虚部），Device 内存 |
-| n | 输入 | int64_t | 复数向量的元素个数，Host 内存 |
-| stream | 输入 | void* | ACL stream，Host 内存 |
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，内部携带 stream 和 workspace，Host 内存 |
+| n | 输入 | int64_t | 复数向量元素个数，n >= 0，Host 内存 |
+| x | 输入 | uint8_t*（复数 FP32） | 复数向量，实部与虚部交替存储，包含 2*n 个 float 元素，Device 内存 |
+| incx | 输入 | int64_t | 向量 x 的步长（复数元素单位），当前仅支持 incx = 1，Host 内存 |
+| y | 输入 | uint8_t*（复数 FP32） | 复数向量，实部与虚部交替存储，包含 2*n 个 float 元素，Device 内存 |
+| incy | 输入 | int64_t | 向量 y 的步长（复数元素单位），当前仅支持 incy = 1，Host 内存 |
+| result | 输出 | uint8_t*（复数 FP32） | 复数点积结果，包含 2 个 float 元素（实部和虚部），Device 内存 |
 
 #### 约束说明
 
-- n >= 0
+- n >= 0；n == 0 时直接返回成功，result 置 0
+- incx != 0，incy != 0
+- 当前实现仅支持 incx = 1 且 incy = 1，非单位步长尚未支持
+- n > 0 时，x、y、result 不能为 nullptr
+
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include <memory>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+
+    ~AclContext()
+    {
+        if (stream_ != nullptr) {
+            aclrtDestroyStream(stream_);
+            stream_ = nullptr;
+        }
+        if (deviceSet_) {
+            aclrtResetDevice(deviceId_);
+            deviceSet_ = false;
+        }
+        if (aclInited_) {
+            aclFinalize();
+            aclInited_ = false;
+        }
+    }
+
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+
+    aclrtStream Stream() const { return stream_; }
+
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false;
+    bool deviceSet_ = false;
+};
+
+int aclblasCdotuTest(AclContext& ctx)
+{
+    aclrtStream stream = ctx.Stream();
+
+    // 1. 创建 ops-blas 句柄
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet);
+              return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
+              return blasRet);
+
+    // 2. 准备 Host 数据
+    // 复数向量以实部-虚部交替存储，每个复数元素占 2 个 float
+    int64_t n = 4;  // 复数元素个数
+    int64_t incx = 1;
+    int64_t incy = 1;
+    // x = [1+0.5i, 2+1i, 3+1.5i, 4+2i]
+    std::vector<float> hX = {1.0f, 0.5f, 2.0f, 1.0f, 3.0f, 1.5f, 4.0f, 2.0f};
+    // y = [3+2i, 1+0.5i, 2+1i, 1+3i]
+    std::vector<float> hY = {3.0f, 2.0f, 1.0f, 0.5f, 2.0f, 1.0f, 1.0f, 3.0f};
+    size_t inputBytes = static_cast<size_t>(n) * 2 * sizeof(float);
+    size_t outputBytes = 2 * sizeof(float);
+
+    // 3. 申请 Device 内存并拷贝数据
+    void *dX = nullptr, *dY = nullptr, *dResult = nullptr;
+    auto aclRet = aclrtMalloc(&dX, inputBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dX failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dXPtr(dX, aclrtFree);
+
+    aclRet = aclrtMalloc(&dY, inputBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dY failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dYPtr(dY, aclrtFree);
+
+    aclRet = aclrtMalloc(&dResult, outputBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dResult failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dResultPtr(dResult, aclrtFree);
+
+    aclRet = aclrtMemcpy(dX, inputBytes, hX.data(), inputBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dX failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(dY, inputBytes, hY.data(), inputBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dY failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 4. 调用 aclblasCdotu
+    blasRet = aclblasCdotu(
+        static_cast<aclblasHandle_t>(handlePtr.get()), n,
+        static_cast<uint8_t*>(dX), incx,
+        static_cast<uint8_t*>(dY), incy,
+        static_cast<uint8_t*>(dResult));
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasCdotu failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 5. 同步等待任务执行结束
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 6. 将结果从 Device 拷贝回 Host 并打印
+    float hResult[2] = {0.0f, 0.0f};
+    aclRet = aclrtMemcpy(hResult, outputBytes, dResult, outputBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy D2H result failed. ERROR: %d\n", aclRet); return aclRet);
+    LOG_PRINT("cdotu result = %.4f + %.4fi\n", static_cast<double>(hResult[0]), static_cast<double>(hResult[1]));
+
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, return ret);
+
+    ret = aclblasCdotuTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCdotuTest failed. ERROR: %d\n", ret); return ret);
+    return 0;
+}
+```
 
 ### aclblasCdotc
 
 #### 产品支持情况
 
 - Ascend 950PR / Ascend 950DT：不支持
-- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
 - Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
 
 #### 函数原型
 
 ```cpp
-int aclblasCdotc(const float *x, const float *y, float *result, const int64_t n, void *stream)
+aclblasStatus_t aclblasCdotc(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy, uint8_t* result);
 ```
 
 #### 参数说明
 
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
-| x | 输入 | const float*（FP32） | 复数向量，包含 2*n 个 float 元素（实部和虚部交替存储），Device 内存 |
-| y | 输入 | const float*（FP32） | 复数向量，包含 2*n 个 float 元素（实部和虚部交替存储），Device 内存 |
-| result | 输出 | float*（FP32） | 复数结果，包含 2 个 float 元素（实部和虚部），Device 内存 |
-| n | 输入 | int64_t | 复数向量的元素个数，Host 内存 |
-| stream | 输入 | void* | ACL stream，Host 内存 |
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，内部携带 stream 和 workspace，Host 内存 |
+| n | 输入 | int64_t | 复数向量元素个数，n >= 0，Host 内存 |
+| x | 输入 | uint8_t*（复数 FP32） | 复数向量，实部与虚部交替存储，包含 2*n 个 float 元素，Device 内存 |
+| incx | 输入 | int64_t | 向量 x 的步长（复数元素单位），当前仅支持 incx = 1，Host 内存 |
+| y | 输入 | uint8_t*（复数 FP32） | 复数向量，实部与虚部交替存储，包含 2*n 个 float 元素，Device 内存 |
+| incy | 输入 | int64_t | 向量 y 的步长（复数元素单位），当前仅支持 incy = 1，Host 内存 |
+| result | 输出 | uint8_t*（复数 FP32） | 复数点积结果，包含 2 个 float 元素（实部和虚部），Device 内存 |
 
 #### 约束说明
 
-- n >= 0
+- n >= 0；n == 0 时直接返回成功，result 置 0
+- incx != 0，incy != 0
+- 当前实现仅支持 incx = 1 且 incy = 1，非单位步长尚未支持
+- n > 0 时，x、y、result 不能为 nullptr
+
+
+#### 调用示例
+
+调用方式与 aclblasCdotu 一致，仅需将调用 `aclblasCdotu` 替换为 `aclblasCdotc`。Cdotc 对 x 向量取共轭后再做点积。完整 RAII 框架代码请参考上方 aclblasCdotu 的调用示例。

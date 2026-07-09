@@ -23,8 +23,8 @@
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
 
-void cdot_kernel_do(uint8_t* x, uint8_t* y, uint8_t* result, uint8_t* workSpace, uint8_t* tilingGm,
-                    uint32_t numBlocks, void *stream);
+void cdot_kernel_do(
+    uint8_t* x, uint8_t* y, uint8_t* result, uint8_t* workSpace, uint8_t* tilingGm, uint32_t numBlocks, void* stream);
 
 constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
 constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
@@ -89,88 +89,78 @@ CdotTilingData CalCdotTilingData(uint32_t n, uint32_t vecCoreNum, uint32_t isCon
     return tilingData;
 }
 
+static aclblasStatus_t LaunchCdot(
+    bool isConj, _aclblas_handle* h, const int64_t n, uint8_t* x, uint8_t* y, uint8_t* result)
+{
+    aclrtStream useStream = h->stream;
+
+    uint32_t numBlocks = 8;
+    size_t workspaceBytes = 1024;
+    size_t tilingBytes = sizeof(CdotTilingData);
+
+    CHECK_RET(
+        workspaceBytes + tilingBytes <= GetEffectiveWorkspaceSize(h),
+        LOG_PRINT("workspace need %zu, available %zu\n", workspaceBytes + tilingBytes, GetEffectiveWorkspaceSize(h));
+        return ACLBLAS_STATUS_EXECUTION_FAILED);
+
+    uint8_t* workspaceDevice = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
+    uint8_t* tilingDevice = workspaceDevice + workspaceBytes;
+
+    CdotTilingData tiling = CalCdotTilingData(static_cast<uint32_t>(n * 2), numBlocks, isConj ? IS_CONJ : IS_NOT_CONJ);
+
+    aclError aclRet = aclrtMemcpy(tilingDevice, tilingBytes, &tiling, tilingBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(
+        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet);
+        return ACLBLAS_STATUS_INTERNAL_ERROR);
+
+    cdot_kernel_do(x, y, result, workspaceDevice, tilingDevice, numBlocks, useStream);
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
 aclblasStatus_t aclblasCdotu(
     aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
     uint8_t* result)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    aclrtStream useStream = h->stream;
-
-    uint32_t numBlocks = 8;
-    size_t workspaceSize = 1024;
-
-    CdotTilingData tiling = CalCdotTilingData(static_cast<uint32_t>(n * 2), numBlocks, IS_NOT_CONJ);
-
-    uint8_t* workspaceDevice = nullptr;
-    uint8_t* tilingDevice = nullptr;
-
-    aclError aclRet = aclrtMalloc((void**)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(CdotTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(CdotTilingData), &tiling, sizeof(CdotTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
-        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    cdot_kernel_do(x, y, result, workspaceDevice, tilingDevice, numBlocks, useStream);
-    aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
-        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    aclrtFree(workspaceDevice);
-    aclrtFree(tilingDevice);
-
-    return ACLBLAS_STATUS_SUCCESS;
+    if (handle == nullptr) {
+        return ACLBLAS_STATUS_NOT_INITIALIZED;
+    }
+    if (result == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (n <= 0) {
+        float zeros[2] = {0.0f, 0.0f};
+        aclError memRet = aclrtMemcpy(result, 2 * sizeof(float), zeros, 2 * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+        return (memRet == ACL_SUCCESS) ? ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
+    if (incx != 1 || incy != 1) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (x == nullptr || y == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    return LaunchCdot(false, reinterpret_cast<_aclblas_handle*>(handle), n, x, y, result);
 }
 
 aclblasStatus_t aclblasCdotc(
     aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
     uint8_t* result)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-    aclrtStream useStream = h->stream;
-
-    uint32_t numBlocks = 8;
-    size_t workspaceSize = 1024;
-
-    CdotTilingData tiling = CalCdotTilingData(static_cast<uint32_t>(n * 2), numBlocks, IS_CONJ);
-
-    uint8_t* workspaceDevice = nullptr;
-    uint8_t* tilingDevice = nullptr;
-
-    aclError aclRet = aclrtMalloc((void**)&workspaceDevice, workspaceSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(CdotTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(workspaceDevice);
-        return ACLBLAS_STATUS_ALLOC_FAILED);
-
-    aclRet =
-        aclrtMemcpy(tilingDevice, sizeof(CdotTilingData), &tiling, sizeof(CdotTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
-        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    cdot_kernel_do(x, y, result, workspaceDevice, tilingDevice, numBlocks, useStream);
-    aclRet = aclrtSynchronizeStream(useStream);
-    CHECK_RET(
-        aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
-        aclrtFree(workspaceDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
-
-    aclrtFree(workspaceDevice);
-    aclrtFree(tilingDevice);
-
-    return ACLBLAS_STATUS_SUCCESS;
+    if (handle == nullptr) {
+        return ACLBLAS_STATUS_NOT_INITIALIZED;
+    }
+    if (result == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (n <= 0) {
+        float zeros[2] = {0.0f, 0.0f};
+        aclError memRet = aclrtMemcpy(result, 2 * sizeof(float), zeros, 2 * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+        return (memRet == ACL_SUCCESS) ? ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
+    if (incx != 1 || incy != 1) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (x == nullptr || y == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    return LaunchCdot(true, reinterpret_cast<_aclblas_handle*>(handle), n, x, y, result);
 }
