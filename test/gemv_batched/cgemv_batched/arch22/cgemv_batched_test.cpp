@@ -123,7 +123,7 @@ int main()
     blasRet = aclblasSetStream(handle, stream);
     CHECK_RET(
         blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet);
-        aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return blasRet);
+        aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize(); return blasRet);
 
     const int64_t batchCount = 3;
     const int64_t m = 32;
@@ -184,55 +184,55 @@ int main()
     ret = aclrtMalloc((void**)&aDevice, aByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtMalloc aDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice);
-        aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+        aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize(); return ret);
     ret = aclrtMalloc((void**)&xDevice, xByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtMalloc xDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice);
-        aclrtFree(xDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize(); return ret);
+        aclrtFree(xDevice); aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize(); return ret);
     ret = aclrtMalloc((void**)&yDevice, yByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtMalloc yDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice);
-        aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize();
+        aclrtFree(xDevice); aclrtFree(yDevice); aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize();
         return ret);
     ret = aclrtMemcpy(aDevice, aByteSize, AHost.data(), aByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy aDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice);
-        aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize();
+        aclrtFree(xDevice); aclrtFree(yDevice); aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize();
         return ret);
     ret = aclrtMemcpy(xDevice, xByteSize, xHost.data(), xByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice);
-        aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize();
+        aclrtFree(xDevice); aclrtFree(yDevice); aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize();
         return ret);
     ret = aclrtMemcpy(yDevice, yByteSize, yHost.data(), yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", ret); aclrtFree(aDevice);
-        aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize();
+        aclrtFree(xDevice); aclrtFree(yDevice); aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize();
         return ret);
 
     blasRet =
         aclblasCgemvBatched(handle, trans, m, n, alpha, aDevice, lda, xDevice, incx, beta, yDevice, incy, batchCount);
     CHECK_RET(
         blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemvBatched failed. ERROR: %d\n", blasRet);
-        aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle);
+        aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclblasDestroy(handle); aclrtDestroyStream(stream);
         aclFinalize(); return blasRet);
 
     ret = aclrtSynchronizeStream(stream);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", ret); aclrtFree(aDevice);
-        aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize();
+        aclrtFree(xDevice); aclrtFree(yDevice); aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize();
         return ret);
     ret = aclrtMemcpy(yHost.data(), yByteSize, yDevice, yByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
     CHECK_RET(
         ret == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yHost failed. ERROR: %d\n", ret); aclrtFree(aDevice);
-        aclrtFree(xDevice); aclrtFree(yDevice); aclrtDestroyStream(stream); aclblasDestroy(handle); aclFinalize();
+        aclrtFree(xDevice); aclrtFree(yDevice); aclblasDestroy(handle); aclrtDestroyStream(stream); aclFinalize();
         return ret);
 
     aclrtFree(aDevice);
     aclrtFree(xDevice);
     aclrtFree(yDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclFinalize();
 
     return VerifyResult(yHost, yGolden);
