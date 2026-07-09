@@ -10,52 +10,54 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-# 收集当前目录下的基础源文件
-file(GLOB BASE_SRC_FILES ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
+# Collect every blasLt source, then classify by role so the parent scope can assign compile
+# languages without maintaining a per-file whitelist:
+#   *_kernel.cpp            -> ASC (device kernels)
+#   api / internal / engine / *_host.cpp -> CXX (pure host code)
+# Architecture-specific operator code lives under <op>/<variant>/<archXX>/; only the arch dirs
+# matching the current SOC (SOC_ARCH_DIRS) are compiled.
+file(GLOB_RECURSE BLASLT_ALL_SRCS ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp)
 
-# 自动收集所有算子目录的源文件（支持子目录中的架构特定目录）
-set(OP_SRC_FILES "")
-file(GLOB children RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/*)
-foreach(child ${children})
-    if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${child})
-        # 递归收集非架构特定源码，避免与 archXX 目录重复收集
-        file(GLOB_RECURSE dir_srcs ${CMAKE_CURRENT_SOURCE_DIR}/${child}/*.cpp)
-        foreach(src_file ${dir_srcs})
-            set(is_arch_specific FALSE)
-            foreach(arch_dir ${ARCH_SPECIFIC_DIRS})
-                if(src_file MATCHES "/${arch_dir}/")
-                    set(is_arch_specific TRUE)
-                    break()
-                endif()
-            endforeach()
-            if(NOT is_arch_specific)
-                list(APPEND OP_SRC_FILES ${src_file})
-            endif()
-        endforeach()
+set(BLASLT_HOST_SRCS "")
+set(BLASLT_KERNEL_SRCS "")
+
+foreach(src_file ${BLASLT_ALL_SRCS})
+    # Skip sources under an architecture directory that does not match the current SOC.
+    set(is_arch_specific FALSE)
+    foreach(arch_dir ${ARCH_SPECIFIC_DIRS})
+        if(src_file MATCHES "/${arch_dir}/")
+            set(is_arch_specific TRUE)
+        endif()
+    endforeach()
+    set(arch_selected FALSE)
+    foreach(arch_dir ${SOC_ARCH_DIRS})
+        if(src_file MATCHES "/${arch_dir}/")
+            set(arch_selected TRUE)
+        endif()
+    endforeach()
+
+    if(is_arch_specific AND NOT arch_selected)
+        # architecture directory for another SOC: do not compile it here
+    elseif(src_file MATCHES "_kernel\\.cpp$")
+        list(APPEND BLASLT_KERNEL_SRCS ${src_file})
+    else()
+        list(APPEND BLASLT_HOST_SRCS ${src_file})
     endif()
 endforeach()
 
-# 收集子目录中的架构特定源文件
-set(ARCH_SRC_FILES "")
-foreach(arch_dir ${SOC_ARCH_DIRS})
-    file(GLOB_RECURSE arch_dir_srcs
-        ${CMAKE_CURRENT_SOURCE_DIR}/*/${arch_dir}/*.cpp
-    )
-    list(APPEND ARCH_SRC_FILES ${arch_dir_srcs})
-endforeach()
-
-# MXFP8 需要 asc-devkit >= 9.1（ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR > 0）
+# MXFP8/MXFP4 require asc-devkit >= 9.1 (ENABLE_BLASLT_MXFP8). Exclude the whole precision subtrees
+# rather than filtering individual files.
 if(NOT ENABLE_BLASLT_MXFP8)
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/matmul_mxfp8/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/matmul_mxfp4/")
+    list(FILTER BLASLT_HOST_SRCS EXCLUDE REGEX "/mxfp8/")
+    list(FILTER BLASLT_HOST_SRCS EXCLUDE REGEX "/mxfp4/")
+    list(FILTER BLASLT_KERNEL_SRCS EXCLUDE REGEX "/mxfp8/")
+    list(FILTER BLASLT_KERNEL_SRCS EXCLUDE REGEX "/mxfp4/")
     message(
         STATUS
         "Skipping blasLt MXFP8/MXFP4 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
 
-set(ALL_BLASLT_SRC_FILES
-    ${BASE_SRC_FILES}
-    ${OP_SRC_FILES}
-    ${ARCH_SRC_FILES}
-    PARENT_SCOPE
-)
+# Exported to the parent scope; the top-level CMakeLists assigns LANGUAGE per list.
+set(ALL_BLASLT_SRC_FILES ${BLASLT_HOST_SRCS} ${BLASLT_KERNEL_SRCS} PARENT_SCOPE)
+set(ALL_BLASLT_HOST_SRC_FILES ${BLASLT_HOST_SRCS} PARENT_SCOPE)
+set(ALL_BLASLT_KERNEL_SRC_FILES ${BLASLT_KERNEL_SRCS} PARENT_SCOPE)

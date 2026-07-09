@@ -201,6 +201,58 @@ typedef enum aclblasLtMatmulPreferenceAttribute {
   ACLBLASLT_MATMUL_PREF_MAX = 2
 } aclblasLtMatmulPreferenceAttribute_t;
 
+/*! \ingroup types_module
+ *  \brief Matmul algorithm L1 tile shapes (M x N).
+ *
+ *  Only M x N combinations present in the internal tile candidate list are
+ *  exported. K dimension is not encoded (see PackedAlgo layout limitation).
+ */
+typedef enum aclblasLtMatmulTile {
+    ACLBLASLT_MATMUL_TILE_UNDEFINED = 0, /**< Undefined / determined by heuristic. */
+    ACLBLASLT_MATMUL_TILE_128x128 = 1,   /**< 128 x 128 (l1mDiv16=8,  l1nDiv16=8).  */
+    ACLBLASLT_MATMUL_TILE_128x256 = 2,   /**< 128 x 256 (l1mDiv16=8,  l1nDiv16=16). */
+    ACLBLASLT_MATMUL_TILE_256x128 = 3,   /**< 256 x 128 (l1mDiv16=16, l1nDiv16=8).  */
+    ACLBLASLT_MATMUL_TILE_256x256 = 4,   /**< 256 x 256 (l1mDiv16=16, l1nDiv16=16). */
+} aclblasLtMatmulTile_t;
+
+/*! \ingroup types_module
+ *  \brief Matmul pipeline stages (buffer depth).
+ */
+typedef enum aclblasLtMatmulStages {
+    ACLBLASLT_MATMUL_STAGES_UNDEFINED = 0, /**< Auto-select. */
+    ACLBLASLT_MATMUL_STAGES_1 = 1,          /**< Single buffer. */
+    ACLBLASLT_MATMUL_STAGES_2 = 2,          /**< Double buffer. */
+    ACLBLASLT_MATMUL_STAGES_3 = 3,          /**< Three-stage pipeline. */
+    ACLBLASLT_MATMUL_STAGES_4 = 4,          /**< Four-stage pipeline. */
+} aclblasLtMatmulStages_t;
+
+/*! \ingroup types_module
+ *  \brief SplitK reduction schemes.
+ */
+typedef enum aclblasLtReductionScheme {
+    ACLBLASLT_REDUCTION_SCHEME_NONE = 0,      /**< No reduction (splitK=1). */
+    ACLBLASLT_REDUCTION_SCHEME_INPLACE = 1,    /**< In-place reduction (reserved). */
+    ACLBLASLT_REDUCTION_SCHEME_WORKSPACE = 2,  /**< Workspace-based reduction (reserved). */
+} aclblasLtReductionScheme_t;
+
+/*! \ingroup types_module
+ *  \brief Matmul algorithm configuration attributes.
+ *
+ *  Maps to fields of the internal PackedAlgo structure. Attributes marked
+ *  read-only or unsupported return ACLBLAS_STATUS_NOT_SUPPORTED from
+ *  SetAttribute / GetAttribute.
+ */
+typedef enum aclblasLtMatmulAlgoConfigAttributes {
+    ACLBLASLT_ALGO_CONFIG_ID = 0,            /**< Read-only. Algorithm index. Type: int32_t. */
+    ACLBLASLT_ALGO_CONFIG_TILE_ID = 1,       /**< L1 Tile M x N shape. Default UNDEFINED. Type: uint32_t. */
+    ACLBLASLT_ALGO_CONFIG_STAGES_ID = 2,     /**< Pipeline stages. Default UNDEFINED. Type: uint32_t. */
+    ACLBLASLT_ALGO_CONFIG_SPLITK_NUM = 3,    /**< K split count. Default 1. Type: uint32_t. */
+    ACLBLASLT_ALGO_CONFIG_REDUCTION_SCHEME = 4, /**< SplitK reduction scheme. Default NONE. Type: uint32_t. */
+    ACLBLASLT_ALGO_CONFIG_CUSTOM_OPTION = 5, /**< Dispatch policy. Type: uint32_t. */
+    ACLBLASLT_ALGO_CONFIG_INNER_SHAPE_ID = 6, /**< Inner MMA shape (not supported). Type: uint16_t. */
+    ACLBLASLT_ALGO_CONFIG_MAX,
+} aclblasLtMatmulAlgoConfigAttributes_t;
+
 /*! \ingroup library_module
  *  \brief Query aclBLASLt packed version number.
  */
@@ -381,6 +433,30 @@ aclblasStatus_t aclblasLtMatmulDescCreate(aclblasLtMatmulDesc_t* matmulDesc,
 aclblasStatus_t aclblasLtMatmulDescDestroy(const aclblasLtMatmulDesc_t matmulDesc);
 
 /*! \ingroup library_module
+ *  \brief Initialize a caller-allocated matmul descriptor capsule.
+ *
+ *  \details
+ *  This function initializes a matrix multiply descriptor that the caller has
+ *  already allocated (e.g. on the stack). Unlike aclblasLtMatmulDescCreate(),
+ *  this function does not allocate heap memory and the resulting capsule must
+ *  NOT be passed to aclblasLtMatmulDescDestroy().
+ *
+ *  @param[out]
+ *  matmulDesc Pointer to the caller-allocated capsule to initialize.
+ *  @param[in]
+ *  computeType Enumerant that specifies the compute precision.
+ *  @param[in]
+ *  scaleType Enumerant that specifies the scale data type.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If initialization was successful.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p matmulDesc is NULL.
+ *  \retval ACLBLAS_STATUS_INTERNAL_ERROR If an internal copy fails.
+ */
+aclblasStatus_t aclblasLtMatmulDescInit(aclblasLtMatmulDesc_t matmulDesc,
+                                        aclblasComputeType_t computeType,
+                                        aclDataType scaleType);
+
+/*! \ingroup library_module
  *  \brief Set attribute to a matrix multiply descriptor.
  *
  *  \details
@@ -539,6 +615,147 @@ aclblasStatus_t aclblasLtMatmulPreferenceGetAttribute(aclblasLtMatmulPreference_
                                                       size_t* sizeWritten);
 
 // Heuristic
+/*! \ingroup library_module
+ *  \brief Initialize a matmul algorithm structure for a given algorithm ID.
+ *
+ *  \details
+ *  This function initializes an aclblasLtMatmulAlgo_t structure according to
+ *  the supplied algorithm ID and data type combination. An algoId of 0 requests
+ *  the default configuration.
+ *
+ *  @param[in]
+ *  lightHandle Pointer to the allocated aclBLASLt handle.
+ *  @param[in]
+ *  computeType Compute precision. See aclblasComputeType_t.
+ *  @param[in]
+ *  scaleType Scale data type. See aclDataType.
+ *  @param[in]
+ *  Atype,Btype,Ctype,Dtype Data types of matrices A, B, C, D.
+ *  @param[in]
+ *  algoId Algorithm ID. 0 selects the default; non-zero must be a valid
+ *  encoded ID.
+ *  @param[out]
+ *  algo Pointer to the algorithm structure to initialize.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If initialization was successful.
+ *  \retval ACLBLAS_STATUS_NOT_INITIALIZED If \p lightHandle is NULL.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p algo is NULL, \p algoId is
+ *  negative, or a non-zero algoId cannot be decoded.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If the data type combination is
+ *  unsupported.
+ */
+aclblasStatus_t aclblasLtMatmulAlgoInit(aclblasLtHandle_t lightHandle,
+                                        aclblasComputeType_t computeType,
+                                        aclDataType scaleType,
+                                        aclDataType Atype,
+                                        aclDataType Btype,
+                                        aclDataType Ctype,
+                                        aclDataType Dtype,
+                                        int algoId,
+                                        aclblasLtMatmulAlgo_t* algo);
+
+/*! \ingroup library_module
+ *  \brief Set a configuration attribute on a matmul algorithm.
+ *
+ *  \details
+ *  This function sets the value of the specified configuration attribute
+ *  belonging to a previously initialized aclblasLtMatmulAlgo_t structure.
+ *
+ *  @param[in]
+ *  algo Pointer to the algorithm structure to modify.
+ *  @param[in]
+ *  attr The attribute to set. See aclblasLtMatmulAlgoConfigAttributes_t.
+ *  @param[in]
+ *  buf Source buffer holding the attribute value.
+ *  @param[in]
+ *  sizeInBytes Size of \p buf in bytes.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If the attribute was set successfully.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If a pointer is NULL, size mismatches,
+ *  value is out of range, or the algo magic is invalid.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If the attribute is read-only or
+ *  unsupported.
+ */
+aclblasStatus_t aclblasLtMatmulAlgoConfigSetAttribute(aclblasLtMatmulAlgo_t* algo,
+                                                      aclblasLtMatmulAlgoConfigAttributes_t attr,
+                                                      const void* buf,
+                                                      size_t sizeInBytes);
+
+/*! \ingroup library_module
+ *  \brief Query a configuration attribute from a matmul algorithm.
+ *
+ *  \details
+ *  This function retrieves the value of the specified configuration attribute
+ *  from an aclblasLtMatmulAlgo_t structure. When \p sizeInBytes is 0, the
+ *  required buffer size is returned via \p sizeWritten and \p buf is not
+ *  written.
+ *
+ *  @param[in]
+ *  algo Pointer to the algorithm structure to query.
+ *  @param[in]
+ *  attr The attribute to query. See aclblasLtMatmulAlgoConfigAttributes_t.
+ *  @param[out]
+ *  buf Output buffer for the attribute value. May be NULL when sizeInBytes is 0.
+ *  @param[in]
+ *  sizeInBytes Size of \p buf in bytes.
+ *  @param[out]
+ *  sizeWritten Number of bytes written (or required). May be NULL.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If the attribute was retrieved successfully.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If a pointer is NULL, buffer is too
+ *  small, or the algo magic is invalid.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If the attribute is unsupported.
+ */
+aclblasStatus_t aclblasLtMatmulAlgoConfigGetAttribute(const aclblasLtMatmulAlgo_t* algo,
+                                                      aclblasLtMatmulAlgoConfigAttributes_t attr,
+                                                      void* buf,
+                                                      size_t sizeInBytes,
+                                                      size_t* sizeWritten);
+
+/*! \ingroup library_module
+ *  \brief Retrieve the supported algorithm IDs for a matmul configuration.
+ *
+ *  \details
+ *  This function returns the set of algorithm IDs supported by aclBLASLt for
+ *  the given compute and data type combination. Each returned ID is a valid
+ *  input to aclblasLtMatmulAlgoInit(). The IDs are returned in ascending
+ *  order. If \p algoIdsArrayLength is smaller than the number of available
+ *  IDs, only the first \p algoIdsArrayLength IDs are written, and
+ *  \p numAlgoIds reports how many were written.
+ *
+ *  @param[in]
+ *  lightHandle Pointer to the allocated aclBLASLt handle. See \ref aclblasLtHandle_t.
+ *  @param[in]
+ *  computeType Compute precision. See \ref aclblasComputeType_t.
+ *  @param[in]
+ *  scaleType Scale data type. See \ref aclDataType.
+ *  @param[in]
+ *  Atype,Btype,Ctype,Dtype Data types of the A, B, C, and D matrices.
+ *  @param[out]
+ *  algoIdsArray Output array receiving the supported algorithm IDs.
+ *  @param[in]
+ *  algoIdsArrayLength Capacity of \p algoIdsArray (in elements).
+ *  @param[out]
+ *  numAlgoIds Number of algorithm IDs written into \p algoIdsArray.
+ *
+ *  \retval ACLBLAS_STATUS_SUCCESS If the query was successful.
+ *  \retval ACLBLAS_STATUS_NOT_INITIALIZED If \p lightHandle is NULL.
+ *  \retval ACLBLAS_STATUS_INVALID_VALUE If \p algoIdsArray or \p numAlgoIds is
+ *  NULL, or \p algoIdsArrayLength is less than or equal to zero.
+ *  \retval ACLBLAS_STATUS_NOT_SUPPORTED If the data type combination is
+ *  unsupported.
+ */
+aclblasStatus_t aclblasLtMatmulAlgoGetIds(aclblasLtHandle_t lightHandle,
+                                          aclblasComputeType_t computeType,
+                                          aclDataType scaleType,
+                                          aclDataType Atype,
+                                          aclDataType Btype,
+                                          aclDataType Ctype,
+                                          aclDataType Dtype,
+                                          int* algoIdsArray,
+                                          int algoIdsArrayLength,
+                                          int* numAlgoIds);
+
 /*! \ingroup library_module
  *  \brief Retrieve the possible algorithms.
  *

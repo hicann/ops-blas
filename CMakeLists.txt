@@ -86,9 +86,16 @@ set_source_files_properties(
     PROPERTIES LANGUAGE ASC
 )
 
+# Device kernels compile with the ASC frontend; all host code (api / internal / engine / *_host.cpp)
+# compiles as plain C++. The classification is produced by blasLt/CMakeLists.txt, so no per-file
+# language whitelist is maintained here.
 set_source_files_properties(
-    ${ALL_BLASLT_SRC_FILES}
+    ${ALL_BLASLT_KERNEL_SRC_FILES}
     PROPERTIES LANGUAGE ASC
+)
+set_source_files_properties(
+    ${ALL_BLASLT_HOST_SRC_FILES}
+    PROPERTIES LANGUAGE CXX
 )
 
 set(_OPS_BLAS_ASC_ROOT "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/asc")
@@ -113,22 +120,21 @@ if(EXISTS "${_OPS_BLAS_ASC_ROOT}/include")
   )
 endif()
 
+# Private include roots for the refactored blasLt layout. internal/ headers are never installed;
+# each operator's arch dir exposes its co-located host/kernel/tiling headers.
 target_include_directories(${OPS_BLASLT} PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include/kernel
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/include/host
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/utils
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/internal/include
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/common/helper
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/engine
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/common
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/fp32/arch35
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/mxfp8/arch35
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/mxfp4/arch35
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/epilogue/arch35
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matrix_transform/engine
+    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matrix_transform/arch35
 )
 
-if(ENABLE_BLASLT_MXFP8)
-  set_source_files_properties(
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul_mxfp8/arch35/matmul_mxfp8_host.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul_mxfp4/arch35/matmul_mxfp4_host.cpp
-    PROPERTIES LANGUAGE CXX)
-endif()
-set_source_files_properties(
-  ${CMAKE_CURRENT_LIST_DIR}/blasLt/epilogue/arch35/epilogue_alpha_beta_host.cpp
-  PROPERTIES LANGUAGE CXX)
 target_compile_definitions(${OPS_BLASLT} PRIVATE
   ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}
   ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR})

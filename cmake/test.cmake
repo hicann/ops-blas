@@ -69,11 +69,16 @@ function(_ops_blas_has_blaslt_op_sources test_name out_var)
         if(NOT IS_DIRECTORY ${CMAKE_SOURCE_DIR}/blasLt/${child})
             continue()
         endif()
-        if(child STREQUAL "include" OR child STREQUAL "utils")
+        if(child STREQUAL "include" OR child STREQUAL "utils" OR child STREQUAL "internal" OR
+           child STREQUAL "api" OR child STREQUAL "common")
             continue()
         endif()
+        # Match the operator family ignoring underscores so directory names like "matrix_transform"
+        # still match the test suffix "matrixtransform".
         string(TOLOWER "${child}" _child_lower)
-        if(NOT _child_lower MATCHES "${_op_suffix_lower}")
+        string(REPLACE "_" "" _child_norm "${_child_lower}")
+        string(REPLACE "_" "" _op_suffix_norm "${_op_suffix_lower}")
+        if(NOT _child_norm MATCHES "${_op_suffix_norm}")
             continue()
         endif()
 

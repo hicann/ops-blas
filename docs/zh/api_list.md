@@ -433,6 +433,22 @@ aclblasStatus_t aclblasLtMatmulDescDestroy(const aclblasLtMatmulDesc_t matmulDes
 | `ACLBLAS_STATUS_SUCCESS` | 销毁成功。 |
 | `ACLBLAS_STATUS_INVALID_VALUE` | `matmulDesc` 为空指针。 |
 
+#### aclblasLtMatmulDescInit()
+
+```cpp
+aclblasStatus_t aclblasLtMatmulDescInit(aclblasLtMatmulDesc_t matmulDesc,
+                                        aclblasComputeType_t computeType,
+                                        aclDataType scaleType);
+```
+
+初始化调用方预分配的矩阵乘法描述符胶囊（如栈上分配），不分配堆内存。与 `aclblasLtMatmulDescCreate` 的区别：Create 在堆上分配胶囊并返回指针，Init 仅写入已分配的胶囊。通过 Init 初始化的栈胶囊**禁止**传给 `aclblasLtMatmulDescDestroy`（后者会 `delete`）。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 初始化成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `matmulDesc` 为空指针。 |
+| `ACLBLAS_STATUS_INTERNAL_ERROR` | 内部拷贝失败。 |
+
 #### aclblasLtMatmulDescSetAttribute()
 
 ```cpp
@@ -529,6 +545,88 @@ aclblasStatus_t aclblasLtMatmulPreferenceGetAttribute(aclblasLtMatmulPreference_
 | `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
 | `ACLBLAS_STATUS_INVALID_VALUE` | `pref` 或 `buf` 为空，或缓冲区过小。 |
 | `ACLBLAS_STATUS_NOT_SUPPORTED` | `attr` 不是已识别的属性。 |
+
+#### aclblasLtMatmulAlgoInit()
+
+```cpp
+aclblasStatus_t aclblasLtMatmulAlgoInit(aclblasLtHandle_t lightHandle,
+                                        aclblasComputeType_t computeType,
+                                        aclDataType scaleType,
+                                        aclDataType Atype,
+                                        aclDataType Btype,
+                                        aclDataType Ctype,
+                                        aclDataType Dtype,
+                                        int algoId,
+                                        aclblasLtMatmulAlgo_t* algo);
+```
+
+根据算法 ID 和数据类型组合初始化 `aclblasLtMatmulAlgo_t` 结构体。`algoId=0` 请求默认配置（编码后为 `0x00808201`）；非 0 值须为合法编码 ID，否则返回 `INVALID_VALUE`。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 初始化成功。 |
+| `ACLBLAS_STATUS_NOT_INITIALIZED` | `lightHandle` 为空指针。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `algo` 为空、`algoId` 为负数或非零 `algoId` 无法解码。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | 数据类型组合不支持。 |
+
+#### aclblasLtMatmulAlgoConfigSetAttribute()
+
+```cpp
+aclblasStatus_t aclblasLtMatmulAlgoConfigSetAttribute(aclblasLtMatmulAlgo_t* algo,
+                                                      aclblasLtMatmulAlgoConfigAttributes_t attr,
+                                                      const void* buf,
+                                                      size_t sizeInBytes);
+```
+
+设置算法描述符的配置属性。属性到内部字段的映射详见 `aclblasLtMatmulAlgoConfigAttributes_t`。每次 Set 后自动重算 `algoId`，其中 l1k 取自 algo 内部 flags 高位编码的 K 维 tile（由 Heuristic/AlgoInit 设置，默认 128），不会因修改其他属性而被重置。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 属性设置成功。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | 指针为空、`sizeInBytes` 不匹配、值超范围、tileId 非法或 magic 校验失败。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | 属性为只读（`ALGO_CONFIG_ID`）、不支持（`INNER_SHAPE_ID`）或未识别。 |
+
+#### aclblasLtMatmulAlgoConfigGetAttribute()
+
+```cpp
+aclblasStatus_t aclblasLtMatmulAlgoConfigGetAttribute(const aclblasLtMatmulAlgo_t* algo,
+                                                      aclblasLtMatmulAlgoConfigAttributes_t attr,
+                                                      void* buf,
+                                                      size_t sizeInBytes,
+                                                      size_t* sizeWritten);
+```
+
+查询算法描述符的配置属性。当 `sizeInBytes=0` 时，仅通过 `sizeWritten` 返回所需字节数，不写 `buf`（对齐 cuBLAS 探长语义）。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功（含 `sizeInBytes=0` 探长）。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | 指针为空、缓冲区过小或 magic 校验失败。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | 属性未识别或不支持。 |
+
+#### aclblasLtMatmulAlgoGetIds()
+
+```cpp
+aclblasStatus_t aclblasLtMatmulAlgoGetIds(aclblasLtHandle_t lightHandle,
+                                          aclblasComputeType_t computeType,
+                                          aclDataType scaleType,
+                                          aclDataType Atype,
+                                          aclDataType Btype,
+                                          aclDataType Ctype,
+                                          aclDataType Dtype,
+                                          int* algoIdsArray,
+                                          int algoIdsArrayLength,
+                                          int* numAlgoIds);
+```
+
+查询指定计算类型与数据类型组合下 aclBLASLt 支持的全部算法 ID 集合，每个 ID 均可作为 `aclblasLtMatmulAlgoInit` 的合法 `algoId` 输入。ID 按升序写入 `algoIdsArray`；当 `algoIdsArrayLength` 小于可用 ID 数量时，仅写入前 `algoIdsArrayLength` 个，实际写入数量通过 `numAlgoIds` 返回。
+
+| 返回值 | 含义 |
+|---|---|
+| `ACLBLAS_STATUS_SUCCESS` | 查询成功。 |
+| `ACLBLAS_STATUS_NOT_INITIALIZED` | `lightHandle` 为空指针。 |
+| `ACLBLAS_STATUS_INVALID_VALUE` | `algoIdsArray` 或 `numAlgoIds` 为空指针，或 `algoIdsArrayLength <= 0`。 |
+| `ACLBLAS_STATUS_NOT_SUPPORTED` | 数据类型组合不支持。 |
 
 #### aclblasLtMatmulAlgoGetHeuristic()
 
@@ -829,6 +927,54 @@ BLAS-like Extension 提供标准 BLAS Level 3 之外的扩展 GEMM 接口（以 
 |---|---|---|---|
 | `ACLBLASLT_MATMUL_PREF_SEARCH_MODE` (0) | 搜索模式：0=启发式，1=穷举，2=快速。 | `uint32_t` | 0 |
 | `ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES` (1) | 允许的最大 workspace 字节数。 | `uint64_t` | 0 |
+
+### aclblasLtMatmulTile_t
+
+矩阵乘法 L1 Tile 的 M×N 形状枚举。仅包含内部 tile 候选列表中实际存在的 M×N 组合；K 维度不编码（受 `PackedAlgo` 16 字节布局限制）。用于 `ACLBLASLT_ALGO_CONFIG_TILE_ID` 属性。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLASLT_MATMUL_TILE_UNDEFINED` (0) | 未定义，由 heuristic 决定。 |
+| `ACLBLASLT_MATMUL_TILE_128x128` (1) | 128×128（l1mDiv16=8, l1nDiv16=8）。 |
+| `ACLBLASLT_MATMUL_TILE_128x256` (2) | 128×256（l1mDiv16=8, l1nDiv16=16）。 |
+| `ACLBLASLT_MATMUL_TILE_256x128` (3) | 256×128（l1mDiv16=16, l1nDiv16=8）。 |
+| `ACLBLASLT_MATMUL_TILE_256x256` (4) | 256×256（l1mDiv16=16, l1nDiv16=16）。 |
+
+### aclblasLtMatmulStages_t
+
+矩阵乘法流水级数（buffer 深度）枚举。映射到 `PackedAlgo.numBuffers`。用于 `ACLBLASLT_ALGO_CONFIG_STAGES_ID` 属性。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLASLT_MATMUL_STAGES_UNDEFINED` (0) | 自动选择（Set 时为 no-op）。 |
+| `ACLBLASLT_MATMUL_STAGES_1` (1) | 单缓冲。 |
+| `ACLBLASLT_MATMUL_STAGES_2` (2) | 双缓冲。 |
+| `ACLBLASLT_MATMUL_STAGES_3` (3) | 三级流水。 |
+| `ACLBLASLT_MATMUL_STAGES_4` (4) | 四级流水。 |
+
+### aclblasLtReductionScheme_t
+
+SplitK 归约方案枚举。映射到 `PackedAlgo.flags` 低 2 位。用于 `ACLBLASLT_ALGO_CONFIG_REDUCTION_SCHEME` 属性。Phase 1 仅完成 flags 字段读写，matmul 计算路径尚未消费。
+
+| 取值 | 含义 |
+|---|---|
+| `ACLBLASLT_REDUCTION_SCHEME_NONE` (0) | 无归约（splitK=1）。 |
+| `ACLBLASLT_REDUCTION_SCHEME_INPLACE` (1) | 原地归约（预留）。 |
+| `ACLBLASLT_REDUCTION_SCHEME_WORKSPACE` (2) | 使用 workspace 归约（预留）。 |
+
+### aclblasLtMatmulAlgoConfigAttributes_t
+
+矩阵乘法算法配置属性枚举，用于 `aclblasLtMatmulAlgoConfigSetAttribute` / `aclblasLtMatmulAlgoConfigGetAttribute`。
+
+| 取值 | 含义 | 数据类型 | 默认值 |
+|---|---|---|---|
+| `ACLBLASLT_ALGO_CONFIG_ID` (0) | 只读。算法索引，由 AlgoInit / ConfigSet 维护。 | `int32_t` | `0x00808201` |
+| `ACLBLASLT_ALGO_CONFIG_TILE_ID` (1) | L1 Tile M×N 形状，见 `aclblasLtMatmulTile_t`。 | `uint32_t` | `UNDEFINED` |
+| `ACLBLASLT_ALGO_CONFIG_STAGES_ID` (2) | 流水级数，见 `aclblasLtMatmulStages_t`。 | `uint32_t` | `UNDEFINED` |
+| `ACLBLASLT_ALGO_CONFIG_SPLITK_NUM` (3) | K 维切分数，范围 [1, 255]。 | `uint32_t` | 1 |
+| `ACLBLASLT_ALGO_CONFIG_REDUCTION_SCHEME` (4) | SplitK 归约方案，见 `aclblasLtReductionScheme_t`。 | `uint32_t` | `NONE` |
+| `ACLBLASLT_ALGO_CONFIG_CUSTOM_OPTION` (5) | dispatch policy（0=sync, 1=pingpong, 2=multi_stage）。 | `uint32_t` | 0 |
+| `ACLBLASLT_ALGO_CONFIG_INNER_SHAPE_ID` (6) | 内部 MMA 形状（当前不支持，Set/Get 返回 `NOT_SUPPORTED`）。 | `uint16_t` | — |
 
 ## aclBLASLt Function Reference
 
