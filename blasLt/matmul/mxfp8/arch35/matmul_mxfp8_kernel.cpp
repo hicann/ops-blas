@@ -17,7 +17,7 @@
 
 #include <cstdint>
 
-#include "adv_api/matmul/matmul.h"
+#include "aux_get_c0_size.h"
 #include "integral_constant.h"
 #include "blaze/gemm/block/block_mmad_qbmm_mx.h"
 #include "blaze/gemm/block/block_scheduler_qbmm.h"
