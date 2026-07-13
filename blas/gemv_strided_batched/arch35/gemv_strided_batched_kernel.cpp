@@ -155,6 +155,9 @@ __aicore__ inline void GemvStridedBatchedAIV<T, TRANS_T, HSS_MODE>::InitUbuf()
 {
     this->maxMatEleNum = this->outTile * this->dotTile;
     this->maxVecEleNum = (this->dotTile < 64u) ? 64u : this->dotTile;
+    if (this->outTile > this->maxVecEleNum) {
+        this->maxVecEleNum = this->outTile;
+    }
 
     this->pipe->InitBuffer(this->inABuf,    this->szInA);
     this->pipe->InitBuffer(this->inxBuf,    this->szInx);
@@ -256,10 +259,17 @@ __aicore__ inline void GemvStridedBatchedAIV<T, TRANS_T, HSS_MODE>::CastleYHalfT
 {
     LocalTensor<T> inyLocal = inyBuf.Get<T>();
     uint32_t cnt = ((this->mCurr + (MTE_BLOCK_BYTES / sizeof(T) - 1)) & ~(MTE_BLOCK_BYTES / sizeof(T) - 1));
+    if (cnt > this->maxVecEleNum) {
+        cnt = this->maxVecEleNum;
+    }
     DataCopy(this->vecPreLocal, inyLocal, cnt);
     PipeBarrier<PIPE_V>();
     uint16_t castRepeatNum = (cnt - 1) / ELENUM_REPEAT_FP16 + 1;
-    Cast(this->yInFloatLocal, this->vecPreLocal, RoundMode::CAST_NONE, castRepeatNum * ELENUM_REPEAT_FP16);
+    uint32_t castCnt = castRepeatNum * ELENUM_REPEAT_FP16;
+    if (castCnt > this->maxVecEleNum) {
+        castCnt = this->maxVecEleNum;
+    }
+    Cast(this->yInFloatLocal, this->vecPreLocal, RoundMode::CAST_NONE, castCnt);
     PipeBarrier<PIPE_V>();
 }
 
@@ -277,7 +287,11 @@ __aicore__ inline void GemvStridedBatchedAIV<T, TRANS_T, HSS_MODE>::CastleHalfTo
     PipeBarrier<PIPE_V>();
     Cast(this->vecFloatLocal, this->vecPreLocal, RoundMode::CAST_NONE, this->dotTile);
     PipeBarrier<PIPE_V>();
-    Cast(this->matFloatLocal, this->matPreLocal, RoundMode::CAST_NONE, matCastRepeatNum * ELENUM_REPEAT_FP16);
+    uint32_t matCastCnt = matCastRepeatNum * ELENUM_REPEAT_FP16;
+    if (matCastCnt > this->maxMatEleNum) {
+        matCastCnt = this->maxMatEleNum;
+    }
+    Cast(this->matFloatLocal, this->matPreLocal, RoundMode::CAST_NONE, matCastCnt);
     PipeBarrier<PIPE_V>();
 }
 

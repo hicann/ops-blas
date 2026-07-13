@@ -84,7 +84,13 @@ aclblasStatus_t aclblasSgemvStridedBatched(aclblasHandle_t handle, aclblasOperat
 
 #### 调用示例
 
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](../../docs/zh/develop/compile_and_run_example.md)。
+示例代码如下。在项目根目录执行以下命令编译和运行aclblasSgemvStridedBatched算子示例：
+
+```bash
+bash build.sh --pkg --soc=${soc_version} --ops=gemv_strided_batched --run
+```
+
+具体编译和执行细节请参见[编译与运行示例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
 
 ```cpp
 #include <cstdio>
@@ -290,7 +296,171 @@ aclblasStatus_t aclblasHSHgemvStridedBatched(aclblasHandle_t handle, aclblasOper
 
 #### 调用示例
 
-调用方式与 aclblasSgemvStridedBatched 类似，仅需将 A、x、y 数据类型从 `float` 替换为 `uint16_t`（FP16），内存分配大小按 `sizeof(uint16_t)` 计算。完整 RAII 框架代码请参考上方 aclblasSgemvStridedBatched 的调用示例。
+调用方式与 aclblasSgemvStridedBatched 类似，仅将 A、x、y 数据类型从 `float` 替换为 `uint16_t`（FP16）。完整示例代码如下：
+
+```cpp
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+    ~AclContext()
+    {
+        if (stream_ != nullptr) { aclrtDestroyStream(stream_); stream_ = nullptr; }
+        if (deviceSet_) { aclrtResetDevice(deviceId_); deviceSet_ = false; }
+        if (aclInited_) { aclFinalize(); aclInited_ = false; }
+    }
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+    aclrtStream Stream() const { return stream_; }
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false, deviceSet_ = false;
+};
+
+static float fp16_to_float(uint16_t h)
+{
+    uint32_t sign = (uint32_t)(h & 0x8000) << 16;
+    uint32_t exp = (h >> 10) & 0x1F;
+    uint32_t mant = h & 0x3FF;
+    uint32_t bits;
+    if (exp == 0) {
+        bits = sign;
+    } else if (exp == 0x1F) {
+        bits = sign | 0x7F800000u | (mant << 13);
+    } else {
+        bits = sign | ((exp - 15 + 127) << 23) | (mant << 13);
+    }
+    float f;
+    memcpy(&f, &bits, 4);
+    return f;
+}
+
+int aclblasHSHgemvStridedBatchedTest(AclContext& ctx)
+{
+    // 1. 创建 ops-blas 句柄
+    aclrtStream stream = ctx.Stream();
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet); return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 2. 准备 Host 数据
+    int m = 8, n = 4, batchCount = 2;
+    LOG_PRINT("[INFO] m=%d, n=%d, batchCount=%d, trans=T\n", m, n, batchCount);
+    int lda = m, incx = 1, incy = 1;
+    int64_t strideA = static_cast<int64_t>(lda) * n;
+    int64_t stridex = m, stridey = n;
+    float alpha = 1.0f, beta = 0.0f;  // FP16 接口的 alpha/beta 仍为 FP32
+    LOG_PRINT("[INFO] alpha=%.1f, beta=%.1f, lda=%d, incx=%d, incy=%d\n", alpha, beta, lda, incx, incy);
+
+    size_t elemSize = sizeof(uint16_t);
+    size_t aBytes = static_cast<size_t>(batchCount) * strideA * elemSize;
+    size_t xBytes = static_cast<size_t>(batchCount) * stridex * elemSize;
+    size_t yBytes = static_cast<size_t>(batchCount) * stridey * elemSize;
+    if (batchCount == 0) {
+        LOG_PRINT("[INFO] batchCount=0, skip computation\n");
+        return ACL_SUCCESS;
+    }
+
+    // FP16 数据: 1.0f = 0x3C00, 2.0f = 0x4000
+    std::vector<uint16_t> hA(batchCount * strideA, 0x3C00);
+    std::vector<uint16_t> hX(batchCount * stridex, 0x4000);
+    std::vector<uint16_t> hY(batchCount * stridey, 0);
+
+    // 3. 申请 Device 内存并拷贝数据
+    void *dA = nullptr, *dx = nullptr, *dy = nullptr;
+    auto aclRet = aclrtMalloc(&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dA failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtr(dA, aclrtFree);
+    aclRet = aclrtMalloc(&dx, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dx failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dxPtr(dx, aclrtFree);
+    aclRet = aclrtMalloc(&dy, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dy failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dyPtr(dy, aclrtFree);
+
+    aclRet = aclrtMemcpy(dA, aBytes, hA.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dA failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(dx, xBytes, hX.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dx failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 4. 调用 aclblasHSHgemvStridedBatched
+    LOG_PRINT("[INFO] Calling aclblasHSHgemvStridedBatched...\n");
+    blasRet = aclblasHSHgemvStridedBatched(
+        static_cast<aclblasHandle_t>(handlePtr.get()),
+        ACLBLAS_OP_T, m, n, &alpha,
+        static_cast<const uint16_t*>(dA), lda, strideA,
+        static_cast<const uint16_t*>(dx), incx, stridex,
+        &beta,
+        static_cast<uint16_t*>(dy), incy, stridey,
+        batchCount);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasHSHgemvStridedBatched failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 5. 同步等待任务执行结束
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 6. 将结果从 Device 拷贝回 Host 并打印
+    std::vector<uint16_t> hYOut(batchCount * stridey);
+    aclRet = aclrtMemcpy(hYOut.data(), yBytes, dy, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy D2H dy failed. ERROR: %d\n", aclRet); return aclRet);
+
+    for (int b = 0; b < batchCount; b++) {
+        LOG_PRINT("Batch %d:", b);
+        for (int i = 0; i < n; i++) {
+            LOG_PRINT(" %.4f", static_cast<double>(fp16_to_float(hYOut[b * stridey + i * incy])));
+        }
+        LOG_PRINT("\n");
+    }
+    LOG_PRINT("[INFO] aclblasHSHgemvStridedBatched test PASSED\n");
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("AclContext Init failed. ERROR: %d\n", ret); return ret);
+    ret = aclblasHSHgemvStridedBatchedTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasHSHgemvStridedBatchedTest failed. ERROR: %d\n", ret); return ret);
+    return 0;
+}
+```
 
 ### aclblasHSSgemvStridedBatched
 
@@ -333,7 +503,151 @@ aclblasStatus_t aclblasHSSgemvStridedBatched(aclblasHandle_t handle, aclblasOper
 
 #### 调用示例
 
-调用方式与 aclblasSgemvStridedBatched 类似，A 和 x 使用 `uint16_t`（FP16），y 使用 `float`（FP32）。A/x 内存按 `sizeof(uint16_t)` 分配，y 内存按 `sizeof(float)` 分配。完整 RAII 框架代码请参考上方 aclblasSgemvStridedBatched 的调用示例。
+调用方式与 aclblasSgemvStridedBatched 类似，A 和 x 使用 `uint16_t`（FP16），y 使用 `float`（FP32）。完整示例代码如下：
+
+```cpp
+#include <cstdio>
+#include <memory>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+    ~AclContext()
+    {
+        if (stream_ != nullptr) { aclrtDestroyStream(stream_); stream_ = nullptr; }
+        if (deviceSet_) { aclrtResetDevice(deviceId_); deviceSet_ = false; }
+        if (aclInited_) { aclFinalize(); aclInited_ = false; }
+    }
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+    aclrtStream Stream() const { return stream_; }
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false, deviceSet_ = false;
+};
+
+int aclblasHSSgemvStridedBatchedTest(AclContext& ctx)
+{
+    // 1. 创建 ops-blas 句柄
+    aclrtStream stream = ctx.Stream();
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet); return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 2. 准备 Host 数据
+    int m = 8, n = 4, batchCount = 2;
+    LOG_PRINT("[INFO] m=%d, n=%d, batchCount=%d, trans=T\n", m, n, batchCount);
+    int lda = m, incx = 1, incy = 1;
+    int64_t strideA = static_cast<int64_t>(lda) * n;
+    int64_t stridex = m, stridey = n;
+    float alpha = 1.0f, beta = 0.0f;  // alpha/beta 为 FP32
+    LOG_PRINT("[INFO] alpha=%.1f, beta=%.1f, lda=%d, incx=%d, incy=%d\n", alpha, beta, lda, incx, incy);
+
+    size_t aBytes = static_cast<size_t>(batchCount) * strideA * sizeof(uint16_t);
+    size_t xBytes = static_cast<size_t>(batchCount) * stridex * sizeof(uint16_t);
+    size_t yBytes = static_cast<size_t>(batchCount) * stridey * sizeof(float);  // y: FP32
+    if (batchCount == 0) {
+        LOG_PRINT("[INFO] batchCount=0, skip computation\n");
+        return ACL_SUCCESS;
+    }
+
+    // FP16 数据: 1.0f = 0x3C00, 2.0f = 0x4000
+    std::vector<uint16_t> hA(batchCount * strideA, 0x3C00);
+    std::vector<uint16_t> hX(batchCount * stridex, 0x4000);
+    std::vector<float> hY(batchCount * stridey, 0.0f);
+
+    // 3. 申请 Device 内存并拷贝数据
+    void *dA = nullptr, *dx = nullptr, *dy = nullptr;
+    auto aclRet = aclrtMalloc(&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dA failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtr(dA, aclrtFree);
+    aclRet = aclrtMalloc(&dx, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dx failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dxPtr(dx, aclrtFree);
+    aclRet = aclrtMalloc(&dy, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dy failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dyPtr(dy, aclrtFree);
+
+    aclRet = aclrtMemcpy(dA, aBytes, hA.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dA failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(dx, xBytes, hX.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dx failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 4. 调用 aclblasHSSgemvStridedBatched
+    LOG_PRINT("[INFO] Calling aclblasHSSgemvStridedBatched...\n");
+    blasRet = aclblasHSSgemvStridedBatched(
+        static_cast<aclblasHandle_t>(handlePtr.get()),
+        ACLBLAS_OP_T, m, n, &alpha,
+        static_cast<const uint16_t*>(dA), lda, strideA,
+        static_cast<const uint16_t*>(dx), incx, stridex,
+        &beta,
+        static_cast<float*>(dy), incy, stridey,
+        batchCount);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasHSSgemvStridedBatched failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 5. 同步等待任务执行结束
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 6. 将结果从 Device 拷贝回 Host 并打印（y 为 FP32，直接打印）
+    std::vector<float> hYOut(batchCount * stridey);
+    aclRet = aclrtMemcpy(hYOut.data(), yBytes, dy, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy D2H dy failed. ERROR: %d\n", aclRet); return aclRet);
+
+    for (int b = 0; b < batchCount; b++) {
+        LOG_PRINT("Batch %d:", b);
+        for (int i = 0; i < n; i++) {
+            LOG_PRINT(" %.4f", static_cast<double>(hYOut[b * stridey + i * incy]));
+        }
+        LOG_PRINT("\n");
+    }
+    LOG_PRINT("[INFO] aclblasHSSgemvStridedBatched test PASSED\n");
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("AclContext Init failed. ERROR: %d\n", ret); return ret);
+    ret = aclblasHSSgemvStridedBatchedTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasHSSgemvStridedBatchedTest failed. ERROR: %d\n", ret); return ret);
+    return 0;
+}
+```
 
 ### aclblasTSTgemvStridedBatched
 
@@ -376,7 +690,161 @@ aclblasStatus_t aclblasTSTgemvStridedBatched(aclblasHandle_t handle, aclblasOper
 
 #### 调用示例
 
-调用方式与 aclblasHSHgemvStridedBatched 类似，仅数据类型从 FP16 替换为 BF16（同样用 uint16_t 表示）。完整 RAII 框架代码请参考上方 aclblasSgemvStridedBatched 的调用示例。
+调用方式与 aclblasHSHgemvStridedBatched 类似，仅数据类型从 FP16 替换为 BF16（同样用 uint16_t 表示）。完整示例代码如下：
+
+```cpp
+#include <cstdio>
+#include <cstring>
+#include <memory>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+    ~AclContext()
+    {
+        if (stream_ != nullptr) { aclrtDestroyStream(stream_); stream_ = nullptr; }
+        if (deviceSet_) { aclrtResetDevice(deviceId_); deviceSet_ = false; }
+        if (aclInited_) { aclFinalize(); aclInited_ = false; }
+    }
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+    aclrtStream Stream() const { return stream_; }
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false, deviceSet_ = false;
+};
+
+static float bf16_to_float(uint16_t bf)
+{
+    uint32_t bits = (uint32_t)bf << 16;
+    float f;
+    memcpy(&f, &bits, 4);
+    return f;
+}
+
+int aclblasTSTgemvStridedBatchedTest(AclContext& ctx)
+{
+    // 1. 创建 ops-blas 句柄
+    aclrtStream stream = ctx.Stream();
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet); return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 2. 准备 Host 数据
+    int m = 8, n = 4, batchCount = 2;
+    LOG_PRINT("[INFO] m=%d, n=%d, batchCount=%d, trans=T\n", m, n, batchCount);
+    int lda = m, incx = 1, incy = 1;
+    int64_t strideA = static_cast<int64_t>(lda) * n;
+    int64_t stridex = m, stridey = n;
+    float alpha = 1.0f, beta = 0.0f;  // BF16 接口的 alpha/beta 为 FP32
+    LOG_PRINT("[INFO] alpha=%.1f, beta=%.1f, lda=%d, incx=%d, incy=%d\n", alpha, beta, lda, incx, incy);
+
+    size_t elemSize = sizeof(uint16_t);  // BF16 用 uint16_t 表示
+    size_t aBytes = static_cast<size_t>(batchCount) * strideA * elemSize;
+    size_t xBytes = static_cast<size_t>(batchCount) * stridex * elemSize;
+    size_t yBytes = static_cast<size_t>(batchCount) * stridey * elemSize;
+    if (batchCount == 0) {
+        LOG_PRINT("[INFO] batchCount=0, skip computation\n");
+        return ACL_SUCCESS;
+    }
+
+    // BF16 数据: 1.0f = 0x3F80, 2.0f = 0x4000
+    std::vector<uint16_t> hA(batchCount * strideA, 0x3F80);
+    std::vector<uint16_t> hX(batchCount * stridex, 0x4000);
+    std::vector<uint16_t> hY(batchCount * stridey, 0);
+
+    // 3. 申请 Device 内存并拷贝数据
+    void *dA = nullptr, *dx = nullptr, *dy = nullptr;
+    auto aclRet = aclrtMalloc(&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dA failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtr(dA, aclrtFree);
+    aclRet = aclrtMalloc(&dx, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dx failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dxPtr(dx, aclrtFree);
+    aclRet = aclrtMalloc(&dy, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dy failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dyPtr(dy, aclrtFree);
+
+    aclRet = aclrtMemcpy(dA, aBytes, hA.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dA failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(dx, xBytes, hX.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dx failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 4. 调用 aclblasTSTgemvStridedBatched
+    LOG_PRINT("[INFO] Calling aclblasTSTgemvStridedBatched...\n");
+    blasRet = aclblasTSTgemvStridedBatched(
+        static_cast<aclblasHandle_t>(handlePtr.get()),
+        ACLBLAS_OP_T, m, n, &alpha,
+        static_cast<const uint16_t*>(dA), lda, strideA,
+        static_cast<const uint16_t*>(dx), incx, stridex,
+        &beta,
+        static_cast<uint16_t*>(dy), incy, stridey,
+        batchCount);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasTSTgemvStridedBatched failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 5. 同步等待任务执行结束
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 6. 将结果从 Device 拷贝回 Host 并打印
+    std::vector<uint16_t> hYOut(batchCount * stridey);
+    aclRet = aclrtMemcpy(hYOut.data(), yBytes, dy, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy D2H dy failed. ERROR: %d\n", aclRet); return aclRet);
+
+    for (int b = 0; b < batchCount; b++) {
+        LOG_PRINT("Batch %d:", b);
+        for (int i = 0; i < n; i++) {
+            LOG_PRINT(" %.4f", static_cast<double>(bf16_to_float(hYOut[b * stridey + i * incy])));
+        }
+        LOG_PRINT("\n");
+    }
+    LOG_PRINT("[INFO] aclblasTSTgemvStridedBatched test PASSED\n");
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("AclContext Init failed. ERROR: %d\n", ret); return ret);
+    ret = aclblasTSTgemvStridedBatchedTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasTSTgemvStridedBatchedTest failed. ERROR: %d\n", ret); return ret);
+    return 0;
+}
+```
 
 ### aclblasTSSgemvStridedBatched
 
@@ -419,4 +887,148 @@ aclblasStatus_t aclblasTSSgemvStridedBatched(aclblasHandle_t handle, aclblasOper
 
 #### 调用示例
 
-调用方式与 aclblasHSSgemvStridedBatched 类似，仅 A/x 数据类型从 FP16 替换为 BF16（同样用 uint16_t 表示），y 保持 float（FP32）。完整 RAII 框架代码请参考上方 aclblasSgemvStridedBatched 的调用示例。
+调用方式与 aclblasHSSgemvStridedBatched 类似，A/x 数据类型从 FP16 替换为 BF16（同样用 uint16_t 表示），y 保持 float（FP32）。完整示例代码如下：
+
+```cpp
+#include <cstdio>
+#include <memory>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+#define CHECK_RET(cond, return_expr) \
+    do {                             \
+        if (!(cond)) {               \
+            return_expr;             \
+        }                            \
+    } while (0)
+
+#define LOG_PRINT(message, ...)         \
+    do {                                \
+        printf(message, ##__VA_ARGS__); \
+    } while (0)
+
+class AclContext {
+public:
+    explicit AclContext(int32_t deviceId) : deviceId_(deviceId) {}
+    ~AclContext()
+    {
+        if (stream_ != nullptr) { aclrtDestroyStream(stream_); stream_ = nullptr; }
+        if (deviceSet_) { aclrtResetDevice(deviceId_); deviceSet_ = false; }
+        if (aclInited_) { aclFinalize(); aclInited_ = false; }
+    }
+    int Init()
+    {
+        auto ret = aclInit(nullptr);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
+        aclInited_ = true;
+        ret = aclrtSetDevice(deviceId_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); return ret);
+        deviceSet_ = true;
+        ret = aclrtCreateStream(&stream_);
+        CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); return ret);
+        return ACL_SUCCESS;
+    }
+    aclrtStream Stream() const { return stream_; }
+private:
+    int32_t deviceId_;
+    aclrtStream stream_ = nullptr;
+    bool aclInited_ = false, deviceSet_ = false;
+};
+
+int aclblasTSSgemvStridedBatchedTest(AclContext& ctx)
+{
+    // 1. 创建 ops-blas 句柄
+    aclrtStream stream = ctx.Stream();
+    aclblasHandle_t rawHandle = nullptr;
+    auto blasRet = aclblasCreate(&rawHandle);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasCreate failed. ERROR: %d\n", blasRet); return blasRet);
+    std::unique_ptr<void, aclblasStatus_t (*)(void*)> handlePtr(rawHandle, aclblasDestroy);
+    blasRet = aclblasSetStream(static_cast<aclblasHandle_t>(handlePtr.get()), stream);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasSetStream failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 2. 准备 Host 数据
+    int m = 8, n = 4, batchCount = 2;
+    LOG_PRINT("[INFO] m=%d, n=%d, batchCount=%d, trans=T\n", m, n, batchCount);
+    int lda = m, incx = 1, incy = 1;
+    int64_t strideA = static_cast<int64_t>(lda) * n;
+    int64_t stridex = m, stridey = n;
+    float alpha = 1.0f, beta = 0.0f;
+    LOG_PRINT("[INFO] alpha=%.1f, beta=%.1f, lda=%d, incx=%d, incy=%d\n", alpha, beta, lda, incx, incy);
+
+    size_t aBytes = static_cast<size_t>(batchCount) * strideA * sizeof(uint16_t);  // A: BF16
+    size_t xBytes = static_cast<size_t>(batchCount) * stridex * sizeof(uint16_t);  // x: BF16
+    size_t yBytes = static_cast<size_t>(batchCount) * stridey * sizeof(float);     // y: FP32
+    if (batchCount == 0) {
+        LOG_PRINT("[INFO] batchCount=0, skip computation\n");
+        return ACL_SUCCESS;
+    }
+
+    // BF16 数据: 1.0f = 0x3F80, 2.0f = 0x4000
+    std::vector<uint16_t> hA(batchCount * strideA, 0x3F80);
+    std::vector<uint16_t> hX(batchCount * stridex, 0x4000);
+    std::vector<float> hY(batchCount * stridey, 0.0f);
+
+    // 3. 申请 Device 内存并拷贝数据
+    void *dA = nullptr, *dx = nullptr, *dy = nullptr;
+    auto aclRet = aclrtMalloc(&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dA failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dAPtr(dA, aclrtFree);
+    aclRet = aclrtMalloc(&dx, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dx failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dxPtr(dx, aclrtFree);
+    aclRet = aclrtMalloc(&dy, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc dy failed. ERROR: %d\n", aclRet); return aclRet);
+    std::unique_ptr<void, aclError (*)(void*)> dyPtr(dy, aclrtFree);
+
+    aclRet = aclrtMemcpy(dA, aBytes, hA.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dA failed. ERROR: %d\n", aclRet); return aclRet);
+    aclRet = aclrtMemcpy(dx, xBytes, hX.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy H2D dx failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 4. 调用 aclblasTSSgemvStridedBatched
+    LOG_PRINT("[INFO] Calling aclblasTSSgemvStridedBatched...\n");
+    blasRet = aclblasTSSgemvStridedBatched(
+        static_cast<aclblasHandle_t>(handlePtr.get()),
+        ACLBLAS_OP_T, m, n, &alpha,
+        static_cast<const uint16_t*>(dA), lda, strideA,
+        static_cast<const uint16_t*>(dx), incx, stridex,
+        &beta,
+        static_cast<float*>(dy), incy, stridey,
+        batchCount);
+    CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS,
+              LOG_PRINT("aclblasTSSgemvStridedBatched failed. ERROR: %d\n", blasRet); return blasRet);
+
+    // 5. 同步等待任务执行结束
+    aclRet = aclrtSynchronizeStream(stream);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtSynchronizeStream failed. ERROR: %d\n", aclRet); return aclRet);
+
+    // 6. 将结果从 Device 拷贝回 Host 并打印（y 为 FP32，直接打印）
+    std::vector<float> hYOut(batchCount * stridey);
+    aclRet = aclrtMemcpy(hYOut.data(), yBytes, dy, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy D2H dy failed. ERROR: %d\n", aclRet); return aclRet);
+
+    for (int b = 0; b < batchCount; b++) {
+        LOG_PRINT("Batch %d:", b);
+        for (int i = 0; i < n; i++) {
+            LOG_PRINT(" %.4f", static_cast<double>(hYOut[b * stridey + i * incy]));
+        }
+        LOG_PRINT("\n");
+    }
+    LOG_PRINT("[INFO] aclblasTSSgemvStridedBatched test PASSED\n");
+    return ACL_SUCCESS;
+}
+
+int main()
+{
+    AclContext ctx(0);
+    auto ret = ctx.Init();
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("AclContext Init failed. ERROR: %d\n", ret); return ret);
+    ret = aclblasTSSgemvStridedBatchedTest(ctx);
+    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasTSSgemvStridedBatchedTest failed. ERROR: %d\n", ret); return ret);
+    return 0;
+}
+```
