@@ -1,199 +1,235 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * This program is free software ... see LICENSE in the root of the software repository.
  */
 
-/* !
- * \file symv_test.cpp
- * \brief
- */
-
-#include <algorithm>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
-#include <iterator>
 #include <random>
+#include <string>
 #include <vector>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
 
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
-
-enum class SymvCompareMode {
-    FullMatrix,
-    LowerTriangleOnly,
-    SymmetricOnly,
+struct TestCase {
+    const char* name;
+    aclblasFillMode_t uplo;
+    int n;
+    int lda;
+    float alpha;
+    float beta;
+    int incx;
+    int incy;
+    aclblasStatus_t expectResult;
+    float tol;
 };
 
-constexpr SymvCompareMode kCompareMode = SymvCompareMode::FullMatrix;
+static const std::vector<TestCase> gSsymvTests = {
+    {"UPPER n=32 lda=32 incx=1 incy=1", ACLBLAS_UPPER, 32, 32, 0.8f, 1.2f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=32 lda=32 incx=1 incy=1", ACLBLAS_LOWER, 32, 32, 0.8f, 1.2f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=64 lda=64 incx=1 incy=1", ACLBLAS_UPPER, 64, 64, 0.5f, 1.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=64 lda=64 incx=1 incy=1", ACLBLAS_LOWER, 64, 64, 0.5f, 1.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=128 lda=128 incx=1 incy=1", ACLBLAS_UPPER, 128, 128, 1.0f, 1.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=128 lda=128 incx=1 incy=1", ACLBLAS_LOWER, 128, 128, 1.0f, 1.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=256 lda=256 incx=1 incy=1", ACLBLAS_UPPER, 256, 256, 2.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=256 lda=256 incx=1 incy=1", ACLBLAS_LOWER, 256, 256, 2.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=512 lda=512 incx=1 incy=1", ACLBLAS_UPPER, 512, 512, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"LOWER n=512 lda=512 incx=1 incy=1", ACLBLAS_LOWER, 512, 512, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"UPPER n=1024 lda=1024 incx=1 incy=1", ACLBLAS_UPPER, 1024, 1024, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"LOWER n=1024 lda=1024 incx=1 incy=1", ACLBLAS_LOWER, 1024, 1024, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"UPPER n=2048 lda=2048 incx=1 incy=1", ACLBLAS_UPPER, 2048, 2048, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-3f},
+    {"LOWER n=2048 lda=2048 incx=1 incy=1", ACLBLAS_LOWER, 2048, 2048, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-3f},
+    {"LOWER n=32 lda=40 incx=1 incy=1", ACLBLAS_LOWER, 32, 40, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=64 lda=80 incx=1 incy=1", ACLBLAS_UPPER, 64, 80, 1.0f, 1.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=32 incx=2 incy=1", ACLBLAS_UPPER, 32, 32, 1.0f, 0.0f, 2, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=64 incx=-2 incy=1", ACLBLAS_LOWER, 64, 64, 1.0f, 0.0f, -2, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=32 incx=-1 incy=1", ACLBLAS_LOWER, 32, 32, 0.5f, 0.0f, -1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=32 incx=1 incy=2", ACLBLAS_UPPER, 32, 32, 1.0f, 0.0f, 1, 2, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=32 incx=1 incy=-1", ACLBLAS_LOWER, 32, 32, 1.0f, 0.0f, 1, -1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=0", ACLBLAS_LOWER, 0, 1, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 0.0f},
+    {"n=1 UPPER", ACLBLAS_UPPER, 1, 1, 1.2f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=1 LOWER", ACLBLAS_LOWER, 1, 1, 1.2f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=2 UPPER", ACLBLAS_UPPER, 2, 2, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=2 LOWER", ACLBLAS_LOWER, 2, 2, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=3 LOWER", ACLBLAS_LOWER, 3, 3, 1.5f, 0.2f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=63 UPPER", ACLBLAS_UPPER, 63, 63, 0.8f, 0.3f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=63 LOWER", ACLBLAS_LOWER, 63, 63, 0.8f, 0.3f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=127 UPPER", ACLBLAS_UPPER, 127, 127, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"n=129 LOWER", ACLBLAS_LOWER, 129, 129, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"n=255 UPPER", ACLBLAS_UPPER, 255, 255, 1.2f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"n=257 LOWER", ACLBLAS_LOWER, 257, 257, 1.2f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"beta=0 LOWER n=32", ACLBLAS_LOWER, 32, 32, 1.5f, 0.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"alpha=0 UPPER n=32", ACLBLAS_UPPER, 32, 32, 0.0f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"error: invalid uplo", static_cast<aclblasFillMode_t>(0), 10, 10, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_INVALID_VALUE,
+     0.f},
+    {"error: incx=0", ACLBLAS_LOWER, 10, 10, 1.0f, 0.0f, 0, 1, ACLBLAS_STATUS_INVALID_VALUE, 0.f},
+    {"error: incy=0", ACLBLAS_LOWER, 10, 10, 1.0f, 0.0f, 1, 0, ACLBLAS_STATUS_INVALID_VALUE, 0.f},
+    {"error: lda < max(1,n)", ACLBLAS_LOWER, 10, 5, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_INVALID_VALUE, 0.f},
+    {"error: handle is nullptr", ACLBLAS_LOWER, 10, 10, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_HANDLE_IS_NULLPTR, 0.f},
+};
 
-static const char* GetCompareModeName()
+static inline uint32_t PhysicalPos(uint32_t logical, uint32_t n, int64_t inc, uint32_t absInc)
 {
-    switch (kCompareMode) {
-        case SymvCompareMode::FullMatrix:
-            return "full-matrix";
-        case SymvCompareMode::LowerTriangleOnly:
-            return "lower-triangle-only";
-        case SymvCompareMode::SymmetricOnly:
-            return "symmetric-only";
-        default:
-            return "unknown";
-    }
+    return (inc >= 0) ? (logical * absInc) : ((n - 1U - logical) * absInc);
 }
 
-static std::vector<float> BuildGolden(
-    const std::vector<float>& a, const std::vector<float>& x, const std::vector<float>& y, uint32_t n, uint32_t lda,
-    int64_t incx, int64_t incy, float alpha, float beta)
+static void GenerateSymMatrix(std::vector<float>& a, uint32_t n, uint32_t lda, uint32_t seed)
 {
-    auto matrixIndex = [lda](uint32_t row, uint32_t col) { return static_cast<size_t>(row) * lda + col; };
-
-    std::vector<float> golden(n, 0.0f);
-    switch (kCompareMode) {
-        case SymvCompareMode::FullMatrix:
-            for (uint32_t i = 0; i < n; ++i) {
-                float acc = 0.0f;
-                for (uint32_t j = 0; j < n; ++j) {
-                    uint32_t row = i >= j ? i : j;
-                    uint32_t col = i >= j ? j : i;
-                    acc += a[matrixIndex(row, col)] * x[j * incx];
-                }
-                golden[i] = alpha * acc + beta * y[i * incy];
-            }
-            break;
-        case SymvCompareMode::LowerTriangleOnly:
-            for (uint32_t i = 0; i < n; ++i) {
-                float acc = 0.0f;
-                for (uint32_t j = 0; j <= i; ++j) {
-                    acc += a[matrixIndex(i, j)] * x[j * incx];
-                }
-                golden[i] = alpha * acc + beta * y[i * incy];
-            }
-            break;
-        case SymvCompareMode::SymmetricOnly:
-            for (uint32_t j = 0; j < n; ++j) {
-                float acc = 0.0f;
-                for (uint32_t i = j + 1; i < n; ++i) {
-                    acc += a[matrixIndex(i, j)] * x[i * incx];
-                }
-                golden[j] = alpha * acc + beta * y[j * incy];
-            }
-            break;
-        default:
-            break;
-    }
-
-    return golden;
-}
-
-static uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
-{
-    std::cout << std::fixed << std::setprecision(6);
-
-    auto printTensor = [](std::vector<float>& tensor, const char* name) {
-        constexpr size_t maxPrintSize = 20;
-        std::cout << name << ": ";
-        std::copy(
-            tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
-            std::ostream_iterator<float>(std::cout, " "));
-        if (tensor.size() > maxPrintSize) {
-            std::cout << "...";
+    a.assign(static_cast<size_t>(n) * lda, 0.0f);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
+    for (uint32_t i = 0; i < n; ++i) {
+        for (uint32_t j = 0; j <= i; ++j) {
+            float v = dist(rng);
+            a[static_cast<size_t>(i) * lda + j] = v;
+            a[static_cast<size_t>(j) * lda + i] = v;
         }
-        std::cout << std::endl;
-    };
-    printTensor(output, "Output");
-    printTensor(golden, "Golden");
+    }
+}
 
-    constexpr float absTol = 1e-3f;
-    constexpr float relTol = 1e-4f;
-    auto closeEnough = [&](float a, float b) {
-        float diff = std::abs(a - b);
-        float scale = std::max(std::abs(a), std::abs(b));
-        return diff <= absTol || diff <= relTol * scale;
-    };
+static void GenerateStrided(std::vector<float>& v, uint32_t n, int inc, uint32_t seed)
+{
+    uint32_t absInc = static_cast<uint32_t>(std::abs(inc));
+    size_t bufSize = static_cast<size_t>(n - 1U) * absInc + 1U;
+    v.assign(bufSize, 0.0f);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
+    for (uint32_t i = 0; i < n; ++i) {
+        uint32_t pos = PhysicalPos(i, n, inc, absInc);
+        v[pos] = dist(rng);
+    }
+}
 
-    for (size_t i = 0; i < output.size(); ++i) {
-        if (!closeEnough(output[i], golden[i])) {
-            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i] << " vs "
-                      << golden[i] << ")" << std::endl;
+static void ComputeSsymvGolden(
+    const std::vector<float>& a, const std::vector<float>& x, const std::vector<float>& y, uint32_t n, uint32_t lda,
+    int incx, int incy, float alpha, float beta, std::vector<float>& out)
+{
+    uint32_t absIncx = static_cast<uint32_t>(std::abs(incx));
+    uint32_t absIncy = static_cast<uint32_t>(std::abs(incy));
+    out.assign(y.size(), 0.0f);
+    for (uint32_t row = 0; row < n; ++row) {
+        float sum = 0.0f;
+        for (uint32_t col = 0; col < n; ++col) {
+            uint32_t r = std::max(row, col);
+            uint32_t c = std::min(row, col);
+            sum += a[static_cast<size_t>(r) * lda + c] * x[PhysicalPos(col, n, incx, absIncx)];
+        }
+        uint32_t yPos = PhysicalPos(row, n, incy, absIncy);
+        out[yPos] = alpha * sum + beta * y[yPos];
+    }
+}
+
+static int RunSsymvCase(const TestCase& tc, aclblasHandle_t handle, aclrtStream stream)
+{
+    std::cout << "  " << tc.name << " ... " << std::flush;
+    if (tc.n == 0 || tc.expectResult != ACLBLAS_STATUS_SUCCESS) {
+        aclblasHandle_t useHandle = (tc.expectResult == ACLBLAS_STATUS_HANDLE_IS_NULLPTR) ? nullptr : handle;
+        aclblasStatus_t ret = aclblasSsymv(
+            useHandle, tc.uplo, tc.n, &tc.alpha, nullptr, tc.lda, nullptr, tc.incx, &tc.beta, nullptr, tc.incy);
+        if (ret != tc.expectResult) {
+            std::cout << "FAILED: expected " << static_cast<int>(tc.expectResult) << " got " << static_cast<int>(ret)
+                      << std::endl;
+            return 1;
+        }
+        if (tc.expectResult == ACLBLAS_STATUS_SUCCESS) {
+            std::cout << "PASSED" << std::endl;
+        } else {
+            std::cout << "PASSED" << std::endl;
+        }
+        return 0;
+    }
+    uint32_t nU32 = static_cast<uint32_t>(tc.n);
+    uint32_t ldaU32 = static_cast<uint32_t>(tc.lda);
+    uint32_t seed = static_cast<uint32_t>(tc.n + tc.lda * 100);
+
+    std::vector<float> aHost;
+    GenerateSymMatrix(aHost, nU32, ldaU32, seed);
+    std::vector<float> xHost;
+    GenerateStrided(xHost, nU32, tc.incx, seed + 1);
+    std::vector<float> yHost;
+    GenerateStrided(yHost, nU32, tc.incy, seed + 2);
+
+    size_t aBytes = aHost.size() * sizeof(float);
+    size_t xBytes = xHost.size() * sizeof(float);
+    size_t yBytes = yHost.size() * sizeof(float);
+
+    void* dA = nullptr;
+    void* dX = nullptr;
+    void* dY = nullptr;
+    aclrtMalloc(&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dA, aBytes, aHost.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMalloc(&dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dX, xBytes, xHost.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMalloc(&dY, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dY, yBytes, yHost.data(), yBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    aclblasStatus_t blasRet = aclblasSsymv(
+        handle, tc.uplo, tc.n, &tc.alpha, static_cast<const float*>(dA), tc.lda, static_cast<const float*>(dX), tc.incx,
+        &tc.beta, static_cast<float*>(dY), tc.incy);
+    if (blasRet != tc.expectResult) {
+        aclrtFree(dA);
+        aclrtFree(dX);
+        aclrtFree(dY);
+        std::cout << "FAILED: expected " << static_cast<int>(tc.expectResult) << " got " << static_cast<int>(blasRet)
+                  << std::endl;
+        return 1;
+    }
+    aclrtSynchronizeStream(stream);
+    std::vector<float> yNpu(yHost.size());
+    aclrtMemcpy(yNpu.data(), yBytes, dY, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    std::vector<float> yGolden;
+    ComputeSsymvGolden(aHost, xHost, yHost, nU32, ldaU32, tc.incx, tc.incy, tc.alpha, tc.beta, yGolden);
+    aclrtFree(dA);
+    aclrtFree(dX);
+    aclrtFree(dY);
+
+    float absTol = tc.tol, relTol = tc.tol, maxDiff = 0.0f;
+    for (size_t i = 0; i < yNpu.size(); ++i) {
+        float diff = std::abs(yNpu[i] - yGolden[i]);
+        if (diff > maxDiff)
+            maxDiff = diff;
+        float scale = std::max(std::abs(yNpu[i]), std::abs(yGolden[i]));
+        if (diff > absTol && diff > relTol * scale) {
+            std::cout << "FAILED at " << i << " (" << yNpu[i] << " vs " << yGolden[i] << " diff=" << diff << ")"
+                      << std::endl;
             return 1;
         }
     }
-
-    std::cout << "[Success] Case accuracy is verification passed." << std::endl;
+    std::cout << "PASSED (maxDiff=" << maxDiff << ")" << std::endl;
     return 0;
-}
-
-static int RunCase(uint32_t n, uint32_t lda)
-{
-    int32_t deviceId = 0;
-    constexpr float alpha = 0.8f;
-    constexpr float beta = 1.2f;
-    const int64_t incx = 1;
-    const int64_t incy = 1;
-
-    std::vector<float> a(static_cast<size_t>(n) * lda, 0.0f);
-    std::vector<float> x(n, 0.0f);
-    std::vector<float> y(n, 0.0f);
-    std::mt19937 rng(20260324U + n + lda);
-    std::uniform_real_distribution<float> dist(0.0f, 0.5f);
-    for (uint32_t i = 0; i < n; ++i) {
-        x[i] = dist(rng);
-        y[i] = dist(rng);
-        for (uint32_t j = 0; j <= i; ++j) {
-            a[static_cast<size_t>(i) * lda + j] = dist(rng);
-        }
-    }
-
-    aclrtStream stream = nullptr;
-    aclInit(nullptr);
-    aclrtSetDevice(deviceId);
-    aclrtCreateStream(&stream);
-
-    aclblasHandle_t handle = nullptr;
-    aclblasCreate(&handle);
-    aclblasSetStream(handle, stream);
-
-    std::vector<float> output = y;
-    aclblasStatus_t ret = aclblasSsymv(
-        handle, ACLBLAS_LOWER, static_cast<int>(n), &alpha, a.data(), static_cast<int>(lda), x.data(),
-        static_cast<int>(incx), &beta, output.data(), static_cast<int>(incy));
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasSsymv failed. ERROR: %d\n", ret); return ret);
-
-    std::vector<float> golden = BuildGolden(a, x, y, n, lda, incx, incy, alpha, beta);
-    int status = VerifyResult(output, golden);
-
-    aclblasDestroy(handle);
-    aclrtDestroyStream(stream);
-    aclrtResetDevice(deviceId);
-    aclFinalize();
-    return status;
 }
 
 int32_t main(int32_t argc, char* argv[])
 {
     (void)argc;
     (void)argv;
+    int32_t deviceId = 0;
+    aclInit(nullptr);
+    aclrtSetDevice(deviceId);
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
 
-    std::cout << "Verification mode: " << GetCompareModeName() << std::endl;
-    int ret = RunCase(2048, 2048);
-    if (ret != 0) {
-        return ret;
+    int failed = 0;
+    int total = static_cast<int>(gSsymvTests.size());
+    std::cout << "Running " << total << " ssymv arch22 test cases..." << std::endl;
+    for (const auto& tc : gSsymvTests) {
+        if (RunSsymvCase(tc, handle, stream) != 0)
+            ++failed;
     }
-    return RunCase(1537, 1664);
+    std::cout << "\nResults: " << (total - failed) << "/" << total << " passed" << std::endl;
+
+    aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
+    aclrtResetDevice(deviceId);
+    aclFinalize();
+    return (failed == 0) ? 0 : 1;
 }

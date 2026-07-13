@@ -135,8 +135,7 @@ aclblasStatus_t aclblasGetLoggerCallback(aclblasLogCallback* userCallback);
 aclblasStatus_t aclblasScopy_legacy(
     aclblasHandle_t handle, uint8_t* x, uint8_t* y, const int64_t n, const int64_t incx, const int64_t incy);
 
-aclblasStatus_t aclblasScopy(
-    aclblasHandle_t handle, int n, const float *x, int incx, float *y, int incy);
+aclblasStatus_t aclblasScopy(aclblasHandle_t handle, int n, const float* x, int incx, float* y, int incy);
 
 aclblasStatus_t aclblasSpmv(
     aclblasHandle_t handle, const float* aPacked, const float* x, const float* y, float* z, const float alpha,
@@ -179,8 +178,8 @@ aclblasStatus_t aclblasStpmv_legacy(
 // Early implementation with a non-standard parameter layout. Prefer aclblasStbmv for new code; this interface may
 // evolve or be removed in future releases.
 aclblasStatus_t aclblasStbmv_legacy(
-    aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, float* y, const int64_t n,
-    const int64_t k, const int64_t incx);
+    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, const float* a,
+    const int64_t lda, const float* x, float* y, const int64_t n, const int64_t k, const int64_t incx);
 
 aclblasStatus_t aclblasStbmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n, int k,
@@ -291,9 +290,8 @@ aclblasStatus_t aclblasSnrm2Ex(
 aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx);
 
 aclblasStatus_t aclblasScalex(
-    aclblasHandle_t handle, int n, const void* alpha,
-    aclDataType alphaType, void* x, aclDataType xType,
-    int incx, aclDataType executionType);
+    aclblasHandle_t handle, int n, const void* alpha, aclDataType alphaType, void* x, aclDataType xType, int incx,
+    aclDataType executionType);
 
 
 aclblasStatus_t aclblasRotEx(

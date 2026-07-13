@@ -8,48 +8,16 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/* !
- * \file spmv.asc
- * \brief
- */
-
 #include <cstdint>
-#include <iostream>
-#include <vector>
 #include <algorithm>
-#include <iterator>
-#include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "sspmv_tiling_data.h"
+#include "sspmv_kernel.h"
 
-void spmv_kernel_do(uint8_t* aPacked, uint8_t* x, uint8_t* y, uint8_t* z, uint8_t* workSpace, uint8_t* tilingGm,
-                    uint32_t numBlocks, void *stream);
-
-constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
-constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
-constexpr uint64_t ELEMENTS_PER_BLOCK_TILING = UB_BYTENUM_PER_BLOCK_TILING / BYTENUM_PER_FLOAT32_TILING;
-constexpr uint32_t MAX_CORE_NUM = 50;
-constexpr uint32_t TILE_SIZE = 128;
-constexpr uint32_t MAX_TILE_TASK = 128;
-
-struct SpmvTilingData {
-    uint32_t n;
-    uint32_t useCoreNum;
-    float alpha;
-    float beta;
-    int64_t incx;
-    int64_t incy;
-    uint32_t tileSize;
-    uint32_t tileRows;
-    uint32_t taskCount;
-    uint16_t taskBi[MAX_CORE_NUM];
-    uint32_t taskStart[MAX_CORE_NUM];
-    uint32_t taskStep[MAX_CORE_NUM];
-};
-
-SpmvTilingData CalTilingData(
-    uint32_t totalRows, uint32_t vecCoreNum, float alpha, float beta, int64_t incx, int64_t incy)
+static SpmvTilingData CalTilingData(
+    uint32_t totalRows, uint32_t vecCoreNum, float alpha, float beta, int64_t incx, int64_t incy, uint32_t uplo)
 {
     SpmvTilingData tilingData{};
     tilingData.n = totalRows;
@@ -57,78 +25,56 @@ SpmvTilingData CalTilingData(
     tilingData.beta = beta;
     tilingData.incx = incx;
     tilingData.incy = incy;
-    tilingData.tileSize = TILE_SIZE;
-    tilingData.tileRows = (totalRows + TILE_SIZE - 1) / TILE_SIZE;
+    tilingData.uplo = uplo;
 
-    // Build 2D lower-triangle tile tasks: (bi, bj), bi >= bj.
-    uint32_t taskCount = totalRows;
-    tilingData.taskCount = totalRows;
-
-    uint32_t availableCoreNum = vecCoreNum;
-    if (availableCoreNum == 0) {
-        availableCoreNum = 1;
+    if (incx == 1 && incy == 1) {
+        uint32_t availableCoreNum = vecCoreNum;
+        if (availableCoreNum == 0) {
+            availableCoreNum = 1;
+        }
+        if (availableCoreNum > SPMV_MAX_CORE_NUM) {
+            availableCoreNum = SPMV_MAX_CORE_NUM;
+        }
+        tilingData.useCoreNum = std::min(totalRows, availableCoreNum);
+    } else {
+        tilingData.useCoreNum = 1;
     }
-    if (availableCoreNum > MAX_CORE_NUM) {
-        availableCoreNum = MAX_CORE_NUM;
-    }
-    tilingData.useCoreNum = std::min(taskCount, availableCoreNum);
-
     if (tilingData.useCoreNum == 0) {
-        return tilingData;
-    }
-
-    for (uint32_t i = 0; i < tilingData.useCoreNum; ++i) {
-        tilingData.taskBi[i] = static_cast<uint16_t>(i);
-        tilingData.taskStart[i] = i;
-        tilingData.taskStep[i] = tilingData.useCoreNum;
+        tilingData.useCoreNum = 1;
     }
     return tilingData;
 }
 
 aclblasStatus_t aclblasSspmv(
-    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* AP, const float* x, int incx,
-    const float* beta, float* y, int incy)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* AP, const float* x,
+    int incx, const float* beta, float* y, int incy)
 {
-    aclrtStream useStream = nullptr;
-    if (handle != nullptr) {
-        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-        useStream = h->stream;
+    if (uplo != ACLBLAS_UPPER && uplo != ACLBLAS_LOWER) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
     }
+    if (handle == nullptr) {
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    }
+    if (n <= 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    if (incx == 0 || incy == 0) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (alpha == nullptr || beta == nullptr || AP == nullptr || x == nullptr || y == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+
     constexpr uint32_t numBlocks = 8;
-    const size_t vecByteSize = static_cast<size_t>(n) * sizeof(float);
-    const size_t nSize = static_cast<size_t>(n);
-    const size_t packedEleNum = (nSize * (nSize + 3U) - 2U) / 2U;
-    const size_t packedByteSize = packedEleNum * sizeof(float);
+    SpmvTilingData tiling =
+        CalTilingData(static_cast<uint32_t>(n), numBlocks, *alpha, *beta, incx, incy, static_cast<uint32_t>(uplo));
 
-    SpmvTilingData tiling = CalTilingData(static_cast<uint32_t>(n), numBlocks, *alpha, *beta, incx, incy);
-
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    uint8_t* zDevice = nullptr;
-    uint8_t* tilingDevice = nullptr;
-
-    aclrtMalloc((void**)&aDevice, packedByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&xDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&yDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&zDevice, vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&tilingDevice, sizeof(SpmvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-
-    aclrtMemcpy(aDevice, packedByteSize, AP, packedByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(xDevice, vecByteSize, x, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(SpmvTilingData), &tiling, sizeof(SpmvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-
-    spmv_kernel_do(aDevice, xDevice, yDevice, zDevice, nullptr, tilingDevice, numBlocks, useStream);
-    aclrtSynchronizeStream(useStream);
-
-    aclrtMemcpy(y, vecByteSize, zDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(aDevice);
-    aclrtFree(xDevice);
-    aclrtFree(yDevice);
-    aclrtFree(zDevice);
-    aclrtFree(tilingDevice);
+    sspmv_kernel_do(
+        reinterpret_cast<uint8_t*>(const_cast<float*>(AP)), reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(const_cast<float*>(y)), nullptr, tiling, numBlocks, useStream);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

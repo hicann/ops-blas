@@ -8,108 +8,88 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/* !
- * \file tpmv.asc
- * \brief
- */
-
 #include <cstdint>
-#include <iostream>
-#include <vector>
 #include <algorithm>
-#include <iterator>
-#include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
+#include "stbmv_tiling_data.h"
+#include "stbmv_kernel.h"
 
-constexpr uint64_t BYTENUM_PER_FLOAT32_TILING = 4;
-constexpr uint64_t UB_BYTENUM_PER_BLOCK_TILING = 32;
-constexpr uint64_t ELEMENTS_PER_BLOCK_TILING = UB_BYTENUM_PER_BLOCK_TILING / BYTENUM_PER_FLOAT32_TILING;
-constexpr uint32_t MAX_CORE_NUM = 50;
-constexpr uint32_t TILE_SIZE = 128;
-constexpr uint32_t MAX_TILE_TASK = 8192;
-
-struct tbmvTilingData {
-    uint32_t n;
-    uint32_t k;
-    uint32_t lda;
-    uint32_t useCoreNum;
-    int64_t incx;
-    uint32_t tileSize;
-    uint32_t tileRows;
-    uint32_t taskCount;
-    uint16_t taskBi[MAX_TILE_TASK];
-    uint32_t taskStart[MAX_CORE_NUM];
-    uint32_t taskStep[MAX_CORE_NUM];
-};
-
-tbmvTilingData CalTbmvTilingData(
-    uint32_t totalRows, uint32_t totalDias, uint32_t lda, uint32_t vecCoreNum, int64_t incx)
+static TbmvTilingData CalTbmvTilingData(
+    uint32_t totalRows, uint32_t totalDias, uint32_t lda, uint32_t vecCoreNum, int64_t incx, uint32_t uplo,
+    uint32_t trans, uint32_t diag)
 {
-    tbmvTilingData tilingData{};
+    TbmvTilingData tilingData{};
     tilingData.n = totalRows;
     tilingData.k = totalDias;
     tilingData.lda = lda;
     tilingData.incx = incx;
-    tilingData.tileSize = TILE_SIZE;
-    tilingData.tileRows = (totalRows + TILE_SIZE - 1) / TILE_SIZE;
+    tilingData.uplo = uplo;
+    tilingData.trans = trans;
+    tilingData.diag = diag;
 
-    // Build 2D lower-triangle tile tasks: (bi, bj), bi >= bj.
-    uint32_t taskCount = 0;
-    for (uint32_t bi = 0; bi < totalDias; ++bi) {
-        tilingData.taskBi[taskCount] = bi;
-        ++taskCount;
-    }
-    tilingData.taskCount = taskCount;
-
-    uint32_t availableCoreNum = vecCoreNum;
-    if (availableCoreNum == 0) {
-        availableCoreNum = 1;
-    }
-    if (availableCoreNum > MAX_CORE_NUM) {
-        availableCoreNum = MAX_CORE_NUM;
-    }
-    tilingData.useCoreNum = std::min(taskCount, availableCoreNum);
-
-    if (tilingData.useCoreNum == 0) {
-        return tilingData;
-    }
-
-    for (uint32_t i = 0; i < tilingData.useCoreNum; ++i) {
-        tilingData.taskStart[i] = i;
-        tilingData.taskStep[i] = tilingData.useCoreNum;
-    }
-    if (tilingData.useCoreNum < vecCoreNum) {
-        for (uint32_t i = tilingData.useCoreNum; i < vecCoreNum; ++i) {
-            tilingData.taskStart[i] = -1;
+    uint32_t taskCount = totalDias + 1U;
+    if (incx == 1) {
+        uint32_t availableCoreNum = vecCoreNum;
+        if (availableCoreNum == 0) {
+            availableCoreNum = 1;
         }
+        if (availableCoreNum > TBMV_MAX_CORE_NUM) {
+            availableCoreNum = TBMV_MAX_CORE_NUM;
+        }
+        tilingData.useCoreNum = std::min(taskCount, availableCoreNum);
+    } else {
+        tilingData.useCoreNum = 1;
     }
-
+    if (tilingData.useCoreNum == 0) {
+        tilingData.useCoreNum = 1;
+    }
     return tilingData;
 }
 
 aclblasStatus_t aclblasStbmv_legacy(
-    aclblasHandle_t handle, const float* a, const int64_t lda, const float* x, float* y, const int64_t n,
-    const int64_t k, const int64_t incx)
+    aclblasHandle_t handle, aclblasFillMode uplo, aclblasOperation trans, aclblasDiagType diag, const float* a,
+    const int64_t lda, const float* x, float* y, const int64_t n, const int64_t k, const int64_t incx)
 {
-    const uint32_t rowCount = static_cast<uint32_t>(n);
-    const uint32_t bandCount = static_cast<uint32_t>(k);
-    const uint32_t leadingDim = static_cast<uint32_t>(lda);
-    const size_t packedElementCount = static_cast<size_t>(rowCount) * (static_cast<size_t>(rowCount) + 1U) / 2U;
-
-    std::vector<float> packedMatrix(packedElementCount, 0.0f);
-    auto packedLowerIndex = [](uint32_t row, uint32_t col) {
-        return static_cast<size_t>(col + (row * (row + 1U)) / 2U);
-    };
-
-    for (uint32_t row = 0; row < rowCount; ++row) {
-        uint32_t startCol = row > bandCount ? row - bandCount : 0;
-        for (uint32_t col = startCol; col <= row; ++col) {
-            uint32_t bandRow = row - col;
-            packedMatrix[packedLowerIndex(row, col)] = a[static_cast<size_t>(bandRow) * leadingDim + col];
-        }
+    if (uplo != ACLBLAS_UPPER && uplo != ACLBLAS_LOWER) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (trans != ACLBLAS_OP_N && trans != ACLBLAS_OP_T && trans != ACLBLAS_OP_C) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (diag != ACLBLAS_NON_UNIT && diag != ACLBLAS_UNIT) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (handle == nullptr) {
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    }
+    if (n <= 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    if (incx == 0) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    return aclblasStpmv_legacy(
-        handle, ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, n, packedMatrix.data(), x, y, incx);
+    uint32_t uploVal = static_cast<uint32_t>(uplo);
+    uint32_t transVal = static_cast<uint32_t>(trans);
+    uint32_t diagVal = static_cast<uint32_t>(diag);
+
+    if (a == nullptr || x == nullptr || y == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+
+    constexpr uint32_t numBlocks = 8;
+    TbmvTilingData tiling = CalTbmvTilingData(
+        static_cast<uint32_t>(n), static_cast<uint32_t>(k), static_cast<uint32_t>(lda), numBlocks, incx, uploVal,
+        transVal, diagVal);
+
+    stbmv_kernel_do(
+        reinterpret_cast<uint8_t*>(const_cast<float*>(a)), reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(const_cast<float*>(y)), nullptr, tiling, numBlocks, useStream);
+
+    return ACLBLAS_STATUS_SUCCESS;
 }

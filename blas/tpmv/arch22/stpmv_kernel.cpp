@@ -8,54 +8,85 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef STPMV_KERNEL_H
-#define STPMV_KERNEL_H
-
 #include <cstdint>
+#include "cann_ops_blas_common.h"
 #include "kernel_operator.h"
+#include "stpmv_tiling_data.h"
 
 using namespace AscendC;
 
 constexpr uint32_t BUFFER_NUM = 2;
 constexpr uint32_t BYTENUM_PER_FLOAT32 = 4;
-constexpr uint32_t MAX_CORE_NUM = 50;
-constexpr uint32_t MAX_TILE_TASK = 128;
 constexpr uint32_t UB_BYTENUM_PER_BLOCK = 32;
 constexpr uint32_t UB_BYTENUM_PER_REPEAT = 256;
-constexpr uint32_t TILE_SIZE = 128;
-
-struct TpmvTilingDataDevice {
-    uint32_t n;
-    uint32_t useCoreNum;
-    int64_t incx;
-    uint32_t tileSize;
-    uint32_t tileRows;
-    uint32_t taskCount;
-    uint16_t taskBi[MAX_CORE_NUM];
-    uint32_t taskStart[MAX_CORE_NUM];
-    uint32_t taskStep[MAX_CORE_NUM];
-};
 
 template <typename T>
 class TpmvAIV {
 public:
     __aicore__ inline TpmvAIV() = default;
-    __aicore__ inline void Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, const TpmvTilingDataDevice& tiling);
+    __aicore__ inline void Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, const TpmvTilingData& tiling);
     __aicore__ inline void Process();
 
 private:
     TPipe pipe;
 
-    __aicore__ inline void ParseTilingData(const TpmvTilingDataDevice& tiling);
-    __aicore__ inline uint32_t PackedIndex(uint32_t i, uint32_t j) const;
+    __aicore__ inline bool IsFormulaA()
+    {
+        return (
+            (uplo == ACLBLAS_LOWER && trans == ACLBLAS_OP_N) ||
+            (uplo == ACLBLAS_UPPER && (trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C)));
+    }
 
-    __aicore__ inline void CopyIn(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void Compute(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void CopyOut(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline uint64_t PackedIndex(uint32_t row, uint32_t col)
+    {
+        if (IsFormulaA()) {
+            return static_cast<uint64_t>(row) * (row + 1ULL) / 2ULL + col;
+        } else {
+            return static_cast<uint64_t>(col) * (col + 1ULL) / 2ULL + row;
+        }
+    }
 
-    __aicore__ inline void CopyInPad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void ComputePad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
-    __aicore__ inline void CopyOutPad(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline uint32_t XPhysicalPos(uint32_t logical)
+    {
+        return (incx >= 0) ? (logical * absIncx) : ((n - 1U - logical) * absIncx);
+    }
+
+    __aicore__ inline uint32_t YPhysicalPos(uint32_t logical) { return XPhysicalPos(logical); }
+
+    __aicore__ inline void LoadX(LocalTensor<T>& xLocal, uint32_t colOffset, uint32_t dataCount)
+    {
+        if (dataCount == 0) {
+            return;
+        }
+        if (incx == 1) {
+            if (dataCount % static_cast<uint32_t>(elementsPerBlock) == 0) {
+                DataCopy(xLocal, xGM[colOffset], dataCount);
+            } else {
+                uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
+                DataCopyExtParams copyParams{1, dataCount * BYTENUM_PER_FLOAT32, 0, 0, 0};
+                DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
+                DataCopyPad(xLocal, xGM[colOffset], copyParams, padParams);
+            }
+        } else {
+            for (uint32_t i = 0; i < dataCount; i++) {
+                uint32_t pos = XPhysicalPos(colOffset + i);
+                xLocal.SetValue(i, xGM.GetValue(pos));
+            }
+        }
+    }
+
+    __aicore__ inline void CopyIn(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void Compute(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void CopyOut(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+
+    __aicore__ inline void CopyInPad(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void ComputePad(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+    __aicore__ inline void CopyOutPad(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+
+    __aicore__ inline void CopyInStrided(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount);
+
+    __aicore__ inline void ProcessFast();
+    __aicore__ inline void ProcessStrided();
 
     GlobalTensor<T> aGM;
     GlobalTensor<T> xGM;
@@ -69,35 +100,44 @@ private:
     uint32_t vecIdx = 0;
     uint32_t n = 0;
     uint32_t useCoreNum = 0;
-    uint32_t tileSize = 0;
-    uint32_t tileRows = 0;
-    uint32_t taskCount = 0;
-    uint32_t taskStart = 0;
-    uint32_t taskStep = 0;
-
-    uint16_t taskBi[MAX_TILE_TASK] = {0};
-
     uint32_t maxDataCount = 0;
 
     int64_t incx = 1;
+    uint32_t absIncx = 1;
+
+    uint32_t uplo = ACLBLAS_LOWER;
+    uint32_t trans = ACLBLAS_OP_N;
+    uint32_t diag = ACLBLAS_NON_UNIT;
 
     int elementsPerRepeat = UB_BYTENUM_PER_REPEAT / BYTENUM_PER_FLOAT32;
     int elementsPerBlock = UB_BYTENUM_PER_BLOCK / BYTENUM_PER_FLOAT32;
 };
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, const TpmvTilingDataDevice& tiling)
+__aicore__ inline void TpmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, const TpmvTilingData& tiling)
 {
     vecIdx = GetBlockIdx();
-    ParseTilingData(tiling);
 
-    xGM.SetGlobalBuffer((__gm__ T*)x, this->n);
-    yGM.SetGlobalBuffer((__gm__ T*)y, this->n);
-    aGM.SetGlobalBuffer((__gm__ T*)aPacked, this->n * this->n);
+    n = tiling.n;
+    useCoreNum = tiling.useCoreNum;
+    incx = tiling.incx;
+    uplo = tiling.uplo;
+    trans = tiling.trans;
+    diag = tiling.diag;
 
-    maxDataCount = 30 * 1024 / BYTENUM_PER_FLOAT32; // 30kb / 4b
+    absIncx = (incx >= 0) ? static_cast<uint32_t>(incx) : static_cast<uint32_t>(-incx);
 
-    // Workspace-related UB buffers are initialized here for later LocalTensor path enablement.
+    if (useCoreNum == 0 || useCoreNum > TPMV_MAX_CORE_NUM) {
+        useCoreNum = 1;
+    }
+
+    uint32_t physicalSize = (n - 1U) * absIncx + 1U;
+    xGM.SetGlobalBuffer((__gm__ T*)x, physicalSize);
+    yGM.SetGlobalBuffer((__gm__ T*)y, physicalSize);
+    aGM.SetGlobalBuffer((__gm__ T*)aPacked, static_cast<uint64_t>(this->n) * this->n);
+
+    maxDataCount = 30 * 1024 / BYTENUM_PER_FLOAT32;
+
     pipe.InitBuffer(aQueue, BUFFER_NUM, maxDataCount * sizeof(T));
     pipe.InitBuffer(xQueue, BUFFER_NUM, maxDataCount * sizeof(T));
     pipe.InitBuffer(yQueue, BUFFER_NUM, maxDataCount * sizeof(T));
@@ -107,41 +147,16 @@ __aicore__ inline void TpmvAIV<T>::Init(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, c
 }
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::ParseTilingData(const TpmvTilingDataDevice& tiling)
-{
-    n = tiling.n;
-    useCoreNum = tiling.useCoreNum;
-    incx = tiling.incx;
-    tileSize = tiling.tileSize;
-    tileRows = tiling.tileRows;
-    taskCount = tiling.taskCount;
-
-    if (tileSize == 0) {
-        tileSize = TILE_SIZE;
-    }
-    if (useCoreNum == 0 || useCoreNum > MAX_CORE_NUM) {
-        useCoreNum = 1;
-    }
-
-    for (uint32_t i = 0; i < taskCount && i < MAX_TILE_TASK; ++i) {
-        taskBi[i] = tiling.taskBi[i];
-    }
-
-    taskStart = tiling.taskStart[vecIdx];
-    taskStep = tiling.taskStep[vecIdx];
-}
-
-template <typename T>
-__aicore__ inline void TpmvAIV<T>::CopyIn(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void TpmvAIV<T>::CopyIn(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     LocalTensor<T> LocalA = aQueue.AllocTensor<T>();
-    uint32_t r = colOffset + rowOffset * (rowOffset + 1) / 2; // Start index of the row in packed storage.
+    uint64_t r = PackedIndex(rowOffset, colOffset);
     DataCopy(LocalA, aGM[r], dataCount);
     aQueue.EnQue<T>(LocalA);
 }
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::Compute(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void TpmvAIV<T>::Compute(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     LocalTensor<T> LocalA = aQueue.DeQue<T>();
     LocalTensor<T> LocalX = xQueue.DeQue<T>();
@@ -150,6 +165,11 @@ __aicore__ inline void TpmvAIV<T>::Compute(uint32_t taskIdx, uint32_t rowOffset,
     int32_t eventIDMTE2ToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE2_V));
     AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
     AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
+
+    if (diag == ACLBLAS_UNIT && colOffset <= rowOffset && rowOffset < colOffset + dataCount) {
+        uint32_t diagIdx = rowOffset - colOffset;
+        LocalA.SetValue(diagIdx, (T)1.0f);
+    }
 
     LocalTensor<T> tmpLocal = tmpBuf.Get<T>();
     Mul(LocalY, LocalA, LocalX, dataCount);
@@ -160,34 +180,31 @@ __aicore__ inline void TpmvAIV<T>::Compute(uint32_t taskIdx, uint32_t rowOffset,
 }
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::CopyOut(uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void TpmvAIV<T>::CopyOut(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
-    uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
     DataCopyExtParams copyParams{1, static_cast<uint16_t>(sizeof(T)), 0, 0, 0};
-    DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
 
     LocalTensor<T> yLocal = yQueue.DeQue<T>();
-    DataCopyPad(yGM[rowOffset], yLocal, copyParams);
+    uint32_t yPos = YPhysicalPos(rowOffset);
+    DataCopyPad(yGM[yPos], yLocal, copyParams);
     yQueue.FreeTensor(yLocal);
 }
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::CopyInPad(
-    uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void TpmvAIV<T>::CopyInPad(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
     DataCopyExtParams copyParams{1, dataCount * BYTENUM_PER_FLOAT32, 0, 0, 0};
     DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
 
-    uint32_t r = colOffset + rowOffset * (rowOffset + 1) / 2; // Start index of the row in packed storage.
+    uint64_t r = PackedIndex(rowOffset, colOffset);
     LocalTensor<T> LocalA = aQueue.AllocTensor<T>();
     DataCopyPad(LocalA, aGM[r], copyParams, padParams);
     aQueue.EnQue<T>(LocalA);
 }
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::ComputePad(
-    uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void TpmvAIV<T>::ComputePad(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     LocalTensor<T> LocalA = aQueue.DeQue<T>();
     LocalTensor<T> LocalX = xQueue.DeQue<T>();
@@ -196,6 +213,12 @@ __aicore__ inline void TpmvAIV<T>::ComputePad(
     int32_t eventIDMTE2ToV = static_cast<int32_t>(GetTPipePtr()->FetchEventID(AscendC::HardEvent::MTE2_V));
     AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
     AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2ToV);
+
+    if (diag == ACLBLAS_UNIT && colOffset <= rowOffset && rowOffset < colOffset + dataCount) {
+        uint32_t diagIdx = rowOffset - colOffset;
+        LocalA.SetValue(diagIdx, (T)1.0f);
+    }
+
     LocalTensor<T> tmpLocal = tmpBuf.Get<T>();
     Mul(LocalY, LocalA, LocalX, dataCount);
     ReduceSum(LocalY, LocalY, tmpLocal, dataCount);
@@ -205,63 +228,130 @@ __aicore__ inline void TpmvAIV<T>::ComputePad(
 }
 
 template <typename T>
-__aicore__ inline void TpmvAIV<T>::CopyOutPad(
-    uint32_t taskIdx, uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+__aicore__ inline void TpmvAIV<T>::CopyOutPad(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
 {
     uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
     DataCopyExtParams copyParams{1, static_cast<uint16_t>(sizeof(T)), 0, 0, 0};
-    DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
 
     LocalTensor<T> yLocal = yQueue.DeQue<T>();
-    DataCopyPad(yGM[rowOffset], yLocal, copyParams);
+    uint32_t yPos = YPhysicalPos(rowOffset);
+    DataCopyPad(yGM[yPos], yLocal, copyParams);
     yQueue.FreeTensor(yLocal);
+}
+
+template <typename T>
+__aicore__ inline void TpmvAIV<T>::CopyInStrided(uint32_t rowOffset, uint32_t colOffset, uint32_t dataCount)
+{
+    LocalTensor<T> LocalA = aQueue.AllocTensor<T>();
+    for (uint32_t i = 0; i < dataCount; i++) {
+        uint32_t col = colOffset + i;
+        uint64_t index = PackedIndex(rowOffset, col);
+        LocalA.SetValue(i, aGM.GetValue(index));
+    }
+    aQueue.EnQue<T>(LocalA);
+}
+
+template <typename T>
+__aicore__ inline void TpmvAIV<T>::ProcessFast()
+{
+    for (uint32_t col = 0; col < n; col += maxDataCount) {
+        uint32_t colBatchSize = (col + maxDataCount <= n) ? maxDataCount : (n - col);
+        if (colBatchSize == 0) {
+            continue;
+        }
+
+        LocalTensor<T> xLocal = xQueue.AllocTensor<T>();
+        LoadX(xLocal, col, colBatchSize);
+
+        for (uint32_t row = vecIdx; row < n; row += useCoreNum) {
+            if (col > row) {
+                continue;
+            }
+            uint32_t dataCount = (col + colBatchSize <= row + 1U) ? colBatchSize : (row + 1U - col);
+            if (dataCount == 0) {
+                continue;
+            }
+
+            xQueue.EnQue<T>(xLocal);
+            bool needsPad = (dataCount < maxDataCount);
+            if (needsPad) {
+                CopyInPad(row, col, dataCount);
+                ComputePad(row, col, dataCount);
+                CopyOutPad(row, col, dataCount);
+            } else {
+                CopyIn(row, col, dataCount);
+                Compute(row, col, dataCount);
+                CopyOut(row, col, dataCount);
+            }
+        }
+        xQueue.FreeTensor(xLocal);
+    }
+}
+
+template <typename T>
+__aicore__ inline void TpmvAIV<T>::ProcessStrided()
+{
+    bool isFormulaA = IsFormulaA();
+
+    for (uint32_t col = 0; col < n; col += maxDataCount) {
+        uint32_t colBatchSize = (col + maxDataCount <= n) ? maxDataCount : (n - col);
+        if (colBatchSize == 0) {
+            continue;
+        }
+
+        LocalTensor<T> xLocal = xQueue.AllocTensor<T>();
+        for (uint32_t row = vecIdx; row < n; row += useCoreNum) {
+            uint32_t overlapStart = 0;
+            uint32_t dataCount = 0;
+
+            if (isFormulaA) {
+                if (col > row) {
+                    continue;
+                }
+                overlapStart = col;
+                dataCount = (col + colBatchSize <= row + 1U) ? colBatchSize : (row + 1U - col);
+            } else {
+                if (col + colBatchSize <= row) {
+                    continue;
+                }
+                overlapStart = (col >= row) ? col : row;
+                dataCount = col + colBatchSize - overlapStart;
+            }
+
+            if (dataCount == 0) {
+                continue;
+            }
+
+            LoadX(xLocal, overlapStart, dataCount);
+            xQueue.EnQue<T>(xLocal);
+
+            CopyInStrided(row, overlapStart, dataCount);
+            Compute(row, overlapStart, dataCount);
+            CopyOut(row, overlapStart, dataCount);
+        }
+        xQueue.FreeTensor(xLocal);
+    }
 }
 
 template <typename T>
 __aicore__ inline void TpmvAIV<T>::Process()
 {
+    bool isFormulaA = IsFormulaA();
     SetAtomicAdd<T>();
+    if (vecIdx >= useCoreNum) {
+        SetAtomicNone();
+        return;
+    }
 
-    uint32_t rowLen = n;
-    uint32_t colLen = n;
-    for (uint32_t col = 0; col < colLen; col += maxDataCount) {
-        LocalTensor<T> xLocal = xQueue.AllocTensor<T>();
-        if (col + maxDataCount <= colLen) {
-            DataCopy(xLocal, xGM[col], maxDataCount);
-        } else {
-            uint32_t dataCount = colLen - col;
-            uint8_t paddingNum = elementsPerBlock - dataCount % elementsPerBlock;
-            DataCopyExtParams copyParams{1, dataCount * BYTENUM_PER_FLOAT32, 0, 0, 0};
-            DataCopyPadExtParams<T> padParams{true, 0, paddingNum, 0};
-            DataCopyPad(xLocal, xGM[col], copyParams, padParams);
-        }
-        for (uint32_t taskNum = 0; taskStart + taskNum < taskCount; taskNum += taskStep) {
-            uint32_t row = static_cast<uint32_t>(taskBi[taskStart] + taskNum);
-            uint32_t taskIdx = taskStart + taskNum;
-            if (col > row) {
-                continue;
-            }
-            uint32_t dataCount = maxDataCount;
-            if (col + dataCount > row + 1) {
-                dataCount = row + 1 - col;
-                xQueue.EnQue<T>(xLocal);
-                CopyInPad(taskIdx, row, col, dataCount);
-                ComputePad(taskIdx, row, col, dataCount);
-                CopyOutPad(taskIdx, row, col, dataCount);
-                continue;
-            }
-            xQueue.EnQue<T>(xLocal);
-            CopyIn(taskIdx, row, col, dataCount);
-            Compute(taskIdx, row, col, dataCount);
-            CopyOut(taskIdx, row, col, dataCount);
-        }
-        xQueue.FreeTensor(xLocal);
+    if (isFormulaA && (incx == 1)) {
+        ProcessFast();
+    } else {
+        ProcessStrided();
     }
     SetAtomicNone();
 }
 
-__global__ __aicore__ void tpmv_kernel(
-    GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, TpmvTilingDataDevice tiling)
+__global__ __aicore__ void stpmv_kernel(GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, TpmvTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TpmvAIV<float> op;
@@ -269,11 +359,9 @@ __global__ __aicore__ void tpmv_kernel(
     op.Process();
 }
 
-void tpmv_kernel_do(
-    GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, const TpmvTilingDataDevice& tiling, uint32_t numBlocks,
+void stpmv_kernel_do(
+    GM_ADDR aPacked, GM_ADDR x, GM_ADDR y, GM_ADDR workSpace, const TpmvTilingData& tiling, uint32_t numBlocks,
     void* stream)
 {
-    tpmv_kernel<<<numBlocks, nullptr, stream>>>(aPacked, x, y, workSpace, tiling);
+    stpmv_kernel<<<numBlocks, nullptr, stream>>>(aPacked, x, y, workSpace, tiling);
 }
-
-#endif // COPY_AIV_H

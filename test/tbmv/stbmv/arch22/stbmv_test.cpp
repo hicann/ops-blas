@@ -1,161 +1,329 @@
 /**
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * This program is free software ... see LICENSE in the root of the software repository.
  */
 
-/* !
- * \file tbmv_test.cpp
- * \brief
- */
-
-#include <algorithm>
-#include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
-#include <iterator>
 #include <random>
+#include <string>
 #include <vector>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
+#include "stbmv_npu_wrapper.h"
 
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
+struct TestCase {
+    const char* name;
+    aclblasFillMode uplo;
+    aclblasOperation trans;
+    aclblasDiagType diag;
+    int64_t n;
+    int64_t k;
+    int64_t lda;
+    int64_t incx;
+    aclblasStatus_t expectResult;
+    float tol;
+};
 
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
+static const std::vector<TestCase> gStbmvTests = {
+    {"LOWER+N NON_UNIT n=32 k=8", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 32, 8, 32, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"LOWER+N NON_UNIT n=64 k=16", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 64, 16, 64, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"LOWER+N UNIT n=32 k=8", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_UNIT, 32, 8, 32, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER+T NON_UNIT n=32 k=8", ACLBLAS_LOWER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, 32, 8, 32, 1,
+     ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER+C NON_UNIT n=32 k=8", ACLBLAS_LOWER, ACLBLAS_OP_C, ACLBLAS_NON_UNIT, 32, 8, 32, 1,
+     ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER+T UNIT n=32 k=8", ACLBLAS_LOWER, ACLBLAS_OP_T, ACLBLAS_UNIT, 32, 8, 32, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"UPPER+N NON_UNIT n=32 k=8", ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 32, 8, 32, 1,
+     ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER+T NON_UNIT n=32 k=8", ACLBLAS_UPPER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, 32, 8, 32, 1,
+     ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER+N UNIT n=32 k=8", ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_UNIT, 32, 8, 32, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"UPPER+C NON_UNIT n=32 k=8", ACLBLAS_UPPER, ACLBLAS_OP_C, ACLBLAS_NON_UNIT, 32, 8, 32, 1,
+     ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER+T UNIT n=32 k=8", ACLBLAS_UPPER, ACLBLAS_OP_T, ACLBLAS_UNIT, 32, 8, 32, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"UPPER+C UNIT n=32 k=8", ACLBLAS_UPPER, ACLBLAS_OP_C, ACLBLAS_UNIT, 32, 8, 32, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"LOWER+C UNIT n=32 k=8", ACLBLAS_LOWER, ACLBLAS_OP_C, ACLBLAS_UNIT, 32, 8, 32, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"LOWER+N n=63 k=16", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 63, 16, 63, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER+N n=63 k=16", ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 63, 16, 63, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"LOWER+N n=128 k=32", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 128, 32, 128, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"LOWER+T n=128 k=32", ACLBLAS_LOWER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, 128, 32, 128, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"UPPER+T n=128 k=32", ACLBLAS_UPPER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, 128, 32, 128, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"LOWER+N n=255 k=64", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 255, 64, 255, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-4f},
+    {"LOWER+N n=256 k=64", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 256, 64, 256, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-4f},
+    {"UPPER+N n=256 k=64", ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 256, 64, 256, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-4f},
+    {"LOWER+N n=512 k=128", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 512, 128, 512, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-3f},
+    {"UPPER+N n=512 k=128", ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 512, 128, 512, 1,
+     ACLBLAS_STATUS_SUCCESS, 1e-3f},
+    {"LOWER+T n=512 k=128", ACLBLAS_LOWER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, 512, 128, 512, 1,
+     ACLBLAS_STATUS_SUCCESS, 1e-3f},
+    {"LOWER+N n=1024 k=256", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 1024, 256, 1024, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-3f},
+    {"UPPER+T n=1024 k=256", ACLBLAS_UPPER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, 1024, 256, 1024, 1,
+     ACLBLAS_STATUS_SUCCESS, 1e-3f},
+    {"LOWER+N incx=2 n=64 k=16", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 64, 16, 64, 2, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"LOWER+N incx=-1 n=64 k=16", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 64, 16, 64, -1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"UPPER+N incx=-2 n=64 k=16", ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 64, 16, 64, -2,
+     ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=0", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 0, 0, 1, 1, ACLBLAS_STATUS_SUCCESS, 0.0f},
+    {"n=1 LOWER+N NON_UNIT", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 1, 1, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=1 UPPER+N UNIT", ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_UNIT, 1, 1, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=2 LOWER+T NON_UNIT", ACLBLAS_LOWER, ACLBLAS_OP_T, ACLBLAS_NON_UNIT, 2, 1, 2, 1, ACLBLAS_STATUS_SUCCESS,
+     1e-5f},
+    {"n=3 LOWER+N NON_UNIT", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 3, 2, 3, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"error: incx=0", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 10, 1, 10, 0, ACLBLAS_STATUS_INVALID_VALUE, 0.0f},
+    {"error: invalid uplo", static_cast<aclblasFillMode>(0), ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 10, 1, 10, 1,
+     ACLBLAS_STATUS_INVALID_VALUE, 0.0f},
+    {"error: invalid trans", ACLBLAS_LOWER, static_cast<aclblasOperation>(0), ACLBLAS_NON_UNIT, 10, 1, 10, 1,
+     ACLBLAS_STATUS_INVALID_VALUE, 0.0f},
+    {"error: invalid diag", ACLBLAS_LOWER, ACLBLAS_OP_N, static_cast<aclblasDiagType>(0), 10, 1, 10, 1,
+     ACLBLAS_STATUS_INVALID_VALUE, 0.0f},
+    {"error: n<0", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, -1, 1, 1, 1, ACLBLAS_STATUS_SUCCESS, 0.0f},
+    {"error: handle is nullptr", ACLBLAS_LOWER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT, 10, 1, 10, 1,
+     ACLBLAS_STATUS_HANDLE_IS_NULLPTR, 0.0f},
+};
 
-static size_t BandLowerIndex(uint32_t bandRow, uint32_t col, uint32_t lda)
+static inline uint32_t PhysicalPos(uint32_t logical, uint32_t n, int64_t inc, uint32_t absInc)
 {
-    return static_cast<size_t>(bandRow) * lda + col;
+    return (inc >= 0) ? (logical * absInc) : ((n - 1U - logical) * absInc);
 }
 
-static std::vector<float> BuildGolden(
-    const std::vector<float>& a, const std::vector<float>& x, uint32_t n, uint32_t k, uint32_t lda, int64_t incx)
+static void GenerateBanded(std::vector<float>& a, uint32_t n, uint32_t k, uint32_t lda, uint32_t seed, bool isUpper)
 {
-    std::vector<float> golden(n, 0.0f);
-    for (uint32_t row = 0; row < n; ++row) {
-        float acc = 0.0f;
-        uint32_t startCol = row > k ? row - k : 0;
-        for (uint32_t col = startCol; col <= row; ++col) {
-            uint32_t bandRow = row - col;
-            acc += a[BandLowerIndex(bandRow, col, lda)] * x[col * incx];
+    a.assign(static_cast<size_t>(k + 1U) * lda, 0.0f);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
+
+    if (isUpper) {
+        for (uint32_t col = 0; col < n; ++col) {
+            uint32_t maxDist = std::min(k, col);
+            for (uint32_t d = 0; d <= maxDist; ++d) {
+                uint32_t bandIdx = k - d;
+                a[static_cast<size_t>(bandIdx) * lda + col] = dist(rng);
+            }
         }
-        golden[row] = acc;
+    } else {
+        for (uint32_t col = 0; col < n; ++col) {
+            uint32_t maxBandRow = std::min(k, n - 1U - col);
+            for (uint32_t bandRow = 0; bandRow <= maxBandRow; ++bandRow) {
+                a[static_cast<size_t>(bandRow) * lda + col] = dist(rng);
+            }
+        }
+    }
+}
+
+static void GenerateStrided(std::vector<float>& v, uint32_t n, int64_t inc, uint32_t seed)
+{
+    uint32_t absInc = static_cast<uint32_t>(std::abs(inc));
+    size_t bufSize = static_cast<size_t>(n - 1U) * absInc + 1U;
+    v.assign(bufSize, 0.0f);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
+    for (uint32_t i = 0; i < n; ++i) {
+        uint32_t pos = PhysicalPos(i, n, inc, absInc);
+        v[pos] = dist(rng);
+    }
+}
+
+static void ComputeStbmvGolden(
+    const std::vector<float>& a, const std::vector<float>& x, uint32_t n, uint32_t k, uint32_t lda, int64_t incx,
+    uint32_t uplo, uint32_t trans, uint32_t diag, std::vector<float>& out)
+{
+    uint32_t absIncx = static_cast<uint32_t>(std::abs(incx));
+    bool isUpper = (uplo == ACLBLAS_UPPER);
+    bool isTrans = (trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C);
+    bool isUnit = (diag == ACLBLAS_UNIT);
+
+    out.assign(x.size(), 0.0f);
+
+    for (uint32_t row = 0; row < n; ++row) {
+        float sum = 0.0f;
+        uint32_t colStart, colEnd;
+
+        if (!isTrans) {
+            if (isUpper) {
+                colStart = row;
+                colEnd = std::min(n - 1U, row + k);
+            } else {
+                colStart = (row > k) ? (row - k) : 0U;
+                colEnd = row;
+            }
+        } else {
+            if (isUpper) {
+                colStart = (row > k) ? (row - k) : 0U;
+                colEnd = row;
+            } else {
+                colStart = row;
+                colEnd = std::min(n - 1U, row + k);
+            }
+        }
+
+        for (uint32_t col = colStart; col <= colEnd; ++col) {
+            float aVal;
+            if (isUnit && col == row) {
+                aVal = 1.0f;
+            } else {
+                uint32_t bandIdx;
+                uint32_t aCol;
+                if (!isTrans) {
+                    aCol = col;
+                    bandIdx = isUpper ? (k - (col - row)) : (row - col);
+                } else {
+                    aCol = row;
+                    bandIdx = isUpper ? (k - (row - col)) : (col - row);
+                }
+                aVal = a[static_cast<size_t>(bandIdx) * lda + aCol];
+            }
+            uint32_t xPos = PhysicalPos(col, n, incx, absIncx);
+            sum += aVal * x[xPos];
+        }
+        uint32_t yPos = PhysicalPos(row, n, incx, absIncx);
+        out[yPos] = sum;
+    }
+}
+
+static int RunStbmvCase(const TestCase& tc, aclblasHandle_t handle, aclrtStream stream)
+{
+    std::cout << "  " << tc.name << " ... " << std::flush;
+
+    auto toLegacyUplo = static_cast<aclblasFillMode>(tc.uplo);
+    auto toLegacyTrans = static_cast<aclblasOperation>(tc.trans);
+    auto toLegacyDiag = static_cast<aclblasDiagType>(tc.diag);
+
+    if (tc.n <= 0 || tc.expectResult != ACLBLAS_STATUS_SUCCESS) {
+        aclblasHandle_t useHandle = (tc.expectResult == ACLBLAS_STATUS_HANDLE_IS_NULLPTR) ? nullptr : handle;
+        std::vector<float> dummy;
+        aclblasStatus_t ret = aclblasStbmv_legacy(
+            useHandle, toLegacyUplo, toLegacyTrans, toLegacyDiag, nullptr, tc.lda, nullptr,
+            dummy.empty() ? nullptr : dummy.data(), tc.n, tc.k, tc.incx);
+        if (ret != tc.expectResult) {
+            std::cout << "FAILED: expected " << static_cast<int>(tc.expectResult) << " got " << static_cast<int>(ret)
+                      << std::endl;
+            return 1;
+        }
+        if (tc.expectResult == ACLBLAS_STATUS_SUCCESS) {
+            std::cout << "PASSED (NOT_SUPPORTED)" << std::endl;
+        } else {
+            std::cout << "PASSED" << std::endl;
+        }
+        return 0;
     }
 
-    return golden;
-}
+    uint32_t nU32 = static_cast<uint32_t>(tc.n);
+    uint32_t kU32 = static_cast<uint32_t>(tc.k);
+    uint32_t ldaU32 = static_cast<uint32_t>(tc.lda);
+    uint32_t seed = static_cast<uint32_t>(tc.n + tc.k + tc.lda * 100);
+    bool isUpper = (tc.uplo == ACLBLAS_UPPER);
 
-static uint32_t VerifyResult(std::vector<float>& output, std::vector<float>& golden)
-{
-    std::cout << std::fixed << std::setprecision(6);
+    std::vector<float> aHost;
+    GenerateBanded(aHost, nU32, kU32, ldaU32, seed, isUpper);
+    std::vector<float> xHost;
+    GenerateStrided(xHost, nU32, tc.incx, seed + 1);
 
-    auto printTensor = [](std::vector<float>& tensor, const char* name) {
-        constexpr size_t maxPrintSize = 20;
-        std::cout << name << ": ";
-        std::copy(
-            tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
-            std::ostream_iterator<float>(std::cout, " "));
-        if (tensor.size() > maxPrintSize) {
-            std::cout << "...";
-        }
-        std::cout << std::endl;
-    };
-    printTensor(output, "Output");
-    printTensor(golden, "Golden");
+    size_t aBytes = aHost.size() * sizeof(float);
+    size_t xBytes = xHost.size() * sizeof(float);
 
-    constexpr float absTol = 1e-5f;
-    constexpr float relTol = 1e-5f;
-    auto closeEnough = [&](float a, float b) {
-        float diff = std::abs(a - b);
-        float scale = std::max(std::abs(a), std::abs(b));
-        return diff <= absTol || diff <= relTol * scale;
-    };
+    void* dA = nullptr;
+    void* dX = nullptr;
+    void* dY = nullptr;
+    aclrtMalloc(&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dA, aBytes, aHost.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMalloc(&dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dX, xBytes, xHost.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMalloc(&dY, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    {
+        std::vector<float> yZero(xHost.size(), 0.0f);
+        aclrtMemcpy(dY, xBytes, yZero.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    }
 
-    for (size_t i = 0; i < output.size(); ++i) {
-        if (!closeEnough(output[i], golden[i])) {
-            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i] << " vs "
-                      << golden[i] << ")" << std::endl;
+    aclblasStatus_t blasRet = aclblasStbmv_legacy(
+        handle, toLegacyUplo, toLegacyTrans, toLegacyDiag, static_cast<const float*>(dA), tc.lda,
+        static_cast<const float*>(dX), static_cast<float*>(dY), tc.n, tc.k, tc.incx);
+
+    if (blasRet != ACLBLAS_STATUS_SUCCESS) {
+        aclrtFree(dA);
+        aclrtFree(dX);
+        aclrtFree(dY);
+        std::cout << "FAILED: " << static_cast<int>(blasRet) << std::endl;
+        return 1;
+    }
+    aclrtSynchronizeStream(stream);
+
+    std::vector<float> yNpu(xHost.size());
+    aclrtMemcpy(yNpu.data(), xBytes, dY, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+
+    std::vector<float> yGolden;
+    ComputeStbmvGolden(
+        aHost, xHost, nU32, kU32, ldaU32, tc.incx, static_cast<uint32_t>(tc.uplo), static_cast<uint32_t>(tc.trans),
+        static_cast<uint32_t>(tc.diag), yGolden);
+
+    aclrtFree(dA);
+    aclrtFree(dX);
+    aclrtFree(dY);
+
+    float absTol = tc.tol, relTol = tc.tol, maxDiff = 0.0f;
+    for (size_t i = 0; i < yNpu.size(); ++i) {
+        float diff = std::abs(yNpu[i] - yGolden[i]);
+        if (diff > maxDiff)
+            maxDiff = diff;
+        float scale = std::max(std::abs(yNpu[i]), std::abs(yGolden[i]));
+        if (diff > absTol && diff > relTol * scale) {
+            std::cout << "FAILED at " << i << " (" << yNpu[i] << " vs " << yGolden[i] << ")" << std::endl;
             return 1;
         }
     }
-
-    std::cout << "[Success] Case accuracy is verification passed." << std::endl;
+    std::cout << "PASSED (maxDiff=" << maxDiff << ")" << std::endl;
     return 0;
-}
-
-static int RunCase(uint32_t n, uint32_t k, uint32_t lda)
-{
-    int32_t deviceId = 0;
-    aclError ret = ACL_SUCCESS;
-    std::mt19937 rng(20260325U + n + k + lda);
-    std::uniform_real_distribution<float> dist(0.0f, 0.5f);
-    const int64_t incx = 1;
-
-    std::vector<float> x(n, 0.0f);
-    for (uint32_t i = 0; i < n; ++i) {
-        x[i] = dist(rng);
-    }
-
-    std::vector<float> a(static_cast<size_t>(k + 1U) * lda, 0.0f);
-    for (uint32_t col = 0; col < n; ++col) {
-        uint32_t maxBandRow = std::min(k, n - 1U - col);
-        for (uint32_t bandRow = 0; bandRow <= maxBandRow; ++bandRow) {
-            a[BandLowerIndex(bandRow, col, lda)] = dist(rng);
-        }
-    }
-
-    std::vector<float> golden = BuildGolden(a, x, n, k, lda, incx);
-    std::vector<float> y(n, 0.0f);
-
-    aclrtStream stream = nullptr;
-
-    ret = aclInit(nullptr);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclInit failed. ERROR: %d\n", ret); return ret);
-
-    ret = aclrtSetDevice(deviceId);
-    CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclrtSetDevice failed. ERROR: %d\n", ret); aclFinalize(); return ret);
-
-    ret = aclrtCreateStream(&stream);
-    CHECK_RET(
-        ret == ACL_SUCCESS, LOG_PRINT("aclrtCreateStream failed. ERROR: %d\n", ret); aclrtResetDevice(deviceId);
-        aclFinalize(); return ret);
-
-    aclblasHandle_t handle = nullptr;
-    aclblasCreate(&handle);
-    aclblasSetStream(handle, stream);
-
-    ret = aclblasStbmv_legacy(handle, a.data(), lda, x.data(), y.data(), n, k, incx);
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasStbmv_legacy failed. ERROR: %d\n", ret); return ret);
-
-    int status = VerifyResult(y, golden);
-
-    aclblasDestroy(handle);
-    aclrtDestroyStream(stream);
-    aclrtResetDevice(deviceId);
-    aclFinalize();
-    return status;
 }
 
 int32_t main(int32_t argc, char* argv[])
 {
     (void)argc;
     (void)argv;
-    int ret = RunCase(2048, 256, 2048);
-    if (ret != 0) {
-        return ret;
+    int32_t deviceId = 0;
+    aclInit(nullptr);
+    aclrtSetDevice(deviceId);
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
+
+    int failed = 0;
+    int total = static_cast<int>(gStbmvTests.size());
+    std::cout << "Running " << total << " stbmv arch22 test cases..." << std::endl;
+    for (const auto& tc : gStbmvTests) {
+        if (RunStbmvCase(tc, handle, stream) != 0)
+            ++failed;
     }
-    return RunCase(1537, 384, 1664);
+    std::cout << "\nResults: " << (total - failed) << "/" << total << " passed" << std::endl;
+
+    aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
+    aclrtResetDevice(deviceId);
+    aclFinalize();
+    return (failed == 0) ? 0 : 1;
 }

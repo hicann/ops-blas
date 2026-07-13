@@ -66,7 +66,7 @@ static std::vector<float> BuildGolden(
         if (i < j) {
             std::swap(i, j);
         }
-        return static_cast<size_t>(j + (i * (i + 1U)) / 2U);
+        return static_cast<size_t>(j) + (static_cast<size_t>(i) * (i + 1ULL)) / 2ULL;
     };
 
     std::vector<float> golden(n, 0.0f);
@@ -172,7 +172,7 @@ static int RunCase(uint32_t n)
         if (i < j) {
             std::swap(i, j);
         }
-        return static_cast<size_t>(j + (i * (i + 1U)) / 2U);
+        return static_cast<size_t>(j) + (static_cast<size_t>(i) * (i + 1ULL)) / 2ULL;
     };
     for (uint32_t i = 0; i < n; ++i) {
         for (uint32_t j = 0; j <= i; ++j) {

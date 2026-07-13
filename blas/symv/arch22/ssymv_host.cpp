@@ -8,46 +8,17 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/* !
- * \file symv.asc
- * \brief
- */
-
-#include <algorithm>
 #include <cstdint>
-#include "acl/acl.h"
+#include <algorithm>
 #include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
 #include "common/helper/aclblas_handle_internal.h"
-
-extern void symv_kernel_do(
-    uint8_t* a, uint8_t* x, uint8_t* y, uint8_t* z, uint8_t* workSpace, uint8_t* tilingGm,
-    uint32_t numBlocks, void* stream);
-
-constexpr uint32_t SYMV_MAX_CORE_NUM = 50;
-constexpr uint32_t SYMV_TILE_SIZE = 128;
-constexpr uint32_t SYMV_MAX_TILE_TASK = 4096;
-constexpr uint32_t NUM_BLOCKS = 8;
-
-struct SymvTilingData {
-    uint32_t n;
-    uint32_t lda;
-    uint32_t useCoreNum;
-    float alpha;
-    float beta;
-    int64_t incx;
-    int64_t incy;
-    uint32_t tileSize;
-    uint32_t tileRows;
-    uint32_t taskCount;
-    uint16_t taskBi[SYMV_MAX_TILE_TASK];
-    uint16_t taskBj[SYMV_MAX_TILE_TASK];
-    uint8_t taskType[SYMV_MAX_TILE_TASK];
-    uint32_t taskStart[SYMV_MAX_CORE_NUM];
-    uint32_t taskStep[SYMV_MAX_CORE_NUM];
-};
+#include "ssymv_tiling_data.h"
+#include "ssymv_kernel.h"
 
 static SymvTilingData CalSymvTilingData(
-    uint32_t totalRows, uint32_t lda, uint32_t vecCoreNum, float alpha, float beta, int64_t incx, int64_t incy)
+    uint32_t totalRows, uint32_t lda, uint32_t vecCoreNum, float alpha, float beta, int64_t incx, int64_t incy,
+    uint32_t uplo)
 {
     SymvTilingData tilingData{};
     tilingData.n = totalRows;
@@ -56,77 +27,57 @@ static SymvTilingData CalSymvTilingData(
     tilingData.beta = beta;
     tilingData.incx = incx;
     tilingData.incy = incy;
-    tilingData.tileSize = SYMV_TILE_SIZE;
+    tilingData.uplo = uplo;
 
-    uint32_t taskCount = std::min(totalRows, SYMV_MAX_TILE_TASK);
-    tilingData.taskCount = taskCount;
-
-    uint32_t availableCoreNum = vecCoreNum == 0 ? 1U : vecCoreNum;
-    if (availableCoreNum > SYMV_MAX_CORE_NUM) {
-        availableCoreNum = SYMV_MAX_CORE_NUM;
+    if (incx == 1 && incy == 1) {
+        uint32_t availableCoreNum = vecCoreNum == 0 ? 1U : vecCoreNum;
+        if (availableCoreNum > SYMV_MAX_CORE_NUM) {
+            availableCoreNum = SYMV_MAX_CORE_NUM;
+        }
+        tilingData.useCoreNum = std::min(totalRows, availableCoreNum);
+    } else {
+        tilingData.useCoreNum = 1;
     }
-    tilingData.useCoreNum = std::min(taskCount, availableCoreNum);
     if (tilingData.useCoreNum == 0) {
-        return tilingData;
-    }
-
-    for (uint32_t taskIdx = 0; taskIdx < taskCount; ++taskIdx) {
-        tilingData.taskBi[taskIdx] = static_cast<uint16_t>(taskIdx);
-        tilingData.taskBj[taskIdx] = 0;
-        tilingData.taskType[taskIdx] = 0;
-    }
-
-    for (uint32_t i = 0; i < tilingData.useCoreNum; ++i) {
-        tilingData.taskStart[i] = i;
-        tilingData.taskStep[i] = tilingData.useCoreNum;
+        tilingData.useCoreNum = 1;
     }
     return tilingData;
 }
 
 aclblasStatus_t aclblasSsymv(
-    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* a, int lda,
-    const float* x, int incx, const float* beta, float* y, int incy)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* a, int lda, const float* x,
+    int incx, const float* beta, float* y, int incy)
 {
-    (void)uplo;
-    aclrtStream useStream = nullptr;
-    if (handle != nullptr) {
-        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
-        useStream = h->stream;
+    if (uplo != ACLBLAS_UPPER && uplo != ACLBLAS_LOWER) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
     }
+    if (handle == nullptr) {
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    }
+    if (n <= 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    if (incx == 0 || incy == 0) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (lda < std::max(1, n)) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (alpha == nullptr || beta == nullptr || a == nullptr || x == nullptr || y == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    aclrtStream useStream = h->stream;
+
     constexpr uint32_t numBlocks = 8;
-    const size_t vecElementCount = static_cast<size_t>(n);
-    const size_t matrixElementCount = static_cast<size_t>(n) * static_cast<size_t>(lda);
-    const size_t vecByteSize = vecElementCount * sizeof(float);
-    const size_t matrixByteSize = matrixElementCount * sizeof(float);
-
     SymvTilingData tiling = CalSymvTilingData(
-        static_cast<uint32_t>(n), static_cast<uint32_t>(lda), numBlocks, *alpha, *beta, incx, incy);
+        static_cast<uint32_t>(n), static_cast<uint32_t>(lda), numBlocks, *alpha, *beta, incx, incy,
+        static_cast<uint32_t>(uplo));
 
-    uint8_t* aDevice = nullptr;
-    uint8_t* xDevice = nullptr;
-    uint8_t* yDevice = nullptr;
-    uint8_t* zDevice = nullptr;
-    uint8_t* tilingDevice = nullptr;
+    ssymv_kernel_do(
+        reinterpret_cast<uint8_t*>(const_cast<float*>(a)), reinterpret_cast<uint8_t*>(const_cast<float*>(x)),
+        reinterpret_cast<uint8_t*>(const_cast<float*>(y)), nullptr, tiling, numBlocks, useStream);
 
-    aclrtMalloc(reinterpret_cast<void**>(&aDevice), matrixByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void**>(&xDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void**>(&yDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void**>(&zDevice), vecByteSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc(reinterpret_cast<void**>(&tilingDevice), sizeof(SymvTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
-
-    aclrtMemcpy(aDevice, matrixByteSize, a, matrixByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(xDevice, vecByteSize, x, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(yDevice, vecByteSize, y, vecByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(tilingDevice, sizeof(SymvTilingData), &tiling, sizeof(SymvTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-
-    symv_kernel_do(aDevice, xDevice, yDevice, zDevice, nullptr, tilingDevice, numBlocks, useStream);
-    aclrtSynchronizeStream(useStream);
-    aclrtMemcpy(y, vecByteSize, zDevice, vecByteSize, ACL_MEMCPY_DEVICE_TO_HOST);
-
-    aclrtFree(aDevice);
-    aclrtFree(xDevice);
-    aclrtFree(yDevice);
-    aclrtFree(zDevice);
-    aclrtFree(tilingDevice);
     return ACLBLAS_STATUS_SUCCESS;
 }

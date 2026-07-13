@@ -1,217 +1,248 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
-
-
-/* !
-* \file sspmv_test.cpp
-* \brief
-*/
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software ... see LICENSE in the root of the software repository.
+ */
 
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <cmath>
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <random>
+#include <string>
 #include <vector>
-#include <algorithm>
-#include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "cann_ops_blas_common.h"
 
-#define CHECK_RET(cond, return_expr) \
-    do {                             \
-        if (!(cond)) {               \
-            return_expr;             \
-        }                            \
-    } while (0)
-
-#define LOG_PRINT(message, ...)         \
-    do {                                \
-        printf(message, ##__VA_ARGS__); \
-    } while (0)
-
-enum class SpmvCompareMode {
-    FullMatrix,
-    LowerTriangleOnly,
-    SymmetricOnly,
+struct TestCase {
+    const char* name;
+    aclblasFillMode_t uplo;
+    int n;
+    float alpha;
+    float beta;
+    int incx;
+    int incy;
+    aclblasStatus_t expectResult;
+    float tol;
 };
 
-// Change only this line to switch the verification mode.
-constexpr SpmvCompareMode kCompareMode = SpmvCompareMode::FullMatrix;
+static const std::vector<TestCase> gSspmvTests = {
+    {"UPPER n=32 incx=1 incy=1", ACLBLAS_UPPER, 32, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=32 incx=1 incy=1", ACLBLAS_LOWER, 32, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=64 incx=1 incy=1", ACLBLAS_UPPER, 64, 0.5f, 1.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=64 incx=1 incy=1", ACLBLAS_LOWER, 64, 0.5f, 1.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=128 incx=1 incy=1", ACLBLAS_UPPER, 128, 1.0f, 1.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=128 incx=1 incy=1", ACLBLAS_LOWER, 128, 1.0f, 1.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=256 incx=1 incy=1", ACLBLAS_UPPER, 256, 2.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=256 incx=1 incy=1", ACLBLAS_LOWER, 256, 2.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=512 incx=1 incy=1", ACLBLAS_UPPER, 512, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"LOWER n=512 incx=1 incy=1", ACLBLAS_LOWER, 512, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"UPPER n=1024 incx=1 incy=1", ACLBLAS_UPPER, 1024, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"LOWER n=1024 incx=1 incy=1", ACLBLAS_LOWER, 1024, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"UPPER n=2048 incx=1 incy=1", ACLBLAS_UPPER, 2048, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"LOWER n=2048 incx=1 incy=1", ACLBLAS_LOWER, 2048, 1.2f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"UPPER n=32 incx=2 incy=1", ACLBLAS_UPPER, 32, 1.0f, 0.0f, 2, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=64 incx=-2 incy=1", ACLBLAS_LOWER, 64, 1.0f, 0.0f, -2, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=32 incx=-1 incy=1", ACLBLAS_LOWER, 32, 0.5f, 0.0f, -1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=32 incx=1 incy=2", ACLBLAS_UPPER, 32, 1.0f, 0.0f, 1, 2, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"LOWER n=64 incx=1 incy=-1", ACLBLAS_LOWER, 64, 0.5f, 0.0f, 1, -1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"UPPER n=32 incx=1 incy=3", ACLBLAS_UPPER, 32, 1.0f, 0.5f, 1, 3, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=0", ACLBLAS_LOWER, 0, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 0.0f},
+    {"n=1 UPPER", ACLBLAS_UPPER, 1, 1.2f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=1 LOWER", ACLBLAS_LOWER, 1, 1.2f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=2 UPPER", ACLBLAS_UPPER, 2, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=2 LOWER", ACLBLAS_LOWER, 2, 1.0f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=3 UPPER", ACLBLAS_UPPER, 3, 1.5f, 0.2f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=3 LOWER", ACLBLAS_LOWER, 3, 1.5f, 0.2f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=63 UPPER", ACLBLAS_UPPER, 63, 0.8f, 0.3f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=63 LOWER", ACLBLAS_LOWER, 63, 0.8f, 0.3f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"n=127 UPPER", ACLBLAS_UPPER, 127, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"n=129 LOWER", ACLBLAS_LOWER, 129, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"n=255 UPPER", ACLBLAS_UPPER, 255, 1.2f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"n=257 LOWER", ACLBLAS_LOWER, 257, 1.2f, 0.5f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-4f},
+    {"beta=0 LOWER n=32", ACLBLAS_LOWER, 32, 1.5f, 0.0f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"alpha=0 UPPER n=32", ACLBLAS_UPPER, 32, 0.0f, 0.8f, 1, 1, ACLBLAS_STATUS_SUCCESS, 1e-5f},
+    {"error: invalid uplo", static_cast<aclblasFillMode_t>(0), 10, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_INVALID_VALUE, 0.f},
+    {"error: incx=0", ACLBLAS_LOWER, 10, 1.0f, 0.0f, 0, 1, ACLBLAS_STATUS_INVALID_VALUE, 0.f},
+    {"error: incy=0", ACLBLAS_LOWER, 10, 1.0f, 0.0f, 1, 0, ACLBLAS_STATUS_INVALID_VALUE, 0.f},
+    {"error: handle is nullptr", ACLBLAS_LOWER, 10, 1.0f, 0.0f, 1, 1, ACLBLAS_STATUS_HANDLE_IS_NULLPTR, 0.f},
+};
 
-static const char *GetCompareModeName()
+static inline uint32_t PhysicalPos(uint32_t logical, uint32_t n, int64_t inc, uint32_t absInc)
 {
-    switch (kCompareMode) {
-        case SpmvCompareMode::FullMatrix:
-            return "full-matrix";
-        case SpmvCompareMode::LowerTriangleOnly:
-            return "lower-triangle-only";
-        case SpmvCompareMode::SymmetricOnly:
-            return "symmetric-only";
-        default:
-            return "unknown";
+    return (inc >= 0) ? (logical * absInc) : ((n - 1U - logical) * absInc);
+}
+
+static void GeneratePacked(std::vector<float>& ap, uint32_t n, uint32_t seed)
+{
+    size_t packedSize = static_cast<size_t>(n) * (n + 1U) / 2U;
+    ap.assign(packedSize, 0.0f);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
+
+    for (uint32_t row = 0; row < n; ++row) {
+        for (uint32_t col = 0; col <= row; ++col) {
+            ap[col + row * (row + 1U) / 2U] = dist(rng);
+        }
     }
 }
 
-static std::vector<float> BuildGolden(const std::vector<float> &aPacked, const std::vector<float> &x,
-    const std::vector<float> &y, uint32_t n, int64_t incx, int64_t incy, float alpha, float beta)
+static void GenerateStrided(std::vector<float>& v, uint32_t n, int inc, uint32_t seed)
 {
-    auto packedIndex = [n](uint32_t i, uint32_t j) {
-        if (i < j) {
-            std::swap(i, j);
-        }
-        return static_cast<size_t>(j + (i * (i + 1U)) / 2U);
-    };
+    uint32_t absInc = static_cast<uint32_t>(std::abs(inc));
+    size_t bufSize = static_cast<size_t>(n - 1U) * absInc + 1U;
+    v.assign(bufSize, 0.0f);
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<float> dist(-0.5f, 0.5f);
 
-    std::vector<float> golden(n, 0.0f);
-    switch (kCompareMode) {
-        case SpmvCompareMode::FullMatrix:
-            for (uint32_t i = 0; i < n; ++i) {
-                float acc = 0.0f;
-                for (uint32_t j = 0; j < n; ++j) {
-                    uint32_t row = i >= j ? i : j;
-                    uint32_t col = i >= j ? j : i;
-                    size_t idx = packedIndex(row, col);
-                    acc += aPacked[idx] * x[j * incx];
-                }
-                golden[i] = alpha * acc + beta * y[i * incy];
-            }
-            break;
-        case SpmvCompareMode::LowerTriangleOnly:
-            for (uint32_t i = 0; i < n; ++i) {
-                float acc = 0.0f;
-                for (uint32_t j = 0; j <= i; ++j) {
-                    size_t idx = packedIndex(i, j);
-                    acc += aPacked[idx] * x[j * incx];
-                }
-                golden[i] = alpha * acc + beta * y[i * incy];
-            }
-            break;
-        case SpmvCompareMode::SymmetricOnly:
-            for (uint32_t j = 0; j < n; ++j) {
-                float acc = 0.0f;
-                for (uint32_t i = j + 1; i < n; ++i) {
-                    size_t idx = packedIndex(i, j);
-                    acc += aPacked[idx] * x[i * incx];
-                }
-                golden[j] = alpha * acc + beta * y[j * incy];
-            }
-            break;
-        default:
-            break;
+    for (uint32_t i = 0; i < n; ++i) {
+        uint32_t pos = PhysicalPos(i, n, inc, absInc);
+        v[pos] = dist(rng);
     }
-
-    return golden;
 }
 
-uint32_t VerifyResult(std::vector<float> &output, std::vector<float> &golden)
+static void ComputeSspmvGolden(
+    const std::vector<float>& ap, const std::vector<float>& x, const std::vector<float>& y, uint32_t n, int incx,
+    int incy, float alpha, float beta, std::vector<float>& out)
 {
-    std::cout << std::fixed << std::setprecision(6);
+    uint32_t absIncx = static_cast<uint32_t>(std::abs(incx));
+    uint32_t absIncy = static_cast<uint32_t>(std::abs(incy));
 
-    auto printTensor = [](std::vector<float> &tensor, const char *name) {
-        constexpr size_t maxPrintSize = 20;
-        std::cout << name << ": ";
-        std::copy(tensor.begin(), tensor.begin() + std::min(tensor.size(), maxPrintSize),
-            std::ostream_iterator<float>(std::cout, " "));
-        if (tensor.size() > maxPrintSize) {
-            std::cout << "...";
+    out.assign(y.size(), 0.0f);
+    for (uint32_t row = 0; row < n; ++row) {
+        float sum = 0.0f;
+        for (uint32_t col = 0; col < n; ++col) {
+            uint32_t r = std::max(row, col);
+            uint32_t c = std::min(row, col);
+            uint32_t idx = c + r * (r + 1U) / 2U;
+            uint32_t xPos = PhysicalPos(col, n, incx, absIncx);
+            sum += ap[idx] * x[xPos];
         }
-        std::cout << std::endl;
-    };
-    printTensor(output, "Output");
-    printTensor(golden, "Golden");
+        uint32_t yPos = PhysicalPos(row, n, incy, absIncy);
+        out[yPos] = alpha * sum + beta * y[yPos];
+    }
+}
 
-    constexpr float absTol = 1e-3f;
-    constexpr float relTol = 1e-4f;
-    auto closeEnough = [&](float a, float b) {
-        float diff = std::abs(a - b);
-        float scale = std::max(std::abs(a), std::abs(b));
-        return diff <= absTol || diff <= relTol * scale;
-    };
+static int RunSspmvCase(const TestCase& tc, aclblasHandle_t handle, aclrtStream stream)
+{
+    std::cout << "  " << tc.name << " ... " << std::flush;
 
-    for (size_t i = 0; i < output.size(); ++i) {
-        if (!closeEnough(output[i], golden[i])) {
-            std::cout << "[Failed] Case accuracy is verification failed at index " << i << " (" << output[i]
-                      << " vs " << golden[i] << ")" << std::endl;
+    if (tc.n == 0 || tc.expectResult != ACLBLAS_STATUS_SUCCESS) {
+        aclblasHandle_t useHandle = (tc.expectResult == ACLBLAS_STATUS_HANDLE_IS_NULLPTR) ? nullptr : handle;
+        aclblasStatus_t ret =
+            aclblasSspmv(useHandle, tc.uplo, tc.n, &tc.alpha, nullptr, nullptr, tc.incx, &tc.beta, nullptr, tc.incy);
+        if (ret != tc.expectResult) {
+            std::cout << "FAILED: expected " << static_cast<int>(tc.expectResult) << " got " << static_cast<int>(ret)
+                      << std::endl;
+            return 1;
+        }
+        if (tc.expectResult == ACLBLAS_STATUS_NOT_SUPPORTED) {
+            std::cout << "PASSED (NOT_SUPPORTED)" << std::endl;
+        } else {
+            std::cout << "PASSED" << std::endl;
+        }
+        return 0;
+    }
+
+    uint32_t nU32 = static_cast<uint32_t>(tc.n);
+    uint32_t seed = static_cast<uint32_t>(tc.n + std::abs(tc.incx + tc.incy) * 1000);
+
+    std::vector<float> apHost;
+    GeneratePacked(apHost, nU32, seed);
+    std::vector<float> xHost;
+    GenerateStrided(xHost, nU32, tc.incx, seed + 1);
+    std::vector<float> yHost;
+    GenerateStrided(yHost, nU32, tc.incy, seed + 2);
+
+    size_t apBytes = apHost.size() * sizeof(float);
+    size_t xBytes = xHost.size() * sizeof(float);
+    size_t yBytes = yHost.size() * sizeof(float);
+
+    void* dAP = nullptr;
+    void* dX = nullptr;
+    void* dY = nullptr;
+    aclError aclRet;
+    aclRet = aclrtMalloc(&dAP, apBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dAP, apBytes, apHost.data(), apBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc(&dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dX, xBytes, xHost.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMalloc(&dY, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dY, yBytes, yHost.data(), yBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclblasStatus_t blasRet = aclblasSspmv(
+        handle, tc.uplo, tc.n, &tc.alpha, static_cast<const float*>(dAP), static_cast<const float*>(dX), tc.incx,
+        &tc.beta, static_cast<float*>(dY), tc.incy);
+
+    if (blasRet != tc.expectResult) {
+        aclrtFree(dAP);
+        aclrtFree(dX);
+        aclrtFree(dY);
+        std::cout << "FAILED: expected " << static_cast<int>(tc.expectResult) << " got " << static_cast<int>(blasRet)
+                  << std::endl;
+        return 1;
+    }
+
+    aclrtSynchronizeStream(stream);
+
+    std::vector<float> yNpu(yHost.size());
+    aclrtMemcpy(yNpu.data(), yBytes, dY, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+
+    std::vector<float> yGolden;
+    ComputeSspmvGolden(apHost, xHost, yHost, nU32, tc.incx, tc.incy, tc.alpha, tc.beta, yGolden);
+
+    aclrtFree(dAP);
+    aclrtFree(dX);
+    aclrtFree(dY);
+
+    float absTol = tc.tol;
+    float relTol = tc.tol;
+    float maxDiff = 0.0f;
+    for (size_t i = 0; i < yNpu.size(); ++i) {
+        float diff = std::abs(yNpu[i] - yGolden[i]);
+        if (diff > maxDiff)
+            maxDiff = diff;
+        float scale = std::max(std::abs(yNpu[i]), std::abs(yGolden[i]));
+        if (diff > absTol && diff > relTol * scale) {
+            std::cout << "FAILED at index " << i << " (" << yNpu[i] << " vs " << yGolden[i] << " diff=" << diff << ")"
+                      << std::endl;
             return 1;
         }
     }
-
-    std::cout << "[Success] Case accuracy is verification passed." << std::endl;
+    std::cout << "PASSED (maxDiff=" << maxDiff << ")" << std::endl;
     return 0;
 }
 
-static int RunCase(uint32_t n)
+int32_t main(int32_t argc, char* argv[])
 {
+    (void)argc;
+    (void)argv;
     int32_t deviceId = 0;
-
-    constexpr float alpha = 1.2f;
-    constexpr float beta = 0.8f;
-    std::vector<float> x(n, 0.0f);
-    std::vector<float> y(n, 0.0f);
-    std::mt19937 rng(20260319U + n);
-    std::uniform_real_distribution<float> dist(0.0f, 0.5f);
-    for (uint32_t i = 0; i < n; ++i) {
-        x[i] = dist(rng);
-        y[i] = dist(rng);
+    aclError ret = aclInit(nullptr);
+    if (ret != ACL_SUCCESS) {
+        fprintf(stderr, "aclInit failed\n");
+        return ret;
     }
-    int64_t incx = 1;
-    int64_t incy = 1;
-
-    // Build packed lower-triangular stored matrix A with deterministic values.
-    const size_t packedSize = (static_cast<size_t>(n) * (static_cast<size_t>(n) + 3U) - 2U) / 2U;
-    std::vector<float> aPacked(packedSize, 0.0f);
-    auto packedIndex = [n](uint32_t i, uint32_t j) {
-        if (i < j) {
-            std::swap(i, j);
-        }
-        return static_cast<size_t>(j + (i * (i + 1U)) / 2U);
-    };
-    for (uint32_t i = 0; i < n; ++i) {
-        for (uint32_t j = 0; j <= i; ++j) {
-            aPacked[packedIndex(i, j)] = dist(rng);
-        }
-    }
-
-    aclrtStream stream = nullptr;
-
-    aclInit(nullptr);
     aclrtSetDevice(deviceId);
+    aclrtStream stream = nullptr;
     aclrtCreateStream(&stream);
-
     aclblasHandle_t handle = nullptr;
     aclblasCreate(&handle);
     aclblasSetStream(handle, stream);
 
-    std::vector<float> output = y;
-    aclblasStatus_t ret = aclblasSspmv(
-        handle, ACLBLAS_LOWER, static_cast<int>(n), &alpha, aPacked.data(), x.data(), static_cast<int>(incx), &beta,
-        output.data(), static_cast<int>(incy));
-    CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS,
-        LOG_PRINT("aclblasSspmv failed. ERROR: %d\n", ret); aclblasDestroy(handle); aclrtDestroyStream(stream);
-        aclrtResetDevice(deviceId); aclFinalize(); return ret);
-
-    std::vector<float> golden = BuildGolden(aPacked, x, y, n, incx, incy, alpha, beta);
-    int status = VerifyResult(output, golden);
+    int failed = 0;
+    int total = static_cast<int>(gSspmvTests.size());
+    std::cout << "Running " << total << " sspmv arch22 test cases..." << std::endl;
+    for (const auto& tc : gSspmvTests) {
+        if (RunSspmvCase(tc, handle, stream) != 0)
+            ++failed;
+    }
+    std::cout << "\nResults: " << (total - failed) << "/" << total << " passed" << std::endl;
 
     aclblasDestroy(handle);
     aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
-    return status;
-}
-
-int32_t main(int32_t argc, char *argv[])
-{
-    int ret = RunCase(2048);
-    if (ret != 0) {
-        return ret;
-    }
-    return RunCase(1537);
+    return (failed == 0) ? 0 : 1;
 }
