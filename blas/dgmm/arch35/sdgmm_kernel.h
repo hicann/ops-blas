@@ -11,7 +11,7 @@
 /*!
  * \file sdgmm_kernel.h
  * \brief Declaration of the kernel launcher for aclblasSdgmm (arch35).
- *        Pure tensor_api (AscendC::Te) kernel: MakeTensor / Copy / Transform.
+ *        Uses AscendC APIs: GlobalTensor / TBuf / DataCopyPad / Mul / Muls.
  *        Shared by host.cpp and kernel.cpp.
  */
 
@@ -25,7 +25,7 @@
 #endif
 
 /*!
- * \brief Kernel launcher: asynchronously launches the tensor_api kernel.
+ * \brief Kernel launcher: asynchronously launches the kernel.
  *
  * The kernel handles negative incx internally by computing non-negative
  * indices (same formula as the CPU golden), so the Host passes the original

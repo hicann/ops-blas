@@ -1,8 +1,8 @@
-# Sdgmm算子
+# Dgmm算子
 
 ## 算子概述
 
-Sdgmm（Diagonal Matrix-Matrix Multiplication）算子实现了对角矩阵与普通矩阵的乘法运算，使用一个向量构造对角矩阵，按行（LEFT）或按列（RIGHT）对输入矩阵进行缩放，核心运算为逐元素乘法。矩阵按列主序（BLAS 约定）存储。
+Dgmm（Diagonal Matrix-Matrix Multiplication）算子实现了对角矩阵与普通矩阵的乘法运算，使用一个向量构造对角矩阵，按行（LEFT）或按列（RIGHT）对输入矩阵进行缩放，核心运算为逐元素乘法。矩阵按列主序（BLAS 约定）存储。
 
 数学表达式：
 

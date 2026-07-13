@@ -164,7 +164,7 @@ static aclblasStatus_t LaunchSdgmmKernel(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-aclblasStatus_t aclblasSdgmm(
+extern "C" aclblasStatus_t aclblasSdgmm(
     aclblasHandle_t handle, aclblasSideMode_t mode,
     int m, int n, const float* A, int lda,
     const float* x, int incx, float* C, int ldc)
