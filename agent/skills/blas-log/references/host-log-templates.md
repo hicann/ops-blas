@@ -134,7 +134,7 @@ static aclblasStatus_t LaunchSgemvKernel(aclblasHandle_t handle, aclblasOperatio
                                           int m, int n, const float* A, int lda,
                                           const float* x, int incx, float* y, int incy)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     uint32_t coreNum = GetAivCoreCount();
     if (coreNum == 0) {

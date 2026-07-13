@@ -99,7 +99,7 @@ aclblasStatus_t aclblasCtrmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n,
     aclblasComplex* A, int64_t lda, aclblasComplex* x, int64_t incx)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     int64_t uploLocal = (uplo == ACLBLAS_LOWER) ? 0 : 1;

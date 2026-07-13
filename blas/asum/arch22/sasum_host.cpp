@@ -101,7 +101,7 @@ AsumTilingData CalAsumTilingData(uint32_t totalEleNum, uint32_t vecCoreNum)
 
 aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float* x, int incx, float* result)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;

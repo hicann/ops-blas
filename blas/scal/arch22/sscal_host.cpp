@@ -98,7 +98,7 @@ SscalTilingData CalTilingData(uint32_t totalEleNum, uint32_t vecCoreNum, float a
 
 aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;
@@ -131,7 +131,7 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
 aclblasStatus_t aclblasCsscal(
     aclblasHandle_t handle, const int64_t n, const float alpha, aclblasComplex* x, const int64_t incx)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;

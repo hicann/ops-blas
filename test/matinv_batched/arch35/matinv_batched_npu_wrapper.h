@@ -158,7 +158,7 @@ inline aclblasStatus_t MatinvEnsureWorkspace(
     wsExpanded = false;
     expandedWs = nullptr;
     const size_t alignedWs = (requiredWs + 4095U) & ~static_cast<size_t>(4095U);
-    auto* h = reinterpret_cast<_aclblas_handle*>(internalHandleRef);
+    auto* h = internalHandleRef;
     size_t currentWs = GetEffectiveWorkspaceSize(h);
 
     if (alignedWs > currentWs) {

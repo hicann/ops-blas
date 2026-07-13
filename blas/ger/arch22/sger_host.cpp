@@ -103,7 +103,7 @@ aclblasStatus_t aclblasSger(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     if (useStream == nullptr) {

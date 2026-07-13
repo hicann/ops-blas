@@ -14,10 +14,10 @@
 #include <acl/acl.h>
 #include "cann_ops_blas_common.h"
 
-using aclblasHandle = void*;
+using aclblasHandle = struct _aclblas_handle*;
 using aclblasLogCallback = void (*)(const char*);
 
-typedef void* aclblasHandle_t;
+typedef struct _aclblas_handle* aclblasHandle_t;
 
 #ifdef __cplusplus
 extern "C" {

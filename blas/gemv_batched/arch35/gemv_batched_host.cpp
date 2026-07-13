@@ -225,7 +225,7 @@ static aclblasStatus_t GemvBatchedImpl(aclblasHandle_t handle, aclblasOperation_
     if (Aarray == nullptr || xarray == nullptr || yarray == nullptr) return ACLBLAS_STATUS_INVALID_VALUE;
     if (alpha == nullptr || beta == nullptr)            return ACLBLAS_STATUS_INVALID_VALUE;
     if (trans != ACLBLAS_OP_N && trans != ACLBLAS_OP_T) return ACLBLAS_STATUS_INVALID_ENUM;
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
     uint32_t coreNum = GetAivCoreCount();
     if (coreNum == 0) {

@@ -105,6 +105,6 @@ aclblasStatus_t aclblasSger(
     if (alphaVal == 0.0f) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     return LaunchSgerKernel(h, m, n, lda, alphaVal, incx, incy, x, y, A);
 }

@@ -189,6 +189,6 @@ extern "C" aclblasStatus_t aclblasSdgmm(
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     return LaunchSdgmmKernel(mode, m, n, A, lda, x, incx, C, ldc, aivCoreNum, h->stream);
 }

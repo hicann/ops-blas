@@ -285,7 +285,7 @@ static aclblasStatus_t GemvStridedBatchedImpl(
     int                batchCount,
     uint32_t           dtype)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     CHECK_RET(h != nullptr, OP_LOGE(K_OP_NAME, "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
     CHECK_RET(m >= 0, OP_LOGE(K_OP_NAME, "invalid m=%d", m); return ACLBLAS_STATUS_INVALID_VALUE);

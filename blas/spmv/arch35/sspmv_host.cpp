@@ -74,7 +74,7 @@ aclblasStatus_t aclblasSspmv(
         return st;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t aivCoreNum = GetAivCoreCount();

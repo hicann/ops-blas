@@ -37,7 +37,7 @@ aclblasStatus_t aclblasCsrot(
     aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
     const int64_t incy, const float c, const float s)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;

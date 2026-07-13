@@ -691,7 +691,7 @@ static aclblasStatus_t GemmGroupedBatchedImpl(
 
     GemmGroupedBatchedTilingData tiling =
         BuildGemmGroupedTilingData(groupCount, totalB, dtype, cores, maxBuf);
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     return UploadScratchAndLaunchKernel(h, tiling, groupParams, totalB, hostPtrs, cores.usedCoreNum);
 }
 

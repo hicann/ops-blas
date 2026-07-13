@@ -19,15 +19,6 @@
 
 #include <new>
 
-namespace {
-
-/**
- * @brief Safely casts a public void* handle to internal _aclblas_handle*.
- */
-inline _aclblas_handle* ToInternalHandle(aclblasHandle_t handle) { return reinterpret_cast<_aclblas_handle*>(handle); }
-
-} // namespace
-
 extern "C" {
 
 aclblasStatus_t aclblasCreate(aclblasHandle_t* handle)
@@ -52,7 +43,7 @@ aclblasStatus_t aclblasCreate(aclblasHandle_t* handle)
         return st;
     }
 
-    *handle = reinterpret_cast<void*>(h);
+    *handle = h;
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -62,7 +53,7 @@ aclblasStatus_t aclblasDestroy(aclblasHandle_t handle)
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
 
-    auto* h = ToInternalHandle(handle);
+    auto* h = handle;
 
     const aclblasStatus_t syncStatus = SynchronizeHandleStream(h);
     if (syncStatus != ACLBLAS_STATUS_SUCCESS) {
@@ -85,7 +76,7 @@ aclblasStatus_t aclblasSetStream(aclblasHandle_t handle, aclrtStream stream)
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
 
-    auto* h = ToInternalHandle(handle);
+    auto* h = handle;
 
     const aclblasStatus_t syncStatus = SynchronizeHandleStream(h);
     if (syncStatus != ACLBLAS_STATUS_SUCCESS) {
@@ -107,7 +98,7 @@ aclblasStatus_t aclblasGetStream(aclblasHandle_t handle, aclrtStream* stream)
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* h = ToInternalHandle(handle);
+    auto* h = handle;
     *stream = h->stream;
     return ACLBLAS_STATUS_SUCCESS;
 }
@@ -118,7 +109,7 @@ aclblasStatus_t aclblasSetWorkspace(aclblasHandle_t handle, void* workspace, siz
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
 
-    auto* h = ToInternalHandle(handle);
+    auto* h = handle;
 
     if (workspace == nullptr || workspaceSize == 0) {
         return ACLBLAS_STATUS_INVALID_VALUE;

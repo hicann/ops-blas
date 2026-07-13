@@ -133,7 +133,7 @@ static aclblasStatus_t ValidateSrotgParams(aclblasHandle_t handle, float* a, flo
 // ==========================================================================
 static aclblasStatus_t LaunchSrotgKernel(aclblasHandle_t handle, float* a, float* b, float* c, float* s)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     SrotgTilingData tiling = {};

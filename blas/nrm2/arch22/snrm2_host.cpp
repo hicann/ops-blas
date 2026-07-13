@@ -149,7 +149,7 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n, const float* x, int 
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;
@@ -164,7 +164,7 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n, const float* x, int 
 
 aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, float* result)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;

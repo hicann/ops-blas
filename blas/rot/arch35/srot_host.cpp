@@ -172,7 +172,7 @@ static aclblasStatus_t PrepareSrotCsSource(const float* c, const float* s, SrotT
 static aclblasStatus_t LaunchSrotKernel(aclblasHandle_t handle, int n, float* x, int incx, float* y, int incy,
                                         const float* c, const float* s)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t aivCoreNum = GetAivCoreCount();

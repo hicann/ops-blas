@@ -27,11 +27,6 @@ void sasum_kernel_do(uint8_t* inGM, uint8_t* outGM, uint8_t* workSpace,
 
 namespace {
 
-inline _aclblas_handle* ToInternal(aclblasHandle_t handle)
-{
-    return reinterpret_cast<_aclblas_handle*>(handle);
-}
-
 // AIV kernel internally handles 32B-alignment via maxDataCount tiling;
 // SIMT kernel accesses elements individually — no block alignment needed here.
 static SasumTilingData CalcSasumTilingData(int64_t totalEleNum, uint32_t vecCoreNum)
@@ -153,7 +148,7 @@ aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n,
         return status;
     }
 
-    auto* h = ToInternal(handle);
+    auto* h = handle;
 
     uint32_t numBlocks;
     uint32_t nthreads;

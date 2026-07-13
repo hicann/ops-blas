@@ -105,7 +105,7 @@ aclblasStatus_t aclblasCgerc(
     aclblasHandle_t handle, const int64_t m, const int64_t n, const aclblasComplex alpha, aclblasComplex* x,
     const int64_t incx, aclblasComplex* y, const int64_t incy, aclblasComplex* A, const int64_t lda)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     float alphaReal = alpha.real;

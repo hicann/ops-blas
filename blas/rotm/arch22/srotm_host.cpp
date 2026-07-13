@@ -140,7 +140,7 @@ aclblasStatus_t aclblasSrotm(
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    auto *h = reinterpret_cast<_aclblas_handle *>(handle);
+    auto *h = handle;
     aclrtStream useStream = h->stream;
     SrotmTilingData tiling = BuildSrotmTilingData(x, y, sparam, n, incx, incy);
 

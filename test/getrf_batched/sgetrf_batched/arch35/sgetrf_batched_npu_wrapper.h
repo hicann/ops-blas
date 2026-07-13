@@ -172,7 +172,7 @@ inline aclblasStatus_t aclblasSgetrfBatched_npu(
         handle, n, reinterpret_cast<float* const*>(bufs.dPtrArray), lda, static_cast<int*>(bufs.dPivot),
         static_cast<int*>(bufs.dInfo), batchSize);
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtSynchronizeStream(h->stream);
 
     if (ret == ACLBLAS_STATUS_SUCCESS) {

@@ -111,7 +111,7 @@ aclblasStatus_t aclblasStpmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
     const float* AP, float* x, int incx)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     CHECK_RET(h != nullptr, OP_LOGE("aclblasStpmv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
     CHECK_RET(n >= 0, OP_LOGE("aclblasStpmv", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);

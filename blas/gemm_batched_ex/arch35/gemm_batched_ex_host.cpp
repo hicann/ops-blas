@@ -227,7 +227,7 @@ static aclblasStatus_t ValidateGemmBatchedParams(aclblasHandle_t handle,
     const GemmBatchedProblem &prob, const void *alpha, const void *beta,
     const void *const aarray[], const void *const barray[], void *const carray[])
 {
-    auto *h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto *h = handle;
     CHECK_RET(h != nullptr, OP_LOGE("aclblasGemmBatchedEx", "handle is nullptr");
               return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     CHECK_RET(alpha != nullptr,
@@ -401,7 +401,7 @@ static aclblasStatus_t ExecuteGemmBatchedMainPath(
     aclblasHandle_t handle, const GemmBatchedProblem &prob, GemmBatchedContext &ctx,
     bool needPostProcess, uint8_t *workspace, size_t ptrArrayBytes, size_t perBatchBytes)
 {
-    auto *h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto *h = handle;
     ctx.stream = h->stream;
     ctx.cubeCoreNum = GetAicCoreCount();
     if (ctx.cubeCoreNum == 0) {
@@ -476,7 +476,7 @@ static aclblasStatus_t LaunchEarlyExitKernel(aclblasHandle_t handle,
     earlyTiling.batchCount = prob.batchCount;
     earlyTiling.cElemSize = (prob.cType == ACL_FLOAT) ? 4 : 2;
 
-    auto *h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto *h = handle;
     constexpr int64_t ELEMENTS_PER_CORE = 16384;
     int64_t totalElements = static_cast<int64_t>(prob.batchCount) * prob.m * prob.n;
     uint32_t numBlocks = static_cast<uint32_t>(std::min(
@@ -494,7 +494,7 @@ static aclblasStatus_t SetupPostProcessWorkspace(aclblasHandle_t handle,
     const GemmBatchedProblem &prob, bool useFP32Output,
     uint8_t *&workspace, size_t &ptrArrayBytes, size_t &perBatchBytes)
 {
-    auto *h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto *h = handle;
     size_t tempElemSize = useFP32Output ? sizeof(float) : sizeof(uint16_t);
     perBatchBytes = static_cast<size_t>(prob.m) * prob.n * tempElemSize;
     ptrArrayBytes = static_cast<size_t>(prob.batchCount) * sizeof(void*);

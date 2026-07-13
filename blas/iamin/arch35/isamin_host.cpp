@@ -77,7 +77,7 @@ static aclblasStatus_t LaunchIsaminKernel(aclblasHandle_t handle, int n, const f
         return vStatus;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {

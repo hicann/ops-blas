@@ -138,7 +138,7 @@ aclblasStatus_t aclblasCdotu(
     if (x == nullptr || y == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    return LaunchCdot(false, reinterpret_cast<_aclblas_handle*>(handle), n, x, y, result);
+    return LaunchCdot(false, handle, n, x, y, result);
 }
 
 aclblasStatus_t aclblasCdotc(
@@ -162,5 +162,5 @@ aclblasStatus_t aclblasCdotc(
     if (x == nullptr || y == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    return LaunchCdot(true, reinterpret_cast<_aclblas_handle*>(handle), n, x, y, result);
+    return LaunchCdot(true, handle, n, x, y, result);
 }

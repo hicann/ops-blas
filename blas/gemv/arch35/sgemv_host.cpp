@@ -93,7 +93,7 @@ aclblasStatus_t aclblasSgemv(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha, const float* a, int lda,
     const float* x, int incx, const float* beta, float* y, int incy)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     CHECK_RET(h != nullptr, OP_LOGE("aclblasSgemv", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
     // Validate parameters

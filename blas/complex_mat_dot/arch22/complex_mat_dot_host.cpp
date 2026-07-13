@@ -98,7 +98,7 @@ aclblasStatus_t aclblasComplexMatDot(
     aclblasHandle_t handle, const int64_t m, const int64_t n, aclblasComplex* matx, aclblasComplex* maty,
     aclblasComplex* result)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;

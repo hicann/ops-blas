@@ -67,7 +67,7 @@ aclblasStatus_t aclblasSsyr2(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* x, int incx, const float* y,
     int incy, float* A, int lda)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     CHECK_RET(h != nullptr, OP_LOGE("aclblasSsyr2", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
     CHECK_RET(n >= 0, OP_LOGE("aclblasSsyr2", "invalid n=%d", n); return ACLBLAS_STATUS_INVALID_VALUE);

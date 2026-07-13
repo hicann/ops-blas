@@ -197,7 +197,7 @@ static aclblasStatus_t LaunchSmatinvBatchedKernel(
     aclblasHandle_t handle, int n, int lda, int lda_inv, int batchSize, const float* const A[], float* const Ainv[],
     int* info)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     uint32_t coreNum = GetAivCoreCount();
     if (coreNum == 0) {

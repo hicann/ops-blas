@@ -169,7 +169,7 @@ static aclblasStatus_t ValidateGemmParams(
     int ldc, const void* alpha, const void* beta, aclDataType Atype, aclDataType Btype, aclDataType Ctype,
     aclblasComputeType_t computeType, aclblasGemmAlgo_t algo, const void* A, const void* B, void* C)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     CHECK_RET(h != nullptr, OP_LOGE("aclblasGemmEx", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     aclblasStatus_t st = ValidateDimensions(transa, transb, m, n, k);
     if (st != ACLBLAS_STATUS_SUCCESS) {
@@ -414,7 +414,7 @@ static aclblasStatus_t AllocateAndLaunchKernel(
     std::swap(tilingData.singleCoreM, tilingData.singleCoreN);
     std::swap(tilingData.mBlocks, tilingData.nBlocks);
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     uint8_t* tempABDevice = nullptr;
     if (needTempBuffer) {

@@ -34,7 +34,7 @@ aclblasStatus_t aclblasLtCreate(aclblasLtHandle_t* lightHandle)
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    aclblasLtHandle* h = nullptr;
+    _aclblaslt_handle* h = nullptr;
     auto st = AllocHandle(&h);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
@@ -79,7 +79,7 @@ aclblasStatus_t aclblasLtCreate(aclblasLtHandle_t* lightHandle)
     h->npuArch = 2;
     h->maxSharedMemory = L1_SIZE;
     h->initialized = true;
-    *lightHandle = reinterpret_cast<aclblasLtHandle_t>(h);
+    *lightHandle = h;
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -89,7 +89,7 @@ aclblasStatus_t aclblasLtDestroy(const aclblasLtHandle_t lightHandle)
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* h = reinterpret_cast<aclblasLtHandle*>(lightHandle);
+    auto* h = lightHandle;
     if (h->magic != ACLBLASLT_HANDLE_MAGIC) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }

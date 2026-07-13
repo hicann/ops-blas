@@ -227,7 +227,7 @@ aclblasStatus_t aclblasSrotmg(
 
     // ── All device: kernel computation ──
     if (allDevice) {
-        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        auto* h = handle;
         SrotmgTilingData tiling{};
         srotmg_kernel_do(
             reinterpret_cast<uint8_t*>(d1),

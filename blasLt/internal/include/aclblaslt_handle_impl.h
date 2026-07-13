@@ -84,7 +84,7 @@ struct CacheEntry {
     std::list<AlgoKey>::iterator lruIter;
 };
 
-struct aclblasLtHandle {
+struct _aclblaslt_handle {
     uint32_t magic = ACLBLASLT_HANDLE_MAGIC;
     bool initialized = false;
     // version info

@@ -53,7 +53,7 @@ aclblasStatus_t aclblasStrmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
     const float* A, int lda, float* x, int incx)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t m0 = CORE_SPLIT_NUM;

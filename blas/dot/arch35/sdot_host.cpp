@@ -105,7 +105,7 @@ aclblasStatus_t aclblasSdot(
         return status;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     uint32_t vectorCoreNum = GetAivCoreCount();
     if (vectorCoreNum == 0) {

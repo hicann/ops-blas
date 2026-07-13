@@ -75,7 +75,7 @@ aclblasStatus_t aclblasLtMatrixTransform(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* handleImpl = reinterpret_cast<aclblasLtHandle*>(lightHandle);
+    auto* handleImpl = lightHandle;
 
     const uint64_t rows = CLayout->rows;
     const uint64_t cols = CLayout->cols;

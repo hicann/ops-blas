@@ -222,7 +222,7 @@ IamaxTilingData CalIamaxTilingData(uint32_t n, uint32_t incx, uint32_t vecCoreNu
 
 aclblasStatus_t aclblasIamax(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t needVecCoreNum = 1;

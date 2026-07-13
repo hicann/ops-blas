@@ -157,7 +157,7 @@ aclblasStatus_t aclblasSrotg(aclblasHandle_t handle, float* a, float* b, float* 
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     OP_LOGI("aclblasSrotg", "launching kernel: blocks=1");
     srotg_kernel_do(
         reinterpret_cast<uint8_t*>(a),

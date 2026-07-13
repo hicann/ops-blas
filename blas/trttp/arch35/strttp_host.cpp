@@ -103,7 +103,7 @@ aclblasStatus_t aclblasStrttp(aclblasHandle_t handle, aclblasFillMode_t uplo, in
         return status;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     uint32_t uploVal = (uplo == ACLBLAS_LOWER) ? 0 : 1;
     uint32_t uN = static_cast<uint32_t>(n);
     uint32_t uLda = static_cast<uint32_t>(lda);

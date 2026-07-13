@@ -426,7 +426,7 @@ aclblasStatus_t aclblasStrsm(
     aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
     aclblasDiagType_t diag, int m, int n, const float* alpha, const float* A, int lda, float* B, int ldb)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     CHECK_RET(h != nullptr, OP_LOGE("aclblasStrsm", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
     CHECK_RET(

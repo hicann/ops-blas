@@ -30,7 +30,7 @@ extern "C" {
 /*! \ingroup types_module
  *  \brief Descriptor of the library context.
  */
-typedef void* aclblasLtHandle_t;
+typedef struct _aclblaslt_handle* aclblasLtHandle_t;
 
 /*! \ingroup types_module
  *  \brief Descriptor of the matrix layout.

@@ -105,7 +105,7 @@ aclblasStatus_t aclblasStpttr(aclblasHandle_t handle, aclblasFillMode_t uplo, in
         return status;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     int uploVal = (uplo == ACLBLAS_LOWER) ? 0 : 1;
 
     TpttrTilingData tiling{};

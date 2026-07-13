@@ -102,7 +102,7 @@ uint32_t* CreateAugColwiseMul()
 aclblasStatus_t aclblasColwiseMul(
     aclblasHandle_t handle, const int64_t m, const int64_t n, uint8_t* mat, uint8_t* vec, uint8_t* result)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t nFloats = n * 2;

@@ -29,8 +29,6 @@
 void snrm2_ex_kernel_do(
     uint8_t* x, uint8_t* result, uint8_t* workSpace, const Snrm2ExTilingData& tiling, uint32_t numBlocks, void* stream);
 
-inline _aclblas_handle* ToInternal(aclblasHandle_t handle) { return reinterpret_cast<_aclblas_handle*>(handle); }
-
 static aclblasStatus_t ValidateSnrm2ExParams(
     aclblasHandle_t handle, aclDataType xtype, int64_t n, int64_t incx, const void* x, const void* result)
 {
@@ -168,7 +166,7 @@ aclblasStatus_t aclblasSnrm2Ex(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* h = ToInternal(handle);
+    auto* h = handle;
 
     uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {

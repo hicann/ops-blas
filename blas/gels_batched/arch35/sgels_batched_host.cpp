@@ -155,7 +155,7 @@ aclblasStatus_t aclblasSgelsBatched(
         OP_LOGE(TAG, "handle is nullptr");
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     aclblasStatus_t validRet =
         ValidateSgelsBatchedParams(trans, m, n, nrhs, aArray, lda, cArray, ldc, devInfo, batchSize);

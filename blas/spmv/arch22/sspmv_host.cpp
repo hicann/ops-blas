@@ -65,7 +65,7 @@ aclblasStatus_t aclblasSspmv(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     constexpr uint32_t numBlocks = 8;

@@ -63,7 +63,7 @@ aclblasStatus_t aclblasCgemv(
     aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta,
     aclblasComplex* y, const int64_t incy)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;

@@ -41,7 +41,7 @@ aclblasStatus_t aclblasSsyr(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     float alphaVal = 0.0f;

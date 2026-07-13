@@ -119,7 +119,7 @@ aclblasStatus_t aclblasSgeqrfBatched(
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     GeqrfBatchedTilingData tiling = CalGeqrfBatchedTilingData(
         static_cast<uint32_t>(m), static_cast<uint32_t>(n), static_cast<int32_t>(lda), static_cast<uint32_t>(batchSize),
         coreNum);

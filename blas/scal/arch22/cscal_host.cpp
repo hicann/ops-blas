@@ -64,7 +64,7 @@ void CreateMaskData(uint32_t* maskData)
 aclblasStatus_t aclblasCscal(
     aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, const int64_t incx)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 40;

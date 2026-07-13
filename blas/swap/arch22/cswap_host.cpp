@@ -88,7 +88,7 @@ aclblasStatus_t aclblasCswap(
     aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
     const int64_t incy)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;

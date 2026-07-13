@@ -256,7 +256,7 @@ aclblasStatus_t aclblasSsymm(
         OP_LOGE("aclblasSsymm", "dimensions exceed uint32_t limit");
         return ACLBLAS_STATUS_INVALID_VALUE);
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     return ExecuteSsymmKernels(h, side, uplo,
         static_cast<uint32_t>(m), static_cast<uint32_t>(n),
         static_cast<uint32_t>(lda), static_cast<uint32_t>(ldb), static_cast<uint32_t>(ldc),

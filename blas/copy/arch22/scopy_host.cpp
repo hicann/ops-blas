@@ -108,7 +108,7 @@ aclblasStatus_t aclblasScopy_legacy(
 
     aclrtStream useStream = nullptr;
     if (handle != nullptr) {
-        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        auto* h = handle;
         useStream = h->stream;
     }
 
@@ -148,7 +148,7 @@ aclblasStatus_t aclblasCcopy(
 
     aclrtStream useStream = nullptr;
     if (handle != nullptr) {
-        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        auto* h = handle;
         useStream = h->stream;
     }
 

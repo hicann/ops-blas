@@ -102,7 +102,7 @@ static {{Op}}TilingData Cal{{Op}}TilingData(
 // - 异步执行：launch kernel 后直接返回，不调用 aclrtSynchronizeStream
 static aclblasStatus_t Launch{{Op}}Kernel(aclblasHandle_t handle, /* 算子参数 */)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t coreNum = GetAivCoreCount();

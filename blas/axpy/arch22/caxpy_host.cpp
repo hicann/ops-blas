@@ -96,7 +96,7 @@ aclblasStatus_t aclblasCaxpy(
     aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, int64_t incx,
     aclblasComplex* y, int64_t incy)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = DEFAULT_VECTOR_NUM;

@@ -361,7 +361,7 @@ aclblasStatus_t aclblasGemmGroupedBatchedEx(aclblasHandle_t handle,
     const void *betaArray, void *const carray[], aclDataType cType, const int ldcArray[],
     int groupCount, const int groupSize[], aclblasComputeType_t computeType)
 {
-    auto *h = reinterpret_cast<_aclblas_handle *>(handle);
+    auto *h = handle;
     if (h == nullptr) { return ACLBLAS_STATUS_HANDLE_IS_NULLPTR; }
     GroupedProblem problem{aType, bType, cType, computeType};
     if (!IsValidDtypeCombination(problem)) {

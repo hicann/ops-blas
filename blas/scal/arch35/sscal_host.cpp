@@ -133,7 +133,7 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     uint32_t totalN = static_cast<uint32_t>(n);
 
     SscalTilingData tiling;

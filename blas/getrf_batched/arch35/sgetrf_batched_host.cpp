@@ -71,7 +71,7 @@ aclblasStatus_t aclblasSgetrfBatched(
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     aclblasStatus_t validRet = ValidateGetrfBatchedParams(n, Aarray, lda, PivotArray, infoArray, batchSize);
     if (validRet != ACLBLAS_STATUS_SUCCESS) {

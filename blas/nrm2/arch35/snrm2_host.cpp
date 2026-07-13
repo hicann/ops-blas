@@ -118,7 +118,7 @@ aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n,
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {

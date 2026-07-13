@@ -124,7 +124,7 @@ static {{Op}}DTypeCase GetDtypeCase(aclDataType Atype, aclDataType Btype, aclDat
 // ============================================================================
 static aclblasStatus_t Validate{{Op}}Params(aclblasHandle_t handle /* , 算子 API 全部参数 */)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     CHECK_RET(h != nullptr, OP_LOGE("aclblas{{Op}}", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 
     // TEMPLATE: 业务维度校验（按算子语义，建议拆为 ValidateDimensions / ValidateLeadingDims 等子函数）
@@ -169,7 +169,7 @@ static {{Op}}TilingData Cal{{Op}}Tiling(/* 算子维度参数, */ uint32_t coreN
 // ============================================================================
 static aclblasStatus_t Launch{{Op}}Kernel(aclblasHandle_t handle /* , 算子 API 参数 */)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     // TEMPLATE: 取核数（矩阵类用 GetAicCoreCount/Cube；向量类用 GetAivCoreCount/Vector）
     uint32_t coreNum = /* GetAicCoreCount() or GetAivCoreCount() */ 0;

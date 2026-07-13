@@ -41,8 +41,8 @@ enum class AclblasWorkspaceOwner {
  * library workspace, the library re-allocates using library_workspace_size rather
  * than keeping two device buffers resident.
  *
- * This structure is visible only inside implementation files. Public APIs use void* / void**
- * as the handle type.
+ * This structure is visible only inside implementation files. Public APIs use
+ * a forward-declared opaque pointer (struct _aclblas_handle*).
  */
 struct _aclblas_handle {
     /* ========== Stream ========== */

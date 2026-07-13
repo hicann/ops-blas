@@ -242,7 +242,7 @@ aclblasStatus_t aclblasAxpyEx(
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtPtrAttributes ptrAttr{};
     aclError aclRet = aclrtPointerGetAttributes(alpha, &ptrAttr);
     if (aclRet != ACL_SUCCESS) {

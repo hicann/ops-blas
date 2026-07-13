@@ -88,7 +88,7 @@ aclblasStatus_t aclblasStrsv(
     // 从 handle 获取 stream
     aclrtStream useStream = nullptr;
     if (handle != nullptr) {
-        auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+        auto* h = handle;
         useStream = h->stream;
     }
 

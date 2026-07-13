@@ -81,7 +81,7 @@ aclblasStatus_t aclblasSrotm(
     const float flag = param[0];
     if (flag == -2.0f) { return ACLBLAS_STATUS_SUCCESS; }
 
-    auto *h = reinterpret_cast<_aclblas_handle *>(handle);
+    auto *h = handle;
 
     uint32_t numBlocks = GetAivCoreCount();
     if (numBlocks == 0) {

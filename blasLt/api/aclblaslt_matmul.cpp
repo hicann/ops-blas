@@ -93,7 +93,7 @@ aclblasStatus_t aclblasLtMatmul(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    auto* handleImpl = reinterpret_cast<aclblasLtHandle*>(lightHandle);
+    auto* handleImpl = lightHandle;
     const uint32_t numBlocks = QueryCubeCoreNum(handleImpl->deviceId);
 
     MatmulProblem problem;

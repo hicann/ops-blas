@@ -37,7 +37,7 @@ aclblasStatus_t aclblasSsyr2(aclblasHandle_t handle,
                              const float *y, const int incy,
                              float *A, const int lda)
 {
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t vecCoreNum = DEFAULT_VECTOR_NUM;

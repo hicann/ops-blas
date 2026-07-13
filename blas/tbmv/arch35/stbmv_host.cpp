@@ -135,7 +135,7 @@ aclblasStatus_t aclblasStbmv(
     if (k == 0 && diag == ACLBLAS_UNIT) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     uint32_t aivCoreNum = GetAivCoreCount();
     CHECK_RET(
         aivCoreNum > 0, OP_LOGE("aclblasStbmv", "GetAivCoreCount failed"); return ACLBLAS_STATUS_EXECUTION_FAILED);

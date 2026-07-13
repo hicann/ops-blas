@@ -91,7 +91,7 @@ static aclblasStatus_t LaunchGetriBatchedKernel(
         tiling.n, tiling.lda, tiling.ldc, tiling.usedCoreNum, tiling.batchPerCore, tiling.batchTail, tiling.usePivot);
     OP_LOGI("aclblasSgetriBatched", "launching kernel: blocks=%u, cores=%u", usedCoreNum, coreNum);
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     sgetri_batched_kernel_do(
         reinterpret_cast<uint8_t*>(const_cast<const float**>(Aarray)),
         reinterpret_cast<uint8_t*>(const_cast<int*>(PivotArray)),

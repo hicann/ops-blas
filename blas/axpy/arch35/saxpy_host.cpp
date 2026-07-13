@@ -135,7 +135,7 @@ static aclblasStatus_t LaunchSaxpyKernel(
         static_cast<double>(*alpha));
     OP_LOGI("aclblasSaxpy", "launching kernel: blocks=%u, cores=%u", numBlocks, coreNum);
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     saxpy_kernel_do(
         reinterpret_cast<uint8_t*>(x), reinterpret_cast<uint8_t*>(y), nullptr, tiling, numBlocks, h->stream);
 

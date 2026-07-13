@@ -143,7 +143,7 @@ static aclblasStatus_t LaunchSgetrsBatchedKernel(
             "launching kernel: blocks=%u, cores=%u, n=%u, nrhs=%u, trans=%u, usePivot=%u, batchCount=%d",
             tiling.usedCoreNum, coreNum, tiling.n, tiling.nrhs, tiling.trans, tiling.usePivot, batchCount);
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
     // Pointer arrays are read-only on device side; casts match kernel_do's uint8_t* signature
     sgetrs_batched_kernel_do(
         reinterpret_cast<uint8_t*>(const_cast<const float**>(Aarray)),

@@ -278,7 +278,7 @@ aclblasStatus_t aclblasStrmm(
         OP_LOGE("aclblasStrmm", "dimensions exceed uint32_t limit");
         return ACLBLAS_STATUS_INVALID_VALUE);
 
-    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
+    auto* h = handle;
 
     if (*alpha == 0.0f) {
         size_t bBytes = static_cast<size_t>(m) * static_cast<size_t>(ldb) * sizeof(float);
