@@ -280,6 +280,12 @@ aclblasStatus_t aclblasCcopy(
 aclblasStatus_t aclblasSdot(
     aclblasHandle_t handle, int64_t n, const float* x, int64_t incx, const float* y, int64_t incy, float* result);
 
+aclblasStatus_t aclblasDotEx(
+    aclblasHandle_t handle, int n,
+    const void* x, aclDataType xType, int incx,
+    const void* y, aclDataType yType, int incy,
+    void* result, aclDataType resultType, aclDataType executionType);
+
 aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n, const float* x, int incx, float* result);
 
 aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, float* result);
