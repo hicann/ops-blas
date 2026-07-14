@@ -11,7 +11,6 @@
 #pragma once
 
 #include <cstdint>
-#include "cann_ops_blas_common.h"
 
 constexpr uint32_t STRMM_ARCH35_BASE_M = 16;
 constexpr uint32_t STRMM_ARCH35_BASE_N = 16;
@@ -22,6 +21,7 @@ constexpr uint32_t STRMM_ARCH35_DEFAULT_TILE_N = 128;
 constexpr uint32_t STRMM_ARCH35_DEFAULT_TILE_K_CHUNK = 256;
 constexpr uint32_t STRMM_ARCH35_FP32_SIZE = sizeof(float);
 constexpr uint32_t STRMM_ARCH35_L1_SIZE_BYTES = 512 * 1024;
+constexpr uint32_t STRMM_ARCH35_L1_BUF_NUM = 2;
 
 struct StrmmMirrorTilingData {
     uint32_t sideMode;
@@ -52,7 +52,7 @@ struct StrmmGemmTilingData {
 struct StrmmScaleTilingData {
     uint32_t m;
     uint32_t n;
-    uint32_t ldb;
+    uint32_t ldc;
     uint32_t tempRowStride;
     uint32_t usedAivCoreNum;
     uint32_t scaleRowsPerCore;

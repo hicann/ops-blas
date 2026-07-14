@@ -13,7 +13,7 @@
  * \brief STRMM Kernel implementation for ascend950 (DAV_3510)
  *        Phase 1: Mirror kernel   (AIV-only, SIMT) - mirrors triangular matrix, fills zeros in missing part
  *        Phase 2: GEMM kernel     (AIC-only, tensor_api) - MMAD result to temp GM
- *        Phase 3: Scale kernel     (AIV-only, SIMT) - alpha*temp -> B
+ *        Phase 3: Scale kernel     (AIV-only, SIMT) - alpha*temp -> C
  */
 
 #include <cstdint>
@@ -27,11 +27,11 @@
 #include "common/helper/kernel_utils.h"
 #include "strmm_tiling_data.h"
 
+namespace te = AscendC::Te;
+
 constexpr uint16_t PIPE_FLAG = 0;
 
 constexpr int64_t L0A_SIZE = 64 * 1024;
-constexpr int64_t L0B_SIZE = 64 * 1024;
-constexpr int64_t L0C_SIZE = 256 * 1024;
 constexpr int64_t L1_SIZE = 512 * 1024;
 
 constexpr uint32_t FINAL_ACCUMULATION = 3;
@@ -40,7 +40,7 @@ constexpr uint32_t NON_FINAL_ACCUMULATION = 2;
 // ================================================================================
 // Phase 1: Mirror Kernel (AIV-only, SIMT)
 // For TRMM: missing triangle is filled with zeros (NOT symmetric values).
-// transA=T/C: mirror stage reads A^T (transpose on read) into workspaceA.
+// trans=T/C: mirror stage reads A^T (transpose on read) into workspaceA.
 // diag=UNIT: workspaceA diagonal = 1.0 (not A's diagonal).
 // ================================================================================
 
@@ -171,20 +171,19 @@ void strmm_mirror_kernel_do(
 // Side=Right: left=B(M×K),    right=workspaceA(K×N), K=n
 //
 // Uses AscendC::Te (tensor_api) for all data movement and computation:
-//   GM→L1: Copy(CopyGM2L1{})       — replaces Nd2Nz + DataCopy
-//   L1→L0A: Copy(CopyL12L0A{})     — replaces LoadData2D
-//   L1→L0B: Copy(CopyL12L0B{})               — ZN→ZN normal load
-//   MMAD:   Mmad(MmadAtom{...})    — replaces Mmad
-//   L0C→GM: Copy(CopyL0C2GM{})     — replaces DataCopy + SetFixpipeNz2ndFlag
+//   GM→L1: Te::Copy(Te::CopyGM2L1{})       — replaces Nd2Nz + DataCopy
+//   L1→L0A: Te::Copy(Te::CopyL12L0A{})     — replaces LoadData2D
+//   L1→L0B: Te::Copy(Te::CopyL12L0B{})     — ZN→ZN normal load
+//   MMAD:   Te::Mmad(Te::MmadAtom{...})    — replaces Mmad
+//   L0C→GM: Te::Copy(Te::CopyL0C2GM{})     — replaces DataCopy + SetFixpipeNz2ndFlag
 // ================================================================================
-
-using namespace AscendC::Te;
 
 constexpr uint64_t STRMM_FP32_C0 = 8;
 constexpr uint64_t STRMM_FRACTAL = 16;
 constexpr uint64_t STRMM_L0C_C0 = 16;
 constexpr uint64_t STRMM_L1_BUF_NUM = 2;
 constexpr uint64_t STRMM_L1_BUF_MASK = STRMM_L1_BUF_NUM - 1;
+constexpr uint64_t STRMM_L0_BUF_MASK = 0x1;
 constexpr uint64_t STRMM_HALF_L0_SIZE = L0A_SIZE / 2;
 
 template <typename TensorGM, typename TensorL1>
@@ -192,9 +191,9 @@ __aicore__ inline void StrmmCopyGM2L1(
     TensorGM gmTensor, TensorL1 tensorL1,
     uint64_t off0, uint64_t off1, uint64_t dim0, uint64_t dim1)
 {
-    auto gmBlock = gmTensor.Slice(MakeCoord(off0, off1), MakeShape(dim0, dim1));
-    auto copyGM2L1 = MakeCopy(CopyGM2L1{});
-    Copy(copyGM2L1, tensorL1, gmBlock);
+    auto gmBlock = gmTensor.Slice(te::MakeCoord(off0, off1), te::MakeShape(dim0, dim1));
+    auto copyGM2L1 = te::MakeCopy(te::CopyGM2L1{});
+    te::Copy(copyGM2L1, tensorL1, gmBlock);
 }
 
 template <typename TensorAL1, typename TensorBL1>
@@ -209,28 +208,28 @@ __aicore__ inline void StrmmL0MmadLoop(
     for (uint64_t iter1 = 0; iter1 < kL0Iter; ++iter1) {
         uint64_t kL0Offset = iter1 * baseK;
         uint64_t curKL0 = (kL0Offset + baseK > curKL1) ? (curKL1 - kL0Offset) : baseK;
-        uint64_t l0BufId = l0PingPong & 0x1;
+        uint64_t l0BufId = l0PingPong & STRMM_L0_BUF_MASK;
         uint64_t l0Offset = STRMM_HALF_L0_SIZE * l0BufId;
         AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(l0BufId);
-        auto layoutAL0 = MakeFrameLayout<NZLayoutPtn, AscendC::Std::Int<STRMM_FP32_C0>>(curML1, curKL0);
-        auto tensorAL0 = MakeTensor(MakeMemPtr<Location::L0A, T>(l0Offset), layoutAL0);
-        auto tensorBlockAL1 = tensorAL1.Slice(MakeCoord(0, kL0Offset), MakeShape(curML1, curKL0));
-        Copy(MakeCopy(CopyL12L0A{}), tensorAL0, tensorBlockAL1);
-        auto layoutBL0 = MakeFrameLayout<ZNLayoutPtn, AscendC::Std::Int<STRMM_FP32_C0>>(curKL0, nL0);
-        auto tensorBL0 = MakeTensor(MakeMemPtr<Location::L0B, T>(l0Offset), layoutBL0);
-        auto tensorBlockBL1 = tensorBL1.Slice(MakeCoord(kL0Offset, 0), MakeShape(curKL0, nL0));
-        Copy(MakeCopy(CopyL12L0B{}), tensorBL0, tensorBlockBL1);
+        auto layoutAL0 = te::MakeFrameLayout<te::NZLayoutPtn, AscendC::Std::Int<STRMM_FP32_C0>>(curML1, curKL0);
+        auto tensorAL0 = te::MakeTensor(te::MakeMemPtr<te::Location::L0A, T>(l0Offset), layoutAL0);
+        auto tensorBlockAL1 = tensorAL1.Slice(te::MakeCoord(0, kL0Offset), te::MakeShape(curML1, curKL0));
+        te::Copy(te::MakeCopy(te::CopyL12L0A{}), tensorAL0, tensorBlockAL1);
+        auto layoutBL0 = te::MakeFrameLayout<te::ZNLayoutPtn, AscendC::Std::Int<STRMM_FP32_C0>>(curKL0, nL0);
+        auto tensorBL0 = te::MakeTensor(te::MakeMemPtr<te::Location::L0B, T>(l0Offset), layoutBL0);
+        auto tensorBlockBL1 = tensorBL1.Slice(te::MakeCoord(kL0Offset, 0), te::MakeShape(curKL0, nL0));
+        te::Copy(te::MakeCopy(te::CopyL12L0B{}), tensorBL0, tensorBlockBL1);
         AscendC::SetFlag<AscendC::HardEvent::MTE1_M>(l0BufId);
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(l0BufId);
         bool isLastK = (iter0 + 1 == kL1Iter) && (iter1 + 1 == kL0Iter);
         bool isFirstK = (iter0 == 0 && iter1 == 0);
         uint8_t unitFlag = isLastK ? FINAL_ACCUMULATION : NON_FINAL_ACCUMULATION;
-        MmadParams mmadParams{
+        te::MmadParams mmadParams{
             static_cast<uint16_t>(curML1), static_cast<uint16_t>(nL0),
             static_cast<uint16_t>(curKL0), unitFlag, isFirstK};
-        auto layoutL0C = MakeFrameLayout<NZLayoutPtn, AscendC::Std::Int<STRMM_L0C_C0>>(curML1, nL0);
-        auto tensorL0C = MakeTensor(MakeMemPtr<Location::L0C, float>(0), layoutL0C);
-        Mmad(MmadAtom<MmadTraits<MmadOperation>>{}.with(mmadParams),
+        auto layoutL0C = te::MakeFrameLayout<te::NZLayoutPtn, AscendC::Std::Int<STRMM_L0C_C0>>(curML1, nL0);
+        auto tensorL0C = te::MakeTensor(te::MakeMemPtr<te::Location::L0C, float>(0), layoutL0C);
+        te::Mmad(te::MmadAtom<te::MmadTraits<te::MmadOperation>>{}.with(mmadParams),
             tensorL0C, tensorAL0, tensorBL0);
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0BufId);
         l0PingPong++;
@@ -272,10 +271,10 @@ __aicore__ inline void StrmmProcessKChunks(
         uint64_t l1OffsetA = l1BufId * (L1_SIZE / STRMM_L1_BUF_NUM);
         uint64_t aSideL1Size = RoundUp<uint64_t>(mL0, STRMM_FRACTAL) * RoundUp<uint64_t>(curK, STRMM_FP32_C0);
         uint64_t l1OffsetB = l1OffsetA + aSideL1Size * sizeof(T);
-        auto tensorAL1 = MakeTensor(MakeMemPtr<Location::L1, T>(l1OffsetA),
-            MakeFrameLayout<NZLayoutPtn, AscendC::Std::Int<STRMM_FP32_C0>>(mL0, curK));
-        auto tensorBL1 = MakeTensor(MakeMemPtr<Location::L1, T>(l1OffsetB),
-            MakeFrameLayout<ZNLayoutPtn, AscendC::Std::Int<STRMM_FP32_C0>>(curK, nL0));
+        auto tensorAL1 = te::MakeTensor(te::MakeMemPtr<te::Location::L1, T>(l1OffsetA),
+            te::MakeFrameLayout<te::NZLayoutPtn, AscendC::Std::Int<STRMM_FP32_C0>>(mL0, curK));
+        auto tensorBL1 = te::MakeTensor(te::MakeMemPtr<te::Location::L1, T>(l1OffsetB),
+            te::MakeFrameLayout<te::ZNLayoutPtn, AscendC::Std::Int<STRMM_FP32_C0>>(curK, nL0));
         StrmmGemmProcessKChunk(gmLeftTensor, gmRightTensor,
             tensorAL1, tensorBL1, l1BufId,
             mOff, nOff, kOff, curK, mL0, nL0,
@@ -288,10 +287,10 @@ template <typename TensorTemp>
 __aicore__ inline void StrmmCopyOutL0C2GM(
     TensorTemp gmTempTensor, uint64_t mOff, uint64_t nOff, uint64_t mL0, uint64_t nL0)
 {
-    auto gmBlockC = gmTempTensor.Slice(MakeCoord(mOff, nOff), MakeShape(mL0, nL0));
-    auto tensorL0C = MakeTensor(MakeMemPtr<Location::L0C, float>(0),
-        MakeFrameLayout<NZLayoutPtn, AscendC::Std::Int<STRMM_L0C_C0>>(mL0, nL0));
-    MakeCopy(CopyL0C2GM{}).Call(gmBlockC, tensorL0C, FixpipeParams{FINAL_ACCUMULATION});
+    auto gmBlockC = gmTempTensor.Slice(te::MakeCoord(mOff, nOff), te::MakeShape(mL0, nL0));
+    auto tensorL0C = te::MakeTensor(te::MakeMemPtr<te::Location::L0C, float>(0),
+        te::MakeFrameLayout<te::NZLayoutPtn, AscendC::Std::Int<STRMM_L0C_C0>>(mL0, nL0));
+    te::MakeCopy(te::CopyL0C2GM{}).Call(gmBlockC, tensorL0C, te::FixpipeParams{FINAL_ACCUMULATION});
 }
 
 template <typename TensorA, typename TensorB, typename TensorTemp>
@@ -336,15 +335,15 @@ __global__ __aicore__ void strmm_gemm_kernel(
         gmRight = gmA;
         rightLd = tiling.lda;
     }
-    auto gmLeftTensor = MakeTensor(
-        MakeMemPtr<Location::GM>(reinterpret_cast<__gm__ float*>(gmLeft)),
-        MakeFrameLayout<NDExtLayoutPtn>(leftRows, leftLd));
-    auto gmRightTensor = MakeTensor(
-        MakeMemPtr<Location::GM>(reinterpret_cast<__gm__ float*>(gmRight)),
-        MakeFrameLayout<NDExtLayoutPtn>(rightRows, rightLd));
-    auto gmTempTensor = MakeTensor(
-        MakeMemPtr<Location::GM>(reinterpret_cast<__gm__ float*>(gmTemp)),
-        MakeFrameLayout<NDExtLayoutPtn>(tiling.m, tiling.tempRowStride));
+    auto gmLeftTensor = te::MakeTensor(
+        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(gmLeft)),
+        te::MakeFrameLayout<te::NDExtLayoutPtn>(leftRows, leftLd));
+    auto gmRightTensor = te::MakeTensor(
+        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(gmRight)),
+        te::MakeFrameLayout<te::NDExtLayoutPtn>(rightRows, rightLd));
+    auto gmTempTensor = te::MakeTensor(
+        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(gmTemp)),
+        te::MakeFrameLayout<te::NDExtLayoutPtn>(tiling.m, tiling.tempRowStride));
     uint32_t divM = CeilDiv<uint32_t>(tiling.m, tiling.singleCoreM);
     uint32_t divN = CeilDiv<uint32_t>(tiling.n, tiling.singleCoreN);
     uint64_t totalTiles = static_cast<uint64_t>(divM) * static_cast<uint64_t>(divN);
@@ -386,16 +385,16 @@ void strmm_gemm_kernel_do(
 
 // ================================================================================
 // Phase 3: Scale Kernel (AIV-only, SIMT)
-// B = alpha * temp
+// C = alpha * temp
 // ================================================================================
 
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StrmmScaleCompute(
-    uint32_t m, uint32_t n, uint32_t ldb, uint32_t tempRowStride,
+    uint32_t n, uint32_t ldc, uint32_t tempRowStride,
     float alphaVal,
-    __gm__ float* __restrict tempGm, __gm__ float* __restrict bGm,
+    __gm__ float* __restrict tempGm, __gm__ float* __restrict cGm,
     uint32_t rowStart, uint32_t rowEnd)
 {
-    int64_t ldb64 = static_cast<int64_t>(ldb);
+    int64_t ldc64 = static_cast<int64_t>(ldc);
     int64_t tempStride64 = static_cast<int64_t>(tempRowStride);
 
     for (uint32_t i = rowStart + threadIdx.x; i < rowEnd; i += blockDim.x) {
@@ -403,23 +402,23 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StrmmScaleC
         for (uint32_t j = 0; j < n; ++j) {
             int64_t j64 = static_cast<int64_t>(j);
             float tempVal = tempGm[i64 * tempStride64 + j64];
-            bGm[i64 * ldb64 + j64] = alphaVal * tempVal;
+            cGm[i64 * ldc64 + j64] = alphaVal * tempVal;
         }
     }
 }
 
 __global__ __aicore__ void strmm_scale_kernel(
-    GM_ADDR gmTemp, GM_ADDR gmB, float alpha,
+    GM_ADDR gmTemp, GM_ADDR gmC, float alpha,
     const StrmmScaleTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
     auto* tempGm = reinterpret_cast<__gm__ float* __restrict>(gmTemp);
-    auto* bGm = reinterpret_cast<__gm__ float* __restrict>(gmB);
+    auto* cGm = reinterpret_cast<__gm__ float* __restrict>(gmC);
 
     uint32_t m = tiling.m;
     uint32_t n = tiling.n;
-    uint32_t ldb = tiling.ldb;
+    uint32_t ldc = tiling.ldc;
     uint32_t tempRowStride = tiling.tempRowStride;
 
     int32_t blkIdx = AscendC::GetBlockIdx();
@@ -431,14 +430,15 @@ __global__ __aicore__ void strmm_scale_kernel(
 
     asc_vf_call<StrmmScaleCompute>(
         dim3{SIMT_MAX_THREAD_NUM, 1, 1},
-        m, n, ldb, tempRowStride, alpha,
-        tempGm, bGm, rowStart, rowEnd);
+        n, ldc, tempRowStride, alpha,
+        tempGm, cGm, rowStart, rowEnd);
 }
 
 void strmm_scale_kernel_do(
-    GM_ADDR gmTemp, GM_ADDR gmB, float alpha,
+    const uint8_t* gmTemp, uint8_t* gmC, float alpha,
     const StrmmScaleTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {
-    strmm_scale_kernel<<<numBlocks, nullptr, stream>>>(gmTemp, gmB, alpha, tiling);
+    strmm_scale_kernel<<<numBlocks, nullptr, stream>>>(
+        const_cast<uint8_t*>(gmTemp), gmC, alpha, tiling);
 }

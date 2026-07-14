@@ -326,18 +326,9 @@ aclblasStatus_t aclblasStrmv(
     const float* A, int lda, float* x, int incx);
 
 aclblasStatus_t aclblasStrmm(
-    aclblasHandle_t handle,
-    aclblasSideMode_t side,
-    aclblasFillMode_t uplo,
-    aclblasOperation_t transA,
-    aclblasDiagType_t diag,
-    int64_t m,
-    int64_t n,
-    const float* alpha,
-    const float* A,
-    int64_t lda,
-    float* B,
-    int64_t ldb);
+    aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
+    aclblasDiagType_t diag, int m, int n, const float* alpha, const float* A, int lda,
+    const float* B, int ldb, float* C, int ldc);
 
 aclblasStatus_t aclblasStrsm(
     aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,

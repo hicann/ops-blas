@@ -28,13 +28,14 @@ struct StrmmGemmTilingData;
 void strmm_gemm_kernel_do(const uint8_t* gmA, const uint8_t* gmB, uint8_t* gmTemp,
                             const StrmmGemmTilingData &tiling, uint32_t numBlocks, void *stream);
 struct StrmmScaleTilingData;
-void strmm_scale_kernel_do(uint8_t* gmTemp, uint8_t* gmB, float alpha,
-                              const StrmmScaleTilingData &tiling, uint32_t numBlocks, void *stream);
+void strmm_scale_kernel_do(const uint8_t* gmTemp, uint8_t* gmC, float alpha,
+                            const StrmmScaleTilingData &tiling, uint32_t numBlocks, void *stream);
 
 static aclblasStatus_t ValidateStrmmParams(
-    aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t transA,
-    aclblasDiagType_t diag, int64_t m, int64_t n,
-    int64_t lda, int64_t ldb, const float* alpha, const float* A, float* B)
+    aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
+    aclblasDiagType_t diag, int m, int n,
+    int lda, int ldb, int ldc,
+    const float* alpha, const float* A, const float* B, float* C)
 {
     CHECK_RET(
         side == ACLBLAS_SIDE_LEFT || side == ACLBLAS_SIDE_RIGHT,
@@ -45,27 +46,32 @@ static aclblasStatus_t ValidateStrmmParams(
         OP_LOGE("aclblasStrmm", "uplo must be UPPER or LOWER, got %d", static_cast<int>(uplo));
         return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
-        transA == ACLBLAS_OP_N || transA == ACLBLAS_OP_T || transA == ACLBLAS_OP_C,
-        OP_LOGE("aclblasStrmm", "transA must be N, T or C, got %d", static_cast<int>(transA));
+        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
+        OP_LOGE("aclblasStrmm", "trans must be N, T or C, got %d", static_cast<int>(trans));
         return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
         diag == ACLBLAS_UNIT || diag == ACLBLAS_NON_UNIT,
         OP_LOGE("aclblasStrmm", "diag must be UNIT or NON_UNIT, got %d", static_cast<int>(diag));
         return ACLBLAS_STATUS_INVALID_VALUE);
 
-    int64_t dimA = (side == ACLBLAS_SIDE_LEFT) ? m : n;
+    int dimA = (side == ACLBLAS_SIDE_LEFT) ? m : n;
     CHECK_RET(
         lda >= dimA,
-        OP_LOGE("aclblasStrmm", "lda must be >= dimA, got lda=%ld, dimA=%ld", lda, dimA);
+        OP_LOGE("aclblasStrmm", "lda must be >= dimA, got lda=%d, dimA=%d", lda, dimA);
         return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
         ldb >= n,
-        OP_LOGE("aclblasStrmm", "ldb must be >= n, got ldb=%ld, n=%ld", ldb, n);
+        OP_LOGE("aclblasStrmm", "ldb must be >= n, got ldb=%d, n=%d", ldb, n);
+        return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(
+        ldc >= n,
+        OP_LOGE("aclblasStrmm", "ldc must be >= n, got ldc=%d, n=%d", ldc, n);
         return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
         alpha != nullptr, OP_LOGE("aclblasStrmm", "alpha must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(A != nullptr, OP_LOGE("aclblasStrmm", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(B != nullptr, OP_LOGE("aclblasStrmm", "B must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(C != nullptr, OP_LOGE("aclblasStrmm", "C must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -118,13 +124,13 @@ static StrmmGemmTilingData CalGemmTilingData(
     }
 
     uint32_t aSideL1 = CeilAlign<uint32_t>(tileM, STRMM_ARCH35_BASE_M) * CeilAlign<uint32_t>(tileKChunk, STRMM_ARCH35_BASE_K) * STRMM_ARCH35_FP32_SIZE;
-    uint32_t bSideL1 = CeilAlign<uint32_t>(tileKChunk, STRMM_ARCH35_BASE_K) * CeilAlign<uint32_t>(tileN, STRMM_ARCH35_BASE_M) * STRMM_ARCH35_FP32_SIZE;
+    uint32_t bSideL1 = CeilAlign<uint32_t>(tileKChunk, STRMM_ARCH35_BASE_K) * CeilAlign<uint32_t>(tileN, STRMM_ARCH35_BASE_N) * STRMM_ARCH35_FP32_SIZE;
 
-    while (2 * (aSideL1 + bSideL1) > STRMM_ARCH35_L1_SIZE_BYTES && tileKChunk > STRMM_ARCH35_BASE_K) {
+    while (STRMM_ARCH35_L1_BUF_NUM * (aSideL1 + bSideL1) > STRMM_ARCH35_L1_SIZE_BYTES && tileKChunk > STRMM_ARCH35_BASE_K) {
         tileKChunk /= 2;
         tileKChunk = CeilAlign<uint32_t>(std::max<uint32_t>(tileKChunk, STRMM_ARCH35_BASE_K), STRMM_ARCH35_BASE_K);
         aSideL1 = CeilAlign<uint32_t>(tileM, STRMM_ARCH35_BASE_M) * CeilAlign<uint32_t>(tileKChunk, STRMM_ARCH35_BASE_K) * STRMM_ARCH35_FP32_SIZE;
-        bSideL1 = CeilAlign<uint32_t>(tileKChunk, STRMM_ARCH35_BASE_K) * CeilAlign<uint32_t>(tileN, STRMM_ARCH35_BASE_M) * STRMM_ARCH35_FP32_SIZE;
+        bSideL1 = CeilAlign<uint32_t>(tileKChunk, STRMM_ARCH35_BASE_K) * CeilAlign<uint32_t>(tileN, STRMM_ARCH35_BASE_N) * STRMM_ARCH35_FP32_SIZE;
     }
 
     tiling.tileM = tileM;
@@ -138,13 +144,13 @@ static StrmmGemmTilingData CalGemmTilingData(
 }
 
 static StrmmScaleTilingData CalScaleTilingData(
-    uint32_t usedAivCoreNum, uint32_t m, uint32_t n, uint32_t ldb,
+    uint32_t usedAivCoreNum, uint32_t m, uint32_t n, uint32_t ldc,
     uint32_t tempRowStride)
 {
     StrmmScaleTilingData tiling{};
     tiling.m = m;
     tiling.n = n;
-    tiling.ldb = ldb;
+    tiling.ldc = ldc;
     tiling.tempRowStride = tempRowStride;
     tiling.usedAivCoreNum = usedAivCoreNum;
     tiling.scaleRowsPerCore = CeilDiv<uint32_t>(m, usedAivCoreNum);
@@ -152,7 +158,7 @@ static StrmmScaleTilingData CalScaleTilingData(
 }
 
 static aclblasStatus_t LaunchStrmmPipeline(
-    _aclblas_handle* h, const float* A, const float* B, const float* alpha, float* BOut,
+    _aclblas_handle* h, const float* A, const float* B, const float* alpha, float* C,
     uint32_t dimA, uint32_t uM,
     const StrmmMirrorTilingData& mirrorTiling, uint32_t usedAivCoreNum,
     const StrmmGemmTilingData& gemmTiling, uint32_t usedAicCoreNum,
@@ -163,6 +169,10 @@ static aclblasStatus_t LaunchStrmmPipeline(
     constexpr size_t GM_ALIGN = 32;
     size_t workspaceASizeAligned = (workspaceASize + GM_ALIGN - 1) / GM_ALIGN * GM_ALIGN;
     size_t tempSize = static_cast<size_t>(uM) * static_cast<size_t>(gemmTiling.tempRowStride) * STRMM_ARCH35_FP32_SIZE;
+    if (workspaceASizeAligned > SIZE_MAX - tempSize) {
+        OP_LOGE("aclblasStrmm", "workspace size overflow: wsAligned=%zu, temp=%zu", workspaceASizeAligned, tempSize);
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     size_t requiredBytes = workspaceASizeAligned + tempSize;
 
     aclblasStatus_t wsRet = EnsureDefaultWorkspace(h, requiredBytes);
@@ -171,7 +181,7 @@ static aclblasStatus_t LaunchStrmmPipeline(
         return wsRet;
     }
 
-    uint8_t* wsBase = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
+    uint8_t* wsBase = static_cast<uint8_t*>(GetEffectiveWorkspace(h));
     uint8_t* workspaceADevice = wsBase;
     uint8_t* tempDevice = wsBase + workspaceASizeAligned;
 
@@ -179,20 +189,20 @@ static aclblasStatus_t LaunchStrmmPipeline(
         reinterpret_cast<const uint8_t*>(A), workspaceADevice,
         mirrorTiling, usedAivCoreNum, h->stream);
     strmm_gemm_kernel_do(
-        reinterpret_cast<const uint8_t*>(workspaceADevice), reinterpret_cast<const uint8_t*>(B), tempDevice,
+        workspaceADevice, reinterpret_cast<const uint8_t*>(B), tempDevice,
         gemmTiling, usedAicCoreNum, h->stream);
     strmm_scale_kernel_do(
-        tempDevice, reinterpret_cast<uint8_t*>(BOut), *alpha,
+        tempDevice, reinterpret_cast<uint8_t*>(C), *alpha,
         scaleTiling, usedAivCoreNumScale, h->stream);
 
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 static aclblasStatus_t ExecuteStrmmKernels(
-    _aclblas_handle* h, aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t transA,
+    _aclblas_handle* h, aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
     aclblasDiagType_t diag,
-    uint32_t uM, uint32_t uN, uint32_t uLda, uint32_t uLdb,
-    const float* A, const float* B, const float* alpha, float* BOut)
+    uint32_t uM, uint32_t uN, uint32_t uLda, uint32_t uLdb, uint32_t uLdc,
+    const float* A, const float* B, const float* alpha, float* C)
 {
     uint32_t dimA = (side == ACLBLAS_SIDE_LEFT) ? uM : uN;
 
@@ -216,11 +226,11 @@ static aclblasStatus_t ExecuteStrmmKernels(
     StrmmMirrorTilingData mirrorTiling = CalMirrorTilingData(
         usedAivCoreNum, uM, uN, uLda,
         static_cast<uint32_t>(side), static_cast<uint32_t>(uplo),
-        static_cast<uint32_t>(transA), static_cast<uint32_t>(diag));
+        static_cast<uint32_t>(trans), static_cast<uint32_t>(diag));
     StrmmGemmTilingData gemmTiling = CalGemmTilingData(
         usedAicCoreNum, uM, uN, static_cast<uint32_t>(side), uLda, uLdb);
     StrmmScaleTilingData scaleTiling = CalScaleTilingData(
-        usedAivCoreNumScale, uM, uN, uLdb, gemmTiling.tempRowStride);
+        usedAivCoreNumScale, uM, uN, uLdc, gemmTiling.tempRowStride);
 
     OP_LOGD("aclblasStrmm",
         "mirror tiling: side=%u uplo=%u trans=%u diag=%u aivCores=%u rowsPerCore=%u lda=%u dimA=%u",
@@ -235,14 +245,14 @@ static aclblasStatus_t ExecuteStrmmKernels(
         gemmTiling.tileM, gemmTiling.tileN, gemmTiling.tileKChunk,
         gemmTiling.lda, gemmTiling.ldb, gemmTiling.tempRowStride);
     OP_LOGD("aclblasStrmm",
-        "scale tiling: m=%u n=%u ldb=%u tempRowStride=%u aivCores=%u rowsPerCore=%u",
-        scaleTiling.m, scaleTiling.n, scaleTiling.ldb, scaleTiling.tempRowStride,
+        "scale tiling: m=%u n=%u ldc=%u tempRowStride=%u aivCores=%u rowsPerCore=%u",
+        scaleTiling.m, scaleTiling.n, scaleTiling.ldc, scaleTiling.tempRowStride,
         scaleTiling.usedAivCoreNum, scaleTiling.scaleRowsPerCore);
     OP_LOGI("aclblasStrmm", "launching mirror kernel: aivCores=%u", usedAivCoreNum);
     OP_LOGI("aclblasStrmm", "launching gemm kernel: aicCores=%u", usedAicCoreNum);
     OP_LOGI("aclblasStrmm", "launching scale kernel: aivCores=%u", usedAivCoreNumScale);
 
-    return LaunchStrmmPipeline(h, A, B, alpha, BOut, dimA, uM,
+    return LaunchStrmmPipeline(h, A, B, alpha, C, dimA, uM,
         mirrorTiling, usedAivCoreNum, gemmTiling, usedAicCoreNum,
         scaleTiling, usedAivCoreNumScale, uLda);
 }
@@ -251,38 +261,35 @@ aclblasStatus_t aclblasStrmm(
     aclblasHandle_t handle,
     aclblasSideMode_t side,
     aclblasFillMode_t uplo,
-    aclblasOperation_t transA,
+    aclblasOperation_t trans,
     aclblasDiagType_t diag,
-    int64_t m,
-    int64_t n,
+    int m,
+    int n,
     const float* alpha,
     const float* A,
-    int64_t lda,
-    float* B,
-    int64_t ldb)
+    int lda,
+    const float* B,
+    int ldb,
+    float* C,
+    int ldc)
 {
-    CHECK_RET(m >= 0, OP_LOGE("aclblasStrmm", "m must be >= 0, got %ld", m); return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(n >= 0, OP_LOGE("aclblasStrmm", "n must be >= 0, got %ld", n); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(m >= 0, OP_LOGE("aclblasStrmm", "m must be >= 0, got %d", m); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasStrmm", "n must be >= 0, got %d", n); return ACLBLAS_STATUS_INVALID_VALUE);
     if (m == 0 || n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
     CHECK_RET(
         handle != nullptr, OP_LOGE("aclblasStrmm", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
-    aclblasStatus_t st = ValidateStrmmParams(side, uplo, transA, diag, m, n, lda, ldb, alpha, A, B);
+    aclblasStatus_t st = ValidateStrmmParams(side, uplo, trans, diag, m, n, lda, ldb, ldc, alpha, A, B, C);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
     }
 
-    const int64_t maxU32 = static_cast<int64_t>(UINT32_MAX);
-    CHECK_RET(m <= maxU32 && n <= maxU32 && lda <= maxU32 && ldb <= maxU32,
-        OP_LOGE("aclblasStrmm", "dimensions exceed uint32_t limit");
-        return ACLBLAS_STATUS_INVALID_VALUE);
-
-    auto* h = handle;
+    auto* h = static_cast<_aclblas_handle*>(handle);
 
     if (*alpha == 0.0f) {
-        size_t bBytes = static_cast<size_t>(m) * static_cast<size_t>(ldb) * sizeof(float);
-        aclError aclRet = aclrtMemsetAsync(B, bBytes, 0, bBytes, h->stream);
+        size_t cBytes = static_cast<size_t>(m) * static_cast<size_t>(ldc) * sizeof(float);
+        aclError aclRet = aclrtMemsetAsync(C, cBytes, 0, cBytes, h->stream);
         if (aclRet != ACL_SUCCESS) {
             OP_LOGE("aclblasStrmm", "aclrtMemsetAsync failed for alpha=0, ret=%d", aclRet);
             return ACLBLAS_STATUS_INTERNAL_ERROR;
@@ -290,8 +297,8 @@ aclblasStatus_t aclblasStrmm(
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    return ExecuteStrmmKernels(h, side, uplo, transA, diag,
+    return ExecuteStrmmKernels(h, side, uplo, trans, diag,
         static_cast<uint32_t>(m), static_cast<uint32_t>(n),
-        static_cast<uint32_t>(lda), static_cast<uint32_t>(ldb),
-        A, B, alpha, B);
+        static_cast<uint32_t>(lda), static_cast<uint32_t>(ldb), static_cast<uint32_t>(ldc),
+        A, B, alpha, C);
 }

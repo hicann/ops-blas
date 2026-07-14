@@ -12,32 +12,33 @@
 #define STRMM_PARAM_H
 
 #include <string>
-#include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
 
 struct StrmmParam : public BlasTestParamBase {
     aclblasSideMode_t side = ACLBLAS_SIDE_LEFT;
     aclblasFillMode_t uplo = ACLBLAS_UPPER;
-    aclblasOperation_t transA = ACLBLAS_OP_N;
+    aclblasOperation_t trans = ACLBLAS_OP_N;
     aclblasDiagType_t diag = ACLBLAS_NON_UNIT;
-    int64_t m = 0;
-    int64_t n = 0;
+    int m = 0;
+    int n = 0;
     float   alpha = 1.0f;
     bool    nullAlpha = false;
     bool    nullA = false;
     bool    nullB = false;
-    int64_t lda = 0;
-    int64_t ldb = 0;
+    bool    nullC = false;
+    int lda = 0;
+    int ldb = 0;
+    int ldc = 0;
 
-    StrmmParam(const csv_map& map) : BlasTestParamBase(map)
+    explicit StrmmParam(const csv_map& map) : BlasTestParamBase(map)
     {
         side   = parseSideMode(ReadMap(map, "side", "LEFT"));
         uplo   = parseFillMode(ReadMap(map, "uplo", "UPPER"));
-        transA = parseOpTrans(ReadMap(map, "transA", "N"));
+        trans = parseOpTrans(ReadMap(map, "trans", "N"));
         diag   = parseDiagType(ReadMap(map, "diag", "NON_UNIT"));
-        m      = static_cast<int64_t>(std::stoll(ReadMap(map, "m", "0")));
-        n      = static_cast<int64_t>(std::stoll(ReadMap(map, "n", "0")));
+        m      = std::stoi(ReadMap(map, "m", "0"));
+        n      = std::stoi(ReadMap(map, "n", "0"));
 
         std::string alphaStr = ReadMap(map, "alpha", "1.0");
         nullAlpha = (alphaStr == "null" || alphaStr == "nullptr");
@@ -45,9 +46,11 @@ struct StrmmParam : public BlasTestParamBase {
 
         nullA = (ReadMap(map, "nullA", "0") == "1");
         nullB = (ReadMap(map, "nullB", "0") == "1");
+        nullC = (ReadMap(map, "nullC", "0") == "1");
 
-        lda = static_cast<int64_t>(std::stoll(ReadMap(map, "lda", "0")));
-        ldb = static_cast<int64_t>(std::stoll(ReadMap(map, "ldb", "0")));
+        lda = std::stoi(ReadMap(map, "lda", "0"));
+        ldb = std::stoi(ReadMap(map, "ldb", "0"));
+        ldc = std::stoi(ReadMap(map, "ldc", "0"));
     }
 };
 
