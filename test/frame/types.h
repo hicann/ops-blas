@@ -18,7 +18,8 @@ enum class PrecisionMode {
     COMBINED,
     MERE_MARE,
     EXACT,
-    INTEGER
+    INTEGER,
+    MIXED_TOLERANCE
 };
 
 struct VerifyConfig {
@@ -28,5 +29,11 @@ struct VerifyConfig {
     double mereThreshold = 1.0 / 8192.0;
     double mareMultiplier = 10.0;
     double epsilonForRel = 1e-7;
+    double mixedAtol = 1e-3;
+    double mixedRtol = 1e-3;
+    double mixedRequiredMatchedRatio = 0.99;
+    double mixedMaxAbsErrorLimit = 1e-1;
+    int mixedMantissaBits = 23;
+    int mixedEmin = -126;
 };
 

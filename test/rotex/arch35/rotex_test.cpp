@@ -21,21 +21,16 @@
 #include "rotex_npu_wrapper.h"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-static double GetMereThreshold(aclDataType xType, aclDataType yType) {
-    if (xType == ACL_BF16 || yType == ACL_BF16)       return 0.0078125;
-    if (xType == ACL_FLOAT16 || yType == ACL_FLOAT16)  return 0.0009765625;
-    return 0.0001220703125;
-}
-
 static void RunVerifyInline(const RotExParam& p, const float* xOut, const float* yOut,
                             const float* gx, const float* gy,
                             aclDataType xT, aclDataType yT, int absX, int absY) {
-    double thresh = (p.mereThreshold > 0.0) ? p.mereThreshold : GetMereThreshold(xT, yT);
-    double mareMul = (p.mareMultiplier > 0.0) ? p.mareMultiplier : 10.0;
-    VerifyConfig cfg{PrecisionMode::MERE_MARE, thresh, mareMul};
+    VerifyConfig cfgX;
+    applyMixedTolerance(cfgX, xT, gx, static_cast<size_t>(std::max(0, p.n)));
+    VerifyConfig cfgY;
+    applyMixedTolerance(cfgY, yT, gy, static_cast<size_t>(std::max(0, p.n)));
     int xs = (p.incx != 0) ? absX : 1, ys = (p.incy != 0) ? absY : 1;
-    EXPECT_TRUE(Verifier::verifyVector(xOut, gx, static_cast<size_t>(std::max(0, p.n)), xs, cfg, p.caseName + "_x"));
-    EXPECT_TRUE(Verifier::verifyVector(yOut, gy, static_cast<size_t>(std::max(0, p.n)), ys, cfg, p.caseName + "_y"));
+    EXPECT_TRUE(Verifier::verifyVector(xOut, gx, static_cast<size_t>(std::max(0, p.n)), xs, cfgX, p.caseName + "_x"));
+    EXPECT_TRUE(Verifier::verifyVector(yOut, gy, static_cast<size_t>(std::max(0, p.n)), ys, cfgY, p.caseName + "_y"));
 }
 
 // ── Test fixture ─────────────────────────────────────────────────────────────
