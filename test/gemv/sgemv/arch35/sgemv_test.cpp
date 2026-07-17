@@ -68,8 +68,7 @@ TEST_P(SgemvArch35Test, CsvDriven)
         SgemvArch35Test::handle_, p.trans, p.m, p.n, alphaPtr, aHost.data(), p.lda, xHost.data(), p.incx, betaPtr,
         yCpu.data(), p.incy);
 
-    // Skip verification for early-return cases (no computation, thresholds not set)
-    if (yCount == 0 || p.mereThreshold <= 0.0) {
+    if (yCount == 0) {
         return;
     }
 
@@ -83,9 +82,7 @@ TEST_P(SgemvArch35Test, CsvDriven)
     }
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = p.mereThreshold;
-    cfg.mareMultiplier = p.mareMultiplier;
+    applyMixedTolerance(cfg, ACL_FLOAT, cpuLogical.data(), static_cast<size_t>(yCount));
     EXPECT_TRUE(
         Verifier::verifyVector(npuLogical.data(), cpuLogical.data(), static_cast<size_t>(yCount), 1, cfg, p.caseName));
 }

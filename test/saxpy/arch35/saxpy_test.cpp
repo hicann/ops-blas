@@ -68,9 +68,7 @@ TEST_P(SaxpyArch35Test, CsvDriven)
     aclblasSaxpy_cpu(SaxpyArch35Test::handle_, p.n, &p.alpha, goldenX.data(), p.incx, goldenY.data(), p.incy);
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = 1e-13;
-    cfg.mareMultiplier = 10.0;
+    applyMixedTolerance(cfg, ACL_FLOAT, goldenY.data(), static_cast<size_t>(p.n));
     int64_t yStride = std::abs(p.incy);
     EXPECT_TRUE(Verifier::verifyVector(yPtr, goldenY.data(), static_cast<size_t>(p.n), yStride, cfg, p.caseName));
 }

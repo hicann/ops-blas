@@ -78,11 +78,9 @@ TEST_P(AxpyExArch35Test, CsvDriven)
         static_cast<aclDataType>(p.executionType));
     EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
 
-    // Step 5: Precision verification (MERE_MARE, threshold per yType from CSV)
+    // Step 5: Precision verification (MIXED_TOLERANCE, threshold per yType)
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = p.mereThreshold;
-    cfg.mareMultiplier = p.mareMultiplier;
+    applyMixedTolerance(cfg, static_cast<aclDataType>(p.yType), yGolden.data(), static_cast<size_t>(std::max(0, p.n)));
 
     int absIncy = std::abs(p.incy);
     EXPECT_TRUE(
