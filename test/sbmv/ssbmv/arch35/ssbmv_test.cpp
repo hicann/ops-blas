@@ -59,7 +59,7 @@ TEST_P(SsbmvArch35Test, CsvDriven)
         SsbmvArch35Test::handle_, p.uplo, p.n, p.k, alphaPtr, aHost.data(), p.lda, xHost.data(), p.incx, betaPtr,
         yCpu.data(), p.incy);
 
-    if (p.n == 0 || p.mereThreshold <= 0.0) {
+    if (p.n == 0) {
         return;
     }
 
@@ -72,9 +72,7 @@ TEST_P(SsbmvArch35Test, CsvDriven)
     }
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = p.mereThreshold;
-    cfg.mareMultiplier = p.mareMultiplier;
+    applyMixedTolerance(cfg, ACL_FLOAT, cpuLogical.data(), static_cast<size_t>(p.n));
     EXPECT_TRUE(
         Verifier::verifyVector(npuLogical.data(), cpuLogical.data(), static_cast<size_t>(p.n), 1, cfg, p.caseName));
 }
