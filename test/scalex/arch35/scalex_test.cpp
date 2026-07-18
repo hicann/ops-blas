@@ -88,27 +88,10 @@ TEST_P(ScalexArch35Test, CsvDriven) {
         p.incx, static_cast<aclDataType>(p.executionType));
     EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
 
-    // Step 5: Precision verification with MERE_MARE (threshold per dtype)
+    // Step 5: Precision verification with mixed tolerance (threshold per dtype)
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    switch (p.xType) {
-        case static_cast<int32_t>(ACL_FLOAT):
-            cfg.mereThreshold  = std::pow(2.0f, -13);   // ~1.22e-4
-            cfg.mareMultiplier = 10.0;
-            break;
-        case static_cast<int32_t>(ACL_FLOAT16):
-            cfg.mereThreshold  = std::pow(2.0f, -10);   // ~9.77e-4
-            cfg.mareMultiplier = 10.0;
-            break;
-        case static_cast<int32_t>(ACL_BF16):
-            cfg.mereThreshold  = std::pow(2.0f, -7);    // ~7.81e-3
-            cfg.mareMultiplier = 10.0;
-            break;
-        default:
-            cfg.mereThreshold  = std::pow(2.0f, -13);
-            cfg.mareMultiplier = 10.0;
-            break;
-    }
+    applyMixedTolerance(cfg, static_cast<aclDataType>(p.xType), golden.data(),
+                        static_cast<size_t>(std::max(0, p.n)));
 
     int absIncx = std::abs(p.incx);
     EXPECT_TRUE(Verifier::verifyVector(

@@ -92,7 +92,7 @@ TEST_P(SrotArch35Test, CsvDriven)
     //     directly (std::isnan), bypassing Verifier (NaN rel-err is undefined).
     //   - INF inputs with identity rotation c==1&&s==0 (TC_L1_19): result must equal
     //     the input bit-for-bit; verify EXACT.
-    //   - Otherwise: FP32 single benchmark MERE/MARE (CSV-driven thresholds).
+    //   - Otherwise: FP32 mixed tolerance.
     int absIncX = std::max(1, std::abs(p.incx));
     int absIncY = std::max(1, std::abs(p.incy));
 
@@ -144,14 +144,13 @@ TEST_P(SrotArch35Test, CsvDriven)
         return;
     }
 
-    // Default: MERE/MARE (FP32 single benchmark), CSV columns drive per-case thresholds.
-    VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = (p.mereThreshold > 0.0) ? p.mereThreshold : 1.220703125e-4; // 2^-13
-    cfg.mareMultiplier = (p.mareMultiplier > 0.0) ? p.mareMultiplier : 10.0;
+    VerifyConfig xCfg;
+    applyMixedTolerance(xCfg, ACL_FLOAT, goldenX.data(), static_cast<size_t>(p.n));
+    VerifyConfig yCfg;
+    applyMixedTolerance(yCfg, ACL_FLOAT, goldenY.data(), static_cast<size_t>(p.n));
 
     EXPECT_TRUE(Verifier::verifyVector(xPtr, goldenX.data(), static_cast<size_t>(p.n),
-                                       static_cast<int64_t>(absIncX), cfg, p.caseName + "_x"));
+                                       static_cast<int64_t>(absIncX), xCfg, p.caseName + "_x"));
     EXPECT_TRUE(Verifier::verifyVector(yPtr, goldenY.data(), static_cast<size_t>(p.n),
-                                       static_cast<int64_t>(absIncY), cfg, p.caseName + "_y"));
+                                       static_cast<int64_t>(absIncY), yCfg, p.caseName + "_y"));
 }

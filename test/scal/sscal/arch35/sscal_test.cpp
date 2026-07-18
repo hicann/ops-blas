@@ -60,9 +60,7 @@ TEST_P(SscalArch35Test, CsvDriven)
     aclblasSscal_cpu(SscalArch35Test::handle_, p.n, &alpha, goldenX.data(), p.incx);
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::COMBINED;
-    cfg.absTol = 1e-5f;
-    cfg.relTol = 1e-5f;
+    applyMixedTolerance(cfg, ACL_FLOAT, goldenX.data(), static_cast<size_t>(p.n));
 
     int absInc = std::abs(p.incx);
     EXPECT_TRUE(Verifier::verifyVector(xPtr, goldenX.data(), static_cast<size_t>(p.n), static_cast<int64_t>(absInc), cfg, p.caseName));

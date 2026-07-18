@@ -22,6 +22,13 @@
 
 class SrotgArch35Test : public BlasTest<SrotgParam> {};
 
+static void VerifySrotgResult(float result, float golden, const std::string& caseName)
+{
+    VerifyConfig cfg;
+    applyMixedTolerance(cfg, ACL_FLOAT, golden);
+    EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, caseName));
+}
+
 // ── 参数校验测试（单独 TEST_F，不依赖 CSV）──
 
 TEST_F(SrotgArch35Test, NullHandle)
@@ -117,16 +124,11 @@ TEST_P(SrotgArch35Test, CsvDrivenDevice)
     float goldenS = 0.0f;
     aclblasSrotg_cpu(SrotgArch35Test::handle_, &goldenA, &goldenB, &goldenC, &goldenS);
 
-    // Step 5: 逐一验证 4 个输出标量（FP32 标杆：MERE/MARE）
-    VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = 1.0 / 8192.0;  // 2^-13
-    cfg.mareMultiplier = 10.0;
-
-    EXPECT_TRUE(Verifier::verifyScalar(aHost, goldenA, cfg, p.caseName + "_a"));
-    EXPECT_TRUE(Verifier::verifyScalar(bHost, goldenB, cfg, p.caseName + "_b"));
-    EXPECT_TRUE(Verifier::verifyScalar(cHost, goldenC, cfg, p.caseName + "_c"));
-    EXPECT_TRUE(Verifier::verifyScalar(sHost, goldenS, cfg, p.caseName + "_s"));
+    // Step 5: 逐一验证 4 个 FP32 输出标量
+    VerifySrotgResult(aHost, goldenA, p.caseName + "_a");
+    VerifySrotgResult(bHost, goldenB, p.caseName + "_b");
+    VerifySrotgResult(cHost, goldenC, p.caseName + "_c");
+    VerifySrotgResult(sHost, goldenS, p.caseName + "_s");
 }
 
 // CSV-driven: all-host path (aclrtMallocHost pinned memory, direct call)
@@ -158,15 +160,10 @@ TEST_P(SrotgArch35Test, CsvDrivenHost)
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
 
     if (ret == ACLBLAS_STATUS_SUCCESS) {
-        VerifyConfig cfg;
-        cfg.mode = PrecisionMode::MERE_MARE;
-        cfg.mereThreshold = 1.0 / 8192.0;  // 2^-13
-        cfg.mareMultiplier = 10.0;
-
-        EXPECT_TRUE(Verifier::verifyScalar(*a, goldenA, cfg, p.caseName + "_a"));
-        EXPECT_TRUE(Verifier::verifyScalar(*b, goldenB, cfg, p.caseName + "_b"));
-        EXPECT_TRUE(Verifier::verifyScalar(*c, goldenC, cfg, p.caseName + "_c"));
-        EXPECT_TRUE(Verifier::verifyScalar(*s, goldenS, cfg, p.caseName + "_s"));
+        VerifySrotgResult(*a, goldenA, p.caseName + "_a");
+        VerifySrotgResult(*b, goldenB, p.caseName + "_b");
+        VerifySrotgResult(*c, goldenC, p.caseName + "_c");
+        VerifySrotgResult(*s, goldenS, p.caseName + "_s");
     }
 
     if (a) aclrtFreeHost(a);

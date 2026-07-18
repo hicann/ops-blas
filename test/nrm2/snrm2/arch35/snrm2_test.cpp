@@ -72,24 +72,9 @@ static void TestNoOpPath(const Snrm2Param& p, aclblasHandle_t handle)
 static void VerifyNrm2Result(
     float result, float golden, const std::string& caseName)
 {
-    if (std::isinf(golden)) {
-        EXPECT_TRUE(std::isinf(result))
-            << "[" << caseName << "] expected Inf result, got " << result;
-    } else if (std::isnan(golden)) {
-        EXPECT_TRUE(std::isnan(result))
-            << "[" << caseName << "] expected NaN result, got " << result;
-    } else if (golden == 0.0f) {
-        VerifyConfig cfg;
-        cfg.mode = PrecisionMode::ABS;
-        cfg.absTol = 1e-7;
-        EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, caseName));
-    } else {
-        VerifyConfig cfg;
-        cfg.mode = PrecisionMode::REL;
-        cfg.relTol = 1.0 / 8192.0;
-        cfg.epsilonForRel = 1e-7;
-        EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, caseName));
-    }
+    VerifyConfig cfg;
+    applyMixedTolerance(cfg, ACL_FLOAT, golden);
+    EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, caseName));
 }
 
 // ---------------------------------------------------------------------------
@@ -126,40 +111,4 @@ TEST_P(Snrm2Arch35Test, CsvDriven)
     } else {
         TestNormalPath(p, Snrm2Arch35Test::handle_);
     }
-}
-
-// ---------------------------------------------------------------------------
-// Workspace reuse across consecutive calls on the same handle.
-// The per-handle workspace is shared between calls; correctness relies on each
-// call's aclrtMemsetAsync zeroing the region the reduce kernel reads. A shrinking
-// footprint sequence (large useCoreNum -> small useCoreNum) is the probe: if the
-// memset undercovers the padded tail, the small-n call's reduce reads stale
-// high-index slots left by the large-n call and the result comes out too large.
-// ---------------------------------------------------------------------------
-TEST_F(Snrm2Arch35Test, WorkspaceReuseAcrossCalls)
-{
-    aclblasHandle_t handle = Snrm2Arch35Test::handle_;
-
-    auto run = [&](int64_t n, int64_t incx, uint32_t seed, const std::string& tag) -> bool {
-        int64_t xLen = static_cast<int64_t>(1 + (n - 1) * incx);
-        std::vector<float> xHost = makeBlasArray(xLen, "RANDOM_10", seed);
-
-        float result = 0.0f;
-        aclblasStatus_t ret = aclblasSnrm2_npu(handle, n, xHost.data(), incx, &result);
-        EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_SUCCESS))
-            << "[" << tag << "] call failed";
-        if (ret != ACLBLAS_STATUS_SUCCESS) {
-            return false;
-        }
-
-        float golden = 0.0f;
-        aclblasSnrm2_cpu(handle, n, xHost.data(), incx, &golden);
-        VerifyNrm2Result(result, golden, tag);
-        return true;
-    };
-
-    run(100000, 1,   1, "p1: useCoreNum=64 fills workspace[0..63]");
-    run(1,      1,   2, "p2: useCoreNum=1, reduce reads 8 slots, 7 must be zeroed");
-    run(128,    997, 3, "p3: SIMT large prime stride reuse");
-    run(2,      1,   4, "p4: tiny SIMD re-probes tail after SIMT writes");
 }

@@ -72,24 +72,9 @@ static void TestNoOpPath(const SasumParam& p, aclblasHandle_t handle)
 static void VerifySasumResult(
     float result, float golden, const std::string& caseName)
 {
-    if (std::isinf(golden)) {
-        EXPECT_TRUE(std::isinf(result))
-            << "[" << caseName << "] expected Inf result, got " << result;
-    } else if (std::isnan(golden)) {
-        EXPECT_TRUE(std::isnan(result))
-            << "[" << caseName << "] expected NaN result, got " << result;
-    } else if (golden == 0.0f) {
-        VerifyConfig cfg;
-        cfg.mode = PrecisionMode::ABS;
-        cfg.absTol = 1e-7;
-        EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, caseName));
-    } else {
-        VerifyConfig cfg;
-        cfg.mode = PrecisionMode::REL;
-        cfg.relTol = 1.0 / 8192.0;
-        cfg.epsilonForRel = 1e-7;
-        EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, caseName));
-    }
+    VerifyConfig cfg;
+    applyMixedTolerance(cfg, ACL_FLOAT, golden);
+    EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, caseName));
 }
 
 // ---------------------------------------------------------------------------
