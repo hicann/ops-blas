@@ -13,6 +13,7 @@
 # - TRMM/STRMM：仅 arch35(ascend950) 的 strmm 使用 tensor_api，需 asc-devkit >= 9.1；
 #   其他架构的 strmm 不依赖 tensor_api，不受此版本限制
 # - DGMM/SDGMM：仅 arch35(ascend950) 的 sdgmm 使用 tensor_api，需 asc-devkit >= 9.1
+# - GEMM_BATCHED：仅 arch35(ascend950) 的 gemm_batched 使用 tensor_api，需 asc-devkit >= 9.1
 function(ops_blas_detect_asc_devkit_version)
   set(_header
       "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include/version/asc_devkit_version.h")
@@ -21,6 +22,7 @@ function(ops_blas_detect_asc_devkit_version)
   set(ENABLE_BLASLT_MXFP8 FALSE)
   set(ENABLE_BLAS_TRMM TRUE)
   set(ENABLE_BLAS_DGMM TRUE)
+  set(ENABLE_BLAS_GEMM_BATCHED TRUE)
 
   if(EXISTS "${_header}")
     file(READ "${_header}" _version_content)
@@ -33,15 +35,17 @@ function(ops_blas_detect_asc_devkit_version)
     if(ASC_DEVKIT_MAJOR GREATER_EQUAL 9 AND ASC_DEVKIT_MINOR GREATER 0)
       set(ENABLE_BLASLT_MXFP8 TRUE)
     endif()
-    # arch35 的 strmm/sdgmm 使用 tensor_api，需 devkit >= 9.1；其他架构不受限
+    # arch35 的 strmm/sdgmm/gemm_batched 使用 tensor_api，需 devkit >= 9.1；其他架构不受限
     if("arch35" IN_LIST SOC_ARCH_DIRS AND NOT (ASC_DEVKIT_MAJOR GREATER_EQUAL 9 AND ASC_DEVKIT_MINOR GREATER 0))
       set(ENABLE_BLAS_TRMM FALSE)
       set(ENABLE_BLAS_DGMM FALSE)
+      set(ENABLE_BLAS_GEMM_BATCHED FALSE)
     endif()
   else()
     set(ENABLE_BLAS_TRMM FALSE)
     set(ENABLE_BLAS_DGMM FALSE)
-    message(WARNING "asc_devkit_version.h not found: ${_header}, MXFP8/TRMM/DGMM will be skipped")
+    set(ENABLE_BLAS_GEMM_BATCHED FALSE)
+    message(WARNING "asc_devkit_version.h not found: ${_header}, MXFP8/TRMM/DGMM/GEMM_BATCHED will be skipped")
   endif()
 
   set(ASC_DEVKIT_MAJOR ${ASC_DEVKIT_MAJOR} PARENT_SCOPE)
@@ -49,8 +53,9 @@ function(ops_blas_detect_asc_devkit_version)
   set(ENABLE_BLASLT_MXFP8 ${ENABLE_BLASLT_MXFP8} PARENT_SCOPE)
   set(ENABLE_BLAS_TRMM ${ENABLE_BLAS_TRMM} PARENT_SCOPE)
   set(ENABLE_BLAS_DGMM ${ENABLE_BLAS_DGMM} PARENT_SCOPE)
+  set(ENABLE_BLAS_GEMM_BATCHED ${ENABLE_BLAS_GEMM_BATCHED} PARENT_SCOPE)
   message(
     STATUS
-    "ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}, ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}, ENABLE_BLASLT_MXFP8=${ENABLE_BLASLT_MXFP8}, ENABLE_BLAS_TRMM=${ENABLE_BLAS_TRMM}, ENABLE_BLAS_DGMM=${ENABLE_BLAS_DGMM}"
+    "ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}, ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}, ENABLE_BLASLT_MXFP8=${ENABLE_BLASLT_MXFP8}, ENABLE_BLAS_TRMM=${ENABLE_BLAS_TRMM}, ENABLE_BLAS_DGMM=${ENABLE_BLAS_DGMM}, ENABLE_BLAS_GEMM_BATCHED=${ENABLE_BLAS_GEMM_BATCHED}"
   )
 endfunction()

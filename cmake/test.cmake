@@ -21,6 +21,10 @@ function(_ops_blas_has_blas_op_sources op_name out_var)
         set(${out_var} FALSE PARENT_SCOPE)
         return()
     endif()
+    if(NOT ENABLE_BLAS_GEMM_BATCHED AND (op_name STREQUAL "sgemm_batched" OR op_name STREQUAL "gemm_batched"))
+        set(${out_var} FALSE PARENT_SCOPE)
+        return()
+    endif()
 
     foreach(arch_dir ${SOC_ARCH_DIRS})
         file(GLOB arch_dir_srcs ${CMAKE_SOURCE_DIR}/blas/${op_name}/${arch_dir}/*.cpp
