@@ -72,44 +72,33 @@ ls test/frame/csv_loader.h test/frame/blas_test.h test/frame/fill.h test/frame/v
 
 | 算子类型 | 推荐模式 | 配置方式 |
 |----------|----------|----------|
-| Level-2 浮点（gbmv） | MERE_MARE | param 字段 `mereThreshold` / `mareMultiplier`，CSV 列 `mere_threshold` / `mare_multiplier` |
+| Level-2 浮点（gbmv） | MIXED_TOLERANCE | `applyMixedTolerance(cfg, dtype, goldenPtr, count)` 一行配置 |
 | 格式转换 / pack-unpack | EXACT | 在 `TEST_P` 内设 `cfg.mode = PrecisionMode::EXACT` |
-| Level-1 向量 | ABS | 在 `TEST_P` 内设 `cfg.mode = PrecisionMode::ABS` |
-| Level-3 浮点（gemm） | MERE_MARE | 同上 |
-| 矩阵分解（getrf/geqrf） | MERE_MARE | 同上 |
+| Level-1 向量（整数/索引返回） | INTEGER | `Verifier::verifyInteger(npuResult, golden, caseName)` |
+| Level-1 浮点向量 | MIXED_TOLERANCE | `applyMixedTolerance(cfg, dtype, goldenPtr, count)` 一行配置 |
+| Level-3 浮点（gemm） | MIXED_TOLERANCE | 同上 |
+| 矩阵分解（getrf/geqrf） | MIXED_TOLERANCE | 同上 |
 
 **PrecisionMode 选择与配置示例**：
 
 ```cpp
-// 默认模式（无 CSV 自定义列，param 字段或 TEST_P 内固定）
+// MIXED_TOLERANCE 模式（推荐：浮点算子统一使用，阈值按 dtype 自动适配）
 VerifyConfig cfg;
-cfg.mode = PrecisionMode::ABS;
-cfg.absThreshold = 1e-5f;
+applyMixedTolerance(cfg, ACL_FLOAT, golden.data(), n);
 EXPECT_TRUE(Verifier::verifyVector(npuResult, golden.data(), n, 1, cfg, p.caseName));
 
-// MERE_MARE 模式（带 CSV 自定义列 mere_threshold / mare_multiplier，用例级控制精度）
-// CSV: case_name,...,mere_threshold,mare_multiplier,expect_result
-//       TC_01,...,1e-13,10,ACLBLAS_STATUS_SUCCESS
+// EXACT 模式（格式转换 / pack-unpack 等数据搬运算子）
 VerifyConfig cfg;
-cfg.mode = PrecisionMode::MERE_MARE;
-cfg.mereThreshold = p.mereThreshold;        // 从 CSV 读取
-cfg.mareMultiplier = p.mareMultiplier;      // 从 CSV 读取
-EXPECT_TRUE(Verifier::verifyVector(npuResult, golden.data(), n, stride, cfg, p.caseName));
+cfg.mode = PrecisionMode::EXACT;
+EXPECT_TRUE(Verifier::verifyVector(npuResult, golden.data(), n, 1, cfg, p.caseName));
 
-// 精度模式需在 param.h 中扩展字段（若使用 CSV 自定义列）
-struct SxParam : public BlasTestParamBase {
-    // ... API 常规字段 ...
-    float mereThreshold = 1e-5f;
-    float mareMultiplier = 1.0f;
-    SxParam(const csv_map& m) : BlasTestParamBase(m) {
-        mereThreshold = parseFloat(ReadMap(m, "mere_threshold", "1e-5"));
-        mareMultiplier = parseFloat(ReadMap(m, "mare_multiplier", "1.0"));
-        // ...
-    }
-};
+// INTEGER 模式（索引返回类算子，如 iamax）
+EXPECT_TRUE(Verifier::verifyInteger(npuResult, goldenResult, p.caseName));
 ```
 
 > **强制**：`VerifyConfig.mode` 必须显式设置，不得依赖默认值（默认行为由 `Verifier` 类构造器决定，可能与算子精度需求不匹配）。
+>
+> **向后兼容**：`PrecisionMode::MERE_MARE` 仍可使用，但新代码不推荐使用。旧算子若需维持 MERE_MARE，可保留原有 `mereThreshold` / `mareMultiplier` 配置。
 
 ---
 
@@ -455,5 +444,5 @@ bash build.sh --ops=stpttr --run --device=1   # 指定卡1
 | CSV 读取失败 | 确认 CSV 与 .cpp 同名同目录，`ReplaceFileExtension2Csv(__FILE__)` 自动定位 |
 | null handle 测试多余代码 | 改用 `TEST_F` 单独测，不下 CSV |
 | 数组填充不匹配 | 检查 `BlasFillMode` 字符串是否正确，三角矩阵用 `makeBlasTriangular`，带状用 `makeBlasBanded` |
-| 精度 fail | 看 Verifier 日志中的 MERE/MARE 或 exact mismatch 计数 |
+| 精度 fail | 看 Verifier 日志中的 MIXED_TOLERANCE mismatch 或 exact mismatch 计数 |
 | `gtest_main` 链接冲突 | 框架统一使用 `test/frame/test_main.cpp`，勿自行写 `main()` |

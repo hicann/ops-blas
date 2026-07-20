@@ -51,8 +51,8 @@ TC_L1_19,zeros_lower,ACLBLAS_LOWER,8,zeros,sentinel,8,ACLBLAS_STATUS_SUCCESS
 #### gbmv 示例
 
 ```csv
-case_name,description,trans,m,n,kl,ku,alpha,a,lda,x,incx,beta,y,incy,seed,expect_result,mere_threshold,mare_multiplier
-TC_L0_001,Small square banded matrix,ACLBLAS_OP_N,8,8,2,2,1.5,random,5,random,1,0.8,random,1,20260516,ACLBLAS_STATUS_SUCCESS,0.0001220703125,10
+case_name,description,trans,m,n,kl,ku,alpha,a,lda,x,incx,beta,y,incy,seed,expect_result
+TC_L0_001,Small square banded matrix,ACLBLAS_OP_N,8,8,2,2,1.5,random,5,random,1,0.8,random,1,20260516,ACLBLAS_STATUS_SUCCESS
 ```
 
 #### 通用列定义
@@ -70,7 +70,6 @@ TC_L0_001,Small square banded matrix,ACLBLAS_OP_N,8,8,2,2,1.5,random,5,random,1,
 | incx, incy | int | 向量步长 |
 | ap, a, x, y | BlasDataFill | 数组填充模式：`index`/`random`/`zeros`/`ones`/`nullptr`/`sentinel` |
 | seed | uint32 | 随机种子（`random` fill 时使用） |
-| mere_threshold, mare_multiplier | float | MERE_MARE 精度 |
 
 ### 1.4 项目目录结构
 
@@ -218,7 +217,7 @@ CMake：`ops_blas_add_gtest_tests` 自动发现 `arch35/<op>_test.cpp`，链接 
 | 测试入口 | `gbmv_test.cpp` | `stpttr_test.cpp` | `strttp_test.cpp` |
 | CSV | `gbmv_test.csv` (51行) | `stpttr_test.csv` (55行) | `strttp_test.csv` (55行) |
 | 指针模型 | device | device | device |
-| 精度 | MERE_MARE | EXACT | EXACT |
+| 精度 | MIXED_TOLERANCE | EXACT | EXACT |
 | 数组填充 | `makeBlasBanded`/`makeBlasStrided` | `makeBlasTriangular`/`makeBlasArray` | `makeBlasArray` |
 
 ---

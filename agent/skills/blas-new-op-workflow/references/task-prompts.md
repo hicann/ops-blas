@@ -283,7 +283,7 @@ scene: test-development
     - "**测试框架优先**：主动扫描 test/frame/ 和 test/utils/ 下的公共模块，优先复用已有的框架基类、填充函数、校验宏和 golden 工具（如 BlasTestParamBase、BlasTest、makeBlasArray/makeBlasTriangular、Verifier、CHECK_ACLRT/CHECK_ACLBLAS、ToCblasOp/ToCblasUplo、FillRandomData/ComputeGolden 等），禁止在测试文件中重新定义相同功能"
     - "**公共代码提取**：测试代码中发现新的通用填充模式、校验宏或 golden 数据生成方法，必须补充到 test/frame/ 或 test/utils/ 下对应的公共头文件中，禁止定义在算子测试文件内"
     - **CSV 随机值范围强制显式指定**：CSV 中所有 `RANDOM` 必须显式指定值域（如 `RANDOM_1_3`、`RANDOM_NORM_1E6`、`RANDOM_LOWER_0.5_2.0`），**禁止**仅写 `RANDOM` 依赖默认范围（reviewer HIGH）
-    - **精度模式显式指定**：`VerifyConfig.mode` 必须根据算子类型显式设置（`PrecisionMode::MERE_MARE` / `ABS` / `EXACT`），对应阈值在 param 字段或 CSV 自定义列 `mere_threshold` / `mare_multiplier` 中提供
+    - **精度模式显式指定**：浮点算子使用 `applyMixedTolerance(cfg, dtype, goldenPtr, count)` 一行配置（自动设置 `PrecisionMode::MIXED_TOLERANCE` 及阈值）；格式转换/数据搬运算子设 `PrecisionMode::EXACT`；索引返回类算子使用 `Verifier::verifyInteger`。`VerifyConfig.mode` 必须显式设置，不得依赖默认值
     - CMake 使用 ops_blas_add_gtest_tests
     - 编译通过
 ```
