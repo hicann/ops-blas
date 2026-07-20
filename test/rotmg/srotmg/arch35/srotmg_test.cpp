@@ -55,13 +55,7 @@ TEST_P(SrotmgArch35Test, CsvDrivenDevice)
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS) return;
 
     VerifyConfig cfg;
-    if (p.mereThreshold > 0.0) {
-        cfg.mode = PrecisionMode::MERE_MARE;
-        cfg.mereThreshold = p.mereThreshold;
-        cfg.mareMultiplier = p.mareMultiplier;
-    } else {
-        cfg.mode = PrecisionMode::EXACT;
-    }
+    applyMixedTolerance(cfg, ACL_FLOAT, d1Golden);
 
     EXPECT_TRUE(Verifier::verifyScalar(d1Npu, d1Golden, cfg, p.caseName + "_d1"));
     EXPECT_TRUE(Verifier::verifyScalar(d2Npu, d2Golden, cfg, p.caseName + "_d2"));

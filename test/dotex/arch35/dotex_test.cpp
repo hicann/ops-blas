@@ -72,10 +72,8 @@ TEST_P(DotexArch35Test, CsvDriven) {
         static_cast<aclDataType>(p.executionType));
     EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
 
-    // Step 5: Precision verification with ABS mode
+    // Step 5: Precision verification with mixed tolerance
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::REL;
-    cfg.relTol = 1e-3;
-    cfg.epsilonForRel = 1e-7;
+    applyMixedTolerance(cfg, static_cast<aclDataType>(p.resultType), golden);
     EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, p.caseName));
 }

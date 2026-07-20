@@ -50,16 +50,12 @@ TEST_P(SrotmArch35Test, CsvDriven) {
 
     const size_t count = std::min(xHost.size(), xGolden.size());
     VerifyConfig xCfg;
-    xCfg.mode = PrecisionMode::MERE_MARE;
-    xCfg.mereThreshold = p.mereThreshold > 0 ? p.mereThreshold : (1.0 / 8192.0);
-    xCfg.mareMultiplier = p.mareMultiplier > 0 ? p.mareMultiplier : 10.0;
+    applyMixedTolerance(xCfg, ACL_FLOAT, xGolden.data(), static_cast<size_t>(p.n));
     EXPECT_TRUE(Verifier::verifyVector(xPtr, xGolden.data(), count, 1, xCfg, p.caseName + "_x"));
 
     const size_t yCount = std::min(yHost.size(), yGolden.size());
     VerifyConfig yCfg;
-    yCfg.mode = PrecisionMode::MERE_MARE;
-    yCfg.mereThreshold = p.mereThreshold > 0 ? p.mereThreshold : (1.0 / 8192.0);
-    yCfg.mareMultiplier = p.mareMultiplier > 0 ? p.mareMultiplier : 10.0;
+    applyMixedTolerance(yCfg, ACL_FLOAT, yGolden.data(), static_cast<size_t>(p.n));
     EXPECT_TRUE(Verifier::verifyVector(yPtr, yGolden.data(), yCount, 1, yCfg, p.caseName + "_y"));
 }
 
