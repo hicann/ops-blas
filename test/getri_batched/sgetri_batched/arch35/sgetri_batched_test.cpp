@@ -18,6 +18,7 @@
 #include "verify.h"
 #include "blas_test.h"
 #include "csv_loader.h"
+#include "fill.h"
 #include "sgetri_batched_param.h"
 #include "sgetri_batched_golden.h"
 #include "sgetri_batched_npu_wrapper.h"
@@ -57,16 +58,7 @@ static void TestErrorPath(const SgetriBatchedParam& p, aclblasHandle_t handle, a
     int safeLdc = std::max(p.ldc, safeN);
 
     // Prepare dummy matrices
-    std::vector<std::vector<float>> errAMatrices;
-    std::vector<const float*> errAPtrs;
-    if (!nullAarray) {
-        errAMatrices.resize(safeBatch);
-        errAPtrs.resize(safeBatch);
-        for (int b = 0; b < safeBatch; b++) {
-            errAMatrices[b].resize(static_cast<size_t>(safeLda) * safeN, 1.0f);
-            errAPtrs[b] = errAMatrices[b].data();
-        }
-    }
+    auto [errAMatrices, errAPtrs] = MakeDummyConstMatrices(safeBatch, safeLda, safeN, 1.0f, nullAarray);
 
     std::vector<std::vector<float>> errCMatrices;
     std::vector<float*> errCPtrs;
@@ -125,13 +117,10 @@ static void VerifyInfoArray(
 
 static void VerifyInverseMatrices(
     const std::vector<std::vector<float>>& npuInverses, const std::vector<std::vector<float>>& goldenInverses,
-    const std::vector<int>& goldenInfo, int n, int ldc, int batchSize, const std::string& caseName,
-    double mereThreshold, double mareMultiplier)
+    const std::vector<int>& goldenInfo, int n, int ldc, int batchSize, const std::string& caseName)
 {
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = mereThreshold;
-    cfg.mareMultiplier = mareMultiplier;
+    applyMixedTolerance(cfg, ACL_FLOAT, static_cast<const float*>(nullptr), static_cast<size_t>(0));
 
     for (int b = 0; b < batchSize; b++) {
         // Skip singular matrices (info > 0 means singular)
@@ -281,10 +270,8 @@ static void TestNormalPath(
 
     VerifyInfoArray(data.riInfoArray, goldenInfo, batchSize, p.caseName);
 
-    double mereThreshold = (p.mereThreshold > 0) ? p.mereThreshold : (1.0 / 8192.0);
-    double mareMultiplier = (p.mareMultiplier > 0) ? p.mareMultiplier : 10.0;
     VerifyInverseMatrices(
-        data.npuInverses, goldenInverses, goldenInfo, n, ldc, batchSize, p.caseName, mereThreshold, mareMultiplier);
+        data.npuInverses, goldenInverses, goldenInfo, n, ldc, batchSize, p.caseName);
 }
 
 // ---------------------------------------------------------------------------

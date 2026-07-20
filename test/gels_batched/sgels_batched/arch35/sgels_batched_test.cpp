@@ -177,10 +177,7 @@ static void verifyResults(
             }
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = (p.mereThreshold > 0) ? p.mereThreshold : (1.0 / 8192.0);
-    cfg.mareMultiplier = (p.mareMultiplier > 0) ? p.mareMultiplier : 10.0;
-
+    applyMixedTolerance(cfg, ACL_FLOAT, goldenSol.data(), goldenSol.size());
     EXPECT_TRUE(Verifier::verifyVector(npuSol.data(), goldenSol.data(), solElements, 1, cfg, p.caseName));
 }
 

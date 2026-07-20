@@ -295,10 +295,12 @@ TEST_P(GemvBatchedArch35Test, CsvDriven)
         }
     }
 
+    aclDataType outDtype = ACL_FLOAT;
+    if (p.dtype == 0 || p.dtype == 2) outDtype = ACL_FLOAT16;
+    else if (p.dtype == 3 || p.dtype == 4) outDtype = ACL_BF16;
+
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = p.mereThreshold;
-    cfg.mareMultiplier = p.mareMultiplier;
+    applyMixedTolerance(cfg, outDtype, cpuLogical.data(), cpuLogical.size());
     EXPECT_TRUE(Verifier::verifyVector(
         npuLogical.data(), cpuLogical.data(), static_cast<size_t>(p.batchCount) * yCount, 1, cfg, p.caseName));
 }

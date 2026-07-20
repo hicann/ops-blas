@@ -854,3 +854,19 @@ inline std::vector<float> PrepareGoldenData(const std::vector<float>& floatData,
     }
     return golden;
 }
+
+inline std::pair<std::vector<std::vector<float>>, std::vector<const float*>> MakeDummyConstMatrices(
+    int batchCount, int rows, int cols, float value, bool isNull)
+{
+    std::vector<std::vector<float>> matrices;
+    std::vector<const float*> ptrs;
+    if (!isNull) {
+        matrices.resize(batchCount);
+        ptrs.resize(batchCount);
+        for (int b = 0; b < batchCount; b++) {
+            matrices[b].resize(static_cast<size_t>(rows) * cols, value);
+            ptrs[b] = matrices[b].data();
+        }
+    }
+    return {matrices, ptrs};
+}

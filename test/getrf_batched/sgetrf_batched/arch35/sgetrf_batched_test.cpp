@@ -233,9 +233,7 @@ static void VerifyLUMatrices(
     const std::vector<int>& hostInfo, int n, int lda, int batchSize, const std::string& caseName)
 {
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = 1.0 / 8192.0;
-    cfg.mareMultiplier = 10.0;
+    applyMixedTolerance(cfg, ACL_FLOAT, static_cast<const float*>(nullptr), static_cast<size_t>(0));
 
     for (int b = 0; b < batchSize; b++) {
         if (hostInfo[b] > 0) {

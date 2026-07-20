@@ -8,10 +8,11 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#include <algorithm>
+
 #include <cmath>
-#include <cstdint>
 #include <cstring>
+#include <cstdint>
+#include <algorithm>
 #include <random>
 #include <vector>
 
@@ -106,16 +107,7 @@ static void TestErrorPath(const SgetrsBatchedParam& p, aclblasHandle_t handle)
     int safeLdb = std::max(p.ldb, safeN);
 
     // Prepare dummy A matrices
-    std::vector<std::vector<float>> errAMatrices;
-    std::vector<const float*> errAPtrs;
-    if (!nullAarray) {
-        errAMatrices.resize(safeBatch);
-        errAPtrs.resize(safeBatch);
-        for (int b = 0; b < safeBatch; b++) {
-            errAMatrices[b].resize(static_cast<size_t>(safeLda) * safeN, 1.0f);
-            errAPtrs[b] = errAMatrices[b].data();
-        }
-    }
+    auto [errAMatrices, errAPtrs] = MakeDummyConstMatrices(safeBatch, safeLda, safeN, 1.0f, nullAarray);
 
     // Prepare dummy B matrices
     std::vector<std::vector<float>> errBMatrices;
@@ -274,12 +266,10 @@ static void VerifySolutions(
     const std::vector<std::vector<float>>& npuSolutions,
     const std::vector<std::vector<float>>& goldenSolutions,
     const std::vector<int>& goldenInfo, int n, int nrhs, int ldb, int batchCount,
-    const std::string& caseName, double mereThreshold, double mareMultiplier)
+    const std::string& caseName)
 {
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = mereThreshold;
-    cfg.mareMultiplier = mareMultiplier;
+    applyMixedTolerance(cfg, ACL_FLOAT, static_cast<const float*>(nullptr), static_cast<size_t>(0));
 
     for (int b = 0; b < batchCount; b++) {
         // Skip singular matrices (info > 0 means singular)
@@ -339,11 +329,9 @@ static void TestNormalPath(
         EXPECT_EQ(info, 0) << "[" << p.caseName << "] expected info==0, got " << info;
     }
 
-    double mereThreshold = (p.mereThreshold > 0) ? p.mereThreshold : (1.0 / 8192.0);
-    double mareMultiplier = (p.mareMultiplier > 0) ? p.mareMultiplier : 10.0;
     VerifySolutions(
         data.npuBMatrices, goldenSolutions, goldenInfo, n, nrhs, ldb, batchCount,
-        p.caseName, mereThreshold, mareMultiplier);
+        p.caseName);
 }
 
 // ---------------------------------------------------------------------------

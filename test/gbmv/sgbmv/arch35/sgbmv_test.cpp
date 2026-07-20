@@ -59,9 +59,7 @@ TEST_P(GbmvArch35Test, CsvDriven) {
     const float* goldPtr = (p.incy < 0 && yCount > 0) ? golden.data() + (yCount - 1) * (-p.incy) : golden.data();
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = p.mereThreshold;
-    cfg.mareMultiplier = p.mareMultiplier;
+    applyMixedTolerance(cfg, ACL_FLOAT, goldPtr, static_cast<size_t>(yCount));
     EXPECT_TRUE(Verifier::verifyVector(outPtr, goldPtr,
         static_cast<size_t>(yCount), p.incy, cfg, p.caseName));
 }

@@ -123,14 +123,11 @@ static void VerifyInverseMatrices(
     const std::string& caseName,
     double mereThreshold, double mareMultiplier)
 {
-    // Skip precision verification if threshold is 0 (e.g., singular matrix cases)
     if (mereThreshold <= 0.0 && mareMultiplier <= 0.0)
         return;
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = mereThreshold;
-    cfg.mareMultiplier = mareMultiplier;
+    applyMixedTolerance(cfg, ACL_FLOAT, static_cast<const float*>(nullptr), static_cast<size_t>(0));
 
     for (int b = 0; b < batchSize; b++) {
         // Skip singular matrices (info > 0 means singular, inverse is undefined)
@@ -221,7 +218,6 @@ static void TestNormalPath(
     // 4. Verify info array
     VerifyInfoArray(npuInfo, goldenInfoClean, batchSize, p.caseName);
 
-    // 5. Verify inverse matrices (only for non-singular batches)
     VerifyInverseMatrices(
         npuOutputs, goldenAinv, goldenInfoClean,
         n, ldaInv, batchSize, p.caseName,

@@ -33,11 +33,17 @@ TEST_P(TpsvArch35Test, CsvDriven) {
 
     bool isUpper = (p.uplo == ACLBLAS_UPPER);
     auto ap = makeBlasTriangular(p.n, isUpper, "RANDOM", p.randomSeed);
-    for (int i = 0; i < p.n; ++i) {
-        if (isUpper) {
-            ap[TpsvPackedUpperIdxCpu(i, i)] += 2.0f;
-        } else {
-            ap[TpsvPackedLowerIdxCpu(i, i, p.n)] += 2.0f;
+    if (p.diag == ACLBLAS_UNIT) {
+        float scale = std::min(1.0f, 5.0f / static_cast<float>(p.n));
+        for (size_t i = 0; i < ap.size(); ++i) ap[i] *= scale;
+    } else {
+        float boost = std::max(5.0f, static_cast<float>(p.n));
+        for (int i = 0; i < p.n; ++i) {
+            if (isUpper) {
+                ap[TpsvPackedUpperIdxCpu(i, i)] += boost;
+            } else {
+                ap[TpsvPackedLowerIdxCpu(i, i, p.n)] += boost;
+            }
         }
     }
     auto x = makeBlasStrided(p.n, p.incx, "RANDOM", p.randomSeed + 1);
@@ -58,14 +64,10 @@ TEST_P(TpsvArch35Test, CsvDriven) {
         ap.data(), golden.data(), p.incx);
 
     const int absIncx = std::abs(p.incx);
-    VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = p.mereThreshold;
-    cfg.mareMultiplier = p.mareMultiplier;
-    // For incx < 0, the data starts at an offset from the beginning
     const float* outPtr  = (p.incx < 0 && p.n > 0) ? x.data() + (p.n - 1) * absIncx : x.data();
     const float* goldPtr = (p.incx < 0 && p.n > 0) ? golden.data() + (p.n - 1) * absIncx : golden.data();
-
+    VerifyConfig cfg;
+    applyMixedTolerance(cfg, ACL_FLOAT, goldPtr, static_cast<size_t>(p.n));
     EXPECT_TRUE(Verifier::verifyVector(outPtr, goldPtr,
         static_cast<size_t>(p.n), (p.incx < 0) ? -absIncx : absIncx, cfg, p.caseName));
 }

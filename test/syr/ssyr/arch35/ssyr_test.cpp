@@ -70,9 +70,7 @@ TEST_P(SsyrArch35Test, CsvDriven)
     }
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::COMBINED;
-    cfg.absTol = 1e-3;
-    cfg.relTol = 1e-4;
+    applyMixedTolerance(cfg, ACL_FLOAT, triGold.data(), triGold.size());
     EXPECT_TRUE(Verifier::verifyVector(triOut.data(), triGold.data(), triOut.size(), 1, cfg, p.caseName));
 
     uint32_t unchErr = 0;
