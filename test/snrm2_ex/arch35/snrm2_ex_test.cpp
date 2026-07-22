@@ -18,11 +18,6 @@
 #include "snrm2_ex_golden.h"
 #include "snrm2_ex_npu_wrapper.h"
 
-namespace {
-constexpr double kRtolFp32 = 1.0 / 8192.0;  // 2^-13
-constexpr double kRtolFp16 = 1.0 / 1024.0;  // 2^-10
-}  // namespace
-
 class Snrm2ExArch35Test : public BlasTest<Snrm2ExParam> {};
 
 TEST_F(Snrm2ExArch35Test, NullHandle)
@@ -86,8 +81,7 @@ TEST_P(Snrm2ExArch35Test, CsvDriven)
 
     // 步骤 5：精度校验
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::REL;
-    cfg.relTol = (p.xtype == ACL_FLOAT16) ? kRtolFp16 : kRtolFp32;
-    cfg.epsilonForRel = 1e-7;
+    aclDataType scalarDtype = (p.xtype == ACL_FLOAT16) ? ACL_FLOAT16 : ACL_FLOAT;
+    applyMixedTolerance(cfg, scalarDtype, golden);
     EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, p.caseName));
 }

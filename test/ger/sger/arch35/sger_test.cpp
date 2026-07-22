@@ -65,16 +65,11 @@ TEST_P(SgerArch35Test, CsvDriven) {
         SgerArch35Test::handle_,
         p.m, p.n, alphaPtr, xPtr, p.incx, yPtr, p.incy, golden.data(), p.lda);
 
-    // Step 5: Verify precision
     VerifyConfig cfg;
     if (p.alphaValue == 0.0f) {
-        // alpha=0: A should remain unchanged (bit-exact)
         cfg.mode = PrecisionMode::EXACT;
     } else {
-        // FP32 community standard: MERE < 2^-13, MARE < 10 * 2^-13
-        cfg.mode = PrecisionMode::MERE_MARE;
-        // cfg.mereThreshold defaults to 1.0/8192.0 (2^-13)
-        // cfg.mareMultiplier defaults to 10.0
+        applyMixedTolerance(cfg, ACL_FLOAT, golden.data(), aHost.size());
     }
     EXPECT_TRUE(Verifier::verifyVector(aPtr, golden.data(), aHost.size(), 1, cfg, p.caseName));
 }

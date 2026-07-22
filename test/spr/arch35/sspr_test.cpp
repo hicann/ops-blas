@@ -72,17 +72,12 @@ TEST_P(SsprArch35Test, CsvDriven)
     aclblasSspr_cpu(
         SsprArch35Test::handle_, p.uplo, p.n, &p.alpha, xHost.data(), p.incx, golden.data());
 
-    // Verify packed AP
     VerifyConfig cfg;
     if (p.alpha == 0.0f && !p.alphaNull) {
-        // alpha == 0: no update, output must match input exactly
         cfg.mode = PrecisionMode::EXACT;
         EXPECT_TRUE(Verifier::verifyVector(apPtr, golden.data(), apLen, 1, cfg, p.caseName));
     } else {
-        // FP32 community standard: MERE < 2^-13, MARE < 10*2^-13
-        cfg.mode = PrecisionMode::MERE_MARE;
-        cfg.mereThreshold = 1.0 / 8192.0;   // 2^-13
-        cfg.mareMultiplier = 10.0;
+        applyMixedTolerance(cfg, ACL_FLOAT, golden.data(), apLen);
         EXPECT_TRUE(Verifier::verifyVector(apPtr, golden.data(), apLen, 1, cfg, p.caseName));
     }
 }

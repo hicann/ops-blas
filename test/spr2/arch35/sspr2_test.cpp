@@ -95,9 +95,7 @@ TEST_P(Sspr2Arch35Test, CsvDriven)
         cfg.mode = PrecisionMode::EXACT;
         EXPECT_TRUE(Verifier::verifyVector(apPtr, golden.data(), apLen, 1, cfg, p.caseName));
     } else {
-        cfg.mode = PrecisionMode::MERE_MARE;
-        cfg.mereThreshold = 1.0 / 8192.0;
-        cfg.mareMultiplier = 40.0;
+        applyMixedTolerance(cfg, ACL_FLOAT, golden.data(), apLen);
         EXPECT_TRUE(Verifier::verifyVector(apPtr, golden.data(), apLen, 1, cfg, p.caseName));
     }
 }

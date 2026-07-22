@@ -320,13 +320,13 @@ INSTANTIATE_TEST_SUITE_P(
     PrintCaseInfoString<GemvStridedBatchedParam>);
 
 // ============================================================
-// Verification: de-stride y and compare using MERE_MARE
+// Verification: de-stride y and compare using MIXED_TOLERANCE
 // ============================================================
 static void VerifyGemvStridedBatchedOutput(
     const GemvStridedBatchedParam& p, int yCount,
     const std::vector<float>& npuFloat, const std::vector<float>& goldenFloat)
 {
-    if (yCount == 0 || p.batchCount == 0 || p.mereThreshold <= 0.0)
+    if (yCount == 0 || p.batchCount == 0)
         return;
 
     const int absIncy = std::abs(p.incy);
@@ -341,10 +341,14 @@ static void VerifyGemvStridedBatchedOutput(
         }
     }
 
+    aclDataType dtype = ACL_FLOAT;
+    switch (p.dtype) {
+    case 0: dtype = ACL_FLOAT16; break;
+    case 3: dtype = ACL_BF16;  break;
+    default: dtype = ACL_FLOAT; break;
+    }
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = p.mereThreshold;
-    cfg.mareMultiplier = p.mareMultiplier;
+    applyMixedTolerance(cfg, dtype, cpuLogical.data(), cpuLogical.size());
     EXPECT_TRUE(Verifier::verifyVector(
         npuLogical.data(), cpuLogical.data(), static_cast<size_t>(p.batchCount) * yCount, 1, cfg, p.caseName));
 }

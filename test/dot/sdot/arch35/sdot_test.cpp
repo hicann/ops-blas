@@ -41,8 +41,6 @@ TEST_P(SdotArch35Test, CsvDriven) {
     float golden = aclblasSdot_cpu(p.n, xPtr, p.incx, yPtr, p.incy);
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::REL;
-    cfg.relTol = 1e-3;
-    cfg.epsilonForRel = 1e-7;
+    applyMixedTolerance(cfg, ACL_FLOAT, golden);
     EXPECT_TRUE(Verifier::verifyScalar(result, golden, cfg, p.caseName));
 }

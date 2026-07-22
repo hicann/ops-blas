@@ -126,9 +126,7 @@ struct StbsvFixture {
         const float* outPtr = (p.incx < 0) ? xHost.data() + (p.n - 1) * absIncx : xHost.data();
         const float* goldPtr = (p.incx < 0) ? golden.data() + (p.n - 1) * absIncx : golden.data();
         VerifyConfig cfg;
-        cfg.mode = PrecisionMode::MERE_MARE;
-        cfg.mereThreshold = p.mereThreshold;
-        cfg.mareMultiplier = p.mareMultiplier;
+        applyMixedTolerance(cfg, ACL_FLOAT, goldPtr, static_cast<size_t>(p.n));
         EXPECT_TRUE(Verifier::verifyVector(outPtr, goldPtr,
             static_cast<size_t>(p.n), (p.incx < 0) ? -absIncx : absIncx, cfg, p.caseName));
     }
