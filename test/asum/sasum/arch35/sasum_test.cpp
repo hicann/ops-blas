@@ -49,7 +49,7 @@ static void TestErrorPath(const SasumParam& p, aclblasHandle_t handle)
 }
 
 // ---------------------------------------------------------------------------
-// No-op path test (n == 0)
+// Quick-return path (n <= 0 or incx <= 0)
 // ---------------------------------------------------------------------------
 static void TestNoOpPath(const SasumParam& p, aclblasHandle_t handle)
 {
@@ -57,20 +57,19 @@ static void TestNoOpPath(const SasumParam& p, aclblasHandle_t handle)
     std::vector<float> xHost = makeBlasArray(xLen, p.x, p.randomSeed);
     const float* xPtr = xHost.empty() ? nullptr : xHost.data();
 
-    float result = 0.0f;
+    float result = 123.0f;
     aclblasStatus_t ret = aclblasSasum_npu(handle, p.n, xPtr, p.incx, &result);
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
     if (ret == ACLBLAS_STATUS_SUCCESS) {
-        EXPECT_FLOAT_EQ(result, 0.0f)
-            << "[" << p.caseName << "] early return should produce result=0.0f, got " << result;
+        EXPECT_FLOAT_EQ(result, 0.0f) << "[" << p.caseName << "] early return should produce result=0.0f, got "
+                                      << result;
     }
 }
 
 // ---------------------------------------------------------------------------
 // Precision verification helper
 // ---------------------------------------------------------------------------
-static void VerifySasumResult(
-    float result, float golden, const std::string& caseName)
+static void VerifySasumResult(float result, float golden, const std::string& caseName)
 {
     VerifyConfig cfg;
     applyMixedTolerance(cfg, ACL_FLOAT, golden);
@@ -106,7 +105,7 @@ TEST_P(SasumArch35Test, CsvDriven)
 
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS) {
         TestErrorPath(p, SasumArch35Test::handle_);
-    } else if (p.n <= 0) {
+    } else if (p.n <= 0 || p.incx <= 0) {
         TestNoOpPath(p, SasumArch35Test::handle_);
     } else {
         TestNormalPath(p, SasumArch35Test::handle_);

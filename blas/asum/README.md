@@ -39,13 +39,12 @@ aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float *x, int 
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
 | n | 输入 | int | 向量元素个数，Host 内存 |
 | x | 输入 | const float*（FP32） | float 向量，包含 n 个元素，Device 内存 |
-| incx | 输入 | int | x 中连续元素之间的步长，不可为 0，Host 内存 |
+| incx | 输入 | int | x 中连续元素之间的步长，Host 内存 |
 | result | 输出 | float*（FP32） | 向量元素绝对值之和，Device 内存 |
 
 #### 约束说明
 
-- n >= 0（n < 0 时返回错误）
-- incx != 0
+- n <= 0 或 incx <= 0 时，result 被置为 0 并返回成功
 
 #### 调用示例
 
