@@ -475,6 +475,12 @@ aclblasStatus_t aclblasSdgmm(
     const float* A, int lda, const float* x, int incx,
     float* C, int ldc);
 
+aclblasStatus_t aclblasSgemm3m(
+    aclblasHandle handle, aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k,
+    const float* alpha, const float* A, int lda,
+    const float* B, int ldb,
+    const float* beta, float* C, int ldc);
+
 #ifdef __cplusplus
 }
 #endif

@@ -82,6 +82,13 @@ if(NOT ENABLE_BLAS_GEMM_BATCHED)
         STATUS
         "Skipping blas gemm_batched (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
+if(NOT ENABLE_BLAS_GEMM3M)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/gemm3m/")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/gemm3m/")
+    message(
+        STATUS
+        "Skipping blas gemm3m/sgemm3m (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
 
 set(ALL_BLAS_SRC_FILES
     ${BASE_SRC_FILES}
