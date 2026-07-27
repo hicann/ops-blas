@@ -76,6 +76,8 @@ perf/
 .claude
 .opencode
 .agent
+.cannbot
+AGENTS.md
 opencode.json
 
 # OAT scan reports (scripts/oat_check.sh)
