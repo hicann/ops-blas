@@ -12,7 +12,7 @@
 #include <type_traits>
 #include "kernel_operator.h"
 
-namespace Iamax {
+namespace Isamax {
 using namespace AscendC;
 
 constexpr uint32_t BUFFER_NUM = 2;
@@ -39,9 +39,9 @@ constexpr int32_t DEAL_TIMES_EACH_CORE_REDUCE = 63;
 constexpr int32_t DEAL_TIMES_EACH_CORE_REDUCE_REP = 8;  // (63+1)/8=8个repeat
 
 template <typename T>
-class Iamax {
+class Isamax {
 public:
-    __aicore__ inline Iamax<T>(){};
+    __aicore__ inline Isamax<T>(){};
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR y, GM_ADDR usrWorkspace, GM_ADDR tiling);
     __aicore__ inline void Process();
 
@@ -58,6 +58,15 @@ private:
     __aicore__ inline void CopyIn(uint32_t calCount, uint32_t offset);
     __aicore__ inline void CopyInAttacheTail(uint32_t calCount, uint32_t tailCount, uint32_t offset);
     __aicore__ inline void SingleProcess(const int32_t count, uint32_t k);
+    __aicore__ inline void ProcessMainLoop();
+    __aicore__ inline void UpdateRepeatParams(const int32_t count, uint32_t& totalRepeatCnt,
+                                              uint32_t& totalRepeatCntRemainder, uint32_t& repeatBatchCnt,
+                                              uint32_t& repeatBatchCntRemainder, uint32_t& maxRepeatLen,
+                                              uint32_t& rmdRepeatLen);
+    __aicore__ inline void RunAbsAndReduceMax(LocalTensor<T>& srcLocal, int32_t count, uint32_t k,
+                                              uint32_t totalRepeatCnt, uint32_t totalRepeatCntRemainder,
+                                              uint32_t repeatBatchCnt, uint32_t repeatBatchCntRemainder,
+                                              uint32_t maxRepeatLen, uint32_t rmdRepeatLen);
     __aicore__ inline void GetReduceMaxCount(uint32_t k);
     __aicore__ inline void reduceMaxTmpResult(uint32_t k);
     __aicore__ inline void getCoreTmpReduResult();
@@ -129,7 +138,7 @@ private:
 };
 
 template <typename T>
-__aicore__ inline void Iamax<T>::Init(GM_ADDR x, GM_ADDR y, GM_ADDR usrWorkspace, GM_ADDR tiling)
+__aicore__ inline void Isamax<T>::Init(GM_ADDR x, GM_ADDR y, GM_ADDR usrWorkspace, GM_ADDR tiling)
 {
     this->blockIdx = GetBlockIdx();
 
@@ -166,7 +175,7 @@ __aicore__ inline void Iamax<T>::Init(GM_ADDR x, GM_ADDR y, GM_ADDR usrWorkspace
 }
 
 template <typename T>
-__aicore__ inline bool Iamax<T>::ParseTilingData(GM_ADDR tiling)
+__aicore__ inline bool Isamax<T>::ParseTilingData(GM_ADDR tiling)
 {
     auto tilingBuf = reinterpret_cast<__gm__ uint32_t *>(tiling);
     this->incx = (*(__gm__ uint32_t *)(tilingBuf + 0));
@@ -208,25 +217,15 @@ __aicore__ inline bool Iamax<T>::ParseTilingData(GM_ADDR tiling)
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::Process()
+__aicore__ inline void Isamax<T>::ProcessMainLoop()
 {
-    // 硬同步必须在mix模式下，在该模式下，AIVector会成对出现，blockIdx实际比needVecCoreNum多，直接return空转
-    if (this->blockIdx + 1 > this->needVecCoreNum) {
-        SyncAll();
-        return;
-    }
-    Duplicate<T>(this->rMaxALLRstsTenor, 0.0, this->reduceMaxRstsLen);
-
     uint32_t calCount = 0;
     uint32_t copyedlCount = 0;
     int32_t leftCount = 0;
-    // 如果dealBigTimestail不为0，说明最后一个大轮不满DEAL_TIMES_EACH_CORE_REDUCE
     int32_t dealBigTimes = this->dealTimesEachCore / DEAL_TIMES_EACH_CORE_REDUCE;
     int32_t dealBigTimesTail = this->dealTimesEachCore % DEAL_TIMES_EACH_CORE_REDUCE;
 
-    // 小轮
     for (uint32_t k = 0; k < this->dealTimesEachCore; k++) {
-        // 更新本次要处理的元素数量
         calCount = this->dealLenEachTime;
         this->isUpdateRptParas = false;
         leftCount = this->eleTotalEachCore - copyedlCount;
@@ -236,7 +235,6 @@ __aicore__ inline void Iamax<T>::Process()
             isUpdateRptParas = true;
         }
 
-        // 尾块全给第一个核了，长度不足一个repeat
         if (this->blockIdx == 0 && this->tailCount > 0 && k == 0) {
             CopyInAttacheTail(calCount, this->tailCount, copyedlCount);
             calCount += this->tailCount;
@@ -248,11 +246,9 @@ __aicore__ inline void Iamax<T>::Process()
         SingleProcess(calCount, k);
         copyedlCount += calCount;
 
-        // 大轮：即单核超过DEAL_TIMES_EACH_CORE_REDUCE次,就要取一次reduceMax，将空间 rMaxTmpRstsTenor 占用降为一个block
         uint32_t dealedTimes = k + 1;
         if ((dealedTimes % DEAL_TIMES_EACH_CORE_REDUCE == 0 && k > 0) || (k == this->dealTimesEachCore - 1)) {
             reduceMaxTmpResult(k);
-            // 如果下一次是进入最后一个大轮，且不满DEAL_TIMES_EACH_CORE_REDUCE,需要清理rMaxTmpRstsTenor；但是大轮中最后一次也会走进来，不需要了
             if ((0 != dealBigTimesTail) && (dealedTimes / DEAL_TIMES_EACH_CORE_REDUCE == dealBigTimes) &&
                 dealedTimes != this->dealTimesEachCore) {
                 Duplicate<T>(this->rMaxTmpRstsTenor, 0.0, this->reduceMaxRstsLen - this->elementsPerBlock);
@@ -260,9 +256,20 @@ __aicore__ inline void Iamax<T>::Process()
             }
         }
     }
+}
+
+template <typename T>
+__aicore__ inline void Isamax<T>::Process()
+{
+    if (this->blockIdx + 1 > this->needVecCoreNum) {
+        SyncAll();
+        return;
+    }
+    Duplicate<T>(this->rMaxALLRstsTenor, 0.0, this->reduceMaxRstsLen);
+
+    ProcessMainLoop();
 
     if (this->needVecCoreNum == 1 && this->blockIdx == 0) {
-        // rMaxALLRstsTenor是单核中间结果，结构为[value，index],如果只有一个核，不需要核间汇总,直接把这个index当成结果考出去
         SyncAll();
         getCoreReduResult();
         CopyTmpRstOut();
@@ -277,7 +284,7 @@ __aicore__ inline void Iamax<T>::Process()
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::CopyIn(uint32_t calCount, uint32_t offset)
+__aicore__ inline void Isamax<T>::CopyIn(uint32_t calCount, uint32_t offset)
 {
     LocalTensor<T> inLocalTensor = inDataQueue.AllocTensor<T>();
     DataCopy(inLocalTensor, inTensorsGM[offset], calCount);
@@ -285,7 +292,7 @@ __aicore__ inline void Iamax<T>::CopyIn(uint32_t calCount, uint32_t offset)
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::CopyInAttacheTail(uint32_t calCount, uint32_t tailCount, uint32_t offset)
+__aicore__ inline void Isamax<T>::CopyInAttacheTail(uint32_t calCount, uint32_t tailCount, uint32_t offset)
 {
     LocalTensor<T> inLocalTensor = inDataQueue.AllocTensor<T>();
 
@@ -304,41 +311,39 @@ __aicore__ inline void Iamax<T>::CopyInAttacheTail(uint32_t calCount, uint32_t t
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::SingleProcess(const int32_t count, uint32_t k)
+__aicore__ inline void Isamax<T>::UpdateRepeatParams(const int32_t count, uint32_t& totalRepeatCnt,
+    uint32_t& totalRepeatCntRemainder, uint32_t& repeatBatchCnt, uint32_t& repeatBatchCntRemainder,
+    uint32_t& maxRepeatLen, uint32_t& rmdRepeatLen)
 {
-    LocalTensor<T> srcLocal = inDataQueue.DeQue<T>();
-
-    // 如果本次是第64次（k=63）,k-1结果已经在376行处理过了，不需要再处理
-    if (k % DEAL_TIMES_EACH_CORE_REDUCE != 0 && k > 0) {  // 上一次
-        GetReduceMaxCount(k - 1);
-    }
-
-    uint32_t totalRepeatCnt = this->totalRptCntNor;
-    uint32_t totalRepeatCntRemainder = this->totalRptCntNorRemainder;  // should calc
-    uint32_t repeatBatchCnt = this->rptBatchCntNor;                    // limit by L0 API, should calc
-    uint32_t repeatBatchCntRemainder = this->rptBatchCntNorRemainder;  // should calc
-    uint32_t maxRepeatLen = this->maxRepeatLen;
-    uint32_t rmdRepeatLen = this->rmdRptLenNor;
+    totalRepeatCnt = this->totalRptCntNor;
+    totalRepeatCntRemainder = this->totalRptCntNorRemainder;
+    repeatBatchCnt = this->rptBatchCntNor;
+    repeatBatchCntRemainder = this->rptBatchCntNorRemainder;
+    maxRepeatLen = this->maxRepeatLen;
+    rmdRepeatLen = this->rmdRptLenNor;
     if (this->isUpdateRptParas == true) {
         totalRepeatCnt = count / elementsPerRepeat;
-        totalRepeatCntRemainder = count % elementsPerRepeat;     // should calc
-        repeatBatchCnt = totalRepeatCnt / MAX_REPEATS;           // limit by L0 API, should calc
-        repeatBatchCntRemainder = totalRepeatCnt % MAX_REPEATS;  // should calc
+        totalRepeatCntRemainder = count % elementsPerRepeat;
+        repeatBatchCnt = totalRepeatCnt / MAX_REPEATS;
+        repeatBatchCntRemainder = totalRepeatCnt % MAX_REPEATS;
         rmdRepeatLen = repeatBatchCntRemainder * elementsPerRepeat;
     }
+}
 
+template <typename T>
+__aicore__ inline void Isamax<T>::RunAbsAndReduceMax(LocalTensor<T>& srcLocal, int32_t count, uint32_t k,
+    uint32_t totalRepeatCnt, uint32_t totalRepeatCntRemainder, uint32_t repeatBatchCnt,
+    uint32_t repeatBatchCntRemainder, uint32_t maxRepeatLen, uint32_t rmdRepeatLen)
+{
     uint32_t offset = 0;
-
     for (uint32_t i = 0; i < repeatBatchCnt; i++) {
         Abs(srcLocal[offset], srcLocal[offset], elementsPerRepeat, MAX_REPEATS, {1, 1, 8, 8});
         offset += maxRepeatLen;
     }
-
     if (repeatBatchCntRemainder > 0) {
         Abs(srcLocal[offset], srcLocal[offset], elementsPerRepeat, repeatBatchCntRemainder, {1, 1, 8, 8});
         offset += rmdRepeatLen;
     }
-
     if (totalRepeatCntRemainder > 0) {
         Abs(srcLocal[offset], srcLocal[offset], totalRepeatCntRemainder, 1, {1, 1, 8, 8});
     }
@@ -346,7 +351,6 @@ __aicore__ inline void Iamax<T>::SingleProcess(const int32_t count, uint32_t k)
     AscendC::PipeBarrier<PIPE_V>();
 
     int32_t ReduceMaxCount = count;
-    // 如果是复数
     if (this->dytpeFlag == 1) {
         ReduceMaxCount = count / 2;
         offset = 0;
@@ -355,13 +359,11 @@ __aicore__ inline void Iamax<T>::SingleProcess(const int32_t count, uint32_t k)
             AscendC::PipeBarrier<PIPE_V>();
             offset += maxRepeatLen;
         }
-
         if (repeatBatchCntRemainder > 0) {
             PairReduceSum(srcLocal[offset / 2], srcLocal[offset], repeatBatchCntRemainder, elementsPerRepeat, 1, 1, 8);
             AscendC::PipeBarrier<PIPE_V>();
             offset += rmdRepeatLen;
         }
-
         if (totalRepeatCntRemainder > 0) {
             PairReduceSum(srcLocal[offset / 2], srcLocal[offset], 1, totalRepeatCntRemainder, 1, 1, 8);
             AscendC::PipeBarrier<PIPE_V>();
@@ -373,8 +375,24 @@ __aicore__ inline void Iamax<T>::SingleProcess(const int32_t count, uint32_t k)
     WholeReduceMax<T, false>(srcLocal, srcLocal, AscendC::MASK_PLACEHOLDER, 1, 1, 1, 8);
     AscendC::SetMaskNorm();
     AscendC::ResetMask();
+}
 
-    // 如果是第63次（k=62）或者是最后一次,本循环内马上就要进行压缩，此时必须把本次结果取出来参与压缩，不能等下次再处理；
+template <typename T>
+__aicore__ inline void Isamax<T>::SingleProcess(const int32_t count, uint32_t k)
+{
+    LocalTensor<T> srcLocal = inDataQueue.DeQue<T>();
+
+    if (k % DEAL_TIMES_EACH_CORE_REDUCE != 0 && k > 0) {
+        GetReduceMaxCount(k - 1);
+    }
+
+    uint32_t totalRepeatCnt, totalRepeatCntRemainder, repeatBatchCnt, repeatBatchCntRemainder, maxRepeatLen, rmdRepeatLen;
+    UpdateRepeatParams(count, totalRepeatCnt, totalRepeatCntRemainder, repeatBatchCnt, repeatBatchCntRemainder,
+                       maxRepeatLen, rmdRepeatLen);
+
+    RunAbsAndReduceMax(srcLocal, count, k, totalRepeatCnt, totalRepeatCntRemainder, repeatBatchCnt,
+                       repeatBatchCntRemainder, maxRepeatLen, rmdRepeatLen);
+
     if (((k + 1) % DEAL_TIMES_EACH_CORE_REDUCE == 0 && k > 0) || k == this->dealTimesEachCore - 1) {
         GetReduceMaxCount(k);
     }
@@ -383,7 +401,7 @@ __aicore__ inline void Iamax<T>::SingleProcess(const int32_t count, uint32_t k)
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::GetReduceMaxCount(uint32_t k)
+__aicore__ inline void Isamax<T>::GetReduceMaxCount(uint32_t k)
 {
     uint32_t tmpK = k % DEAL_TIMES_EACH_CORE_REDUCE * this->elementsPerBlock;
 
@@ -401,7 +419,7 @@ __aicore__ inline void Iamax<T>::GetReduceMaxCount(uint32_t k)
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::reduceMaxTmpResult(uint32_t k)
+__aicore__ inline void Isamax<T>::reduceMaxTmpResult(uint32_t k)
 {
     AscendC::PipeBarrier<PIPE_V>();
 
@@ -444,7 +462,7 @@ __aicore__ inline void Iamax<T>::reduceMaxTmpResult(uint32_t k)
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::getCoreTmpReduResult()
+__aicore__ inline void Isamax<T>::getCoreTmpReduResult()
 {
     LocalTensor<T> outLocalTensor = outDataQueue.AllocTensor<T>();
 
@@ -455,7 +473,7 @@ __aicore__ inline void Iamax<T>::getCoreTmpReduResult()
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::CopyTmpRstToWkGM()
+__aicore__ inline void Isamax<T>::CopyTmpRstToWkGM()
 {
     LocalTensor<T> outLocalTensor = outDataQueue.DeQue<T>();
     uint16_t blockCout = (uint16_t)1;
@@ -467,7 +485,7 @@ __aicore__ inline void Iamax<T>::CopyTmpRstToWkGM()
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::reduceMaxCoresResult()
+__aicore__ inline void Isamax<T>::reduceMaxCoresResult()
 {
     copyInCoresTmpRst();
     ReduceMaxCoresTmpRst();
@@ -475,7 +493,7 @@ __aicore__ inline void Iamax<T>::reduceMaxCoresResult()
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::copyInCoresTmpRst()
+__aicore__ inline void Isamax<T>::copyInCoresTmpRst()
 {
     LocalTensor<T> inLocalTensor = coresRstInDataQueue.AllocTensor<T>();
 
@@ -494,7 +512,7 @@ __aicore__ inline void Iamax<T>::copyInCoresTmpRst()
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::ReduceMaxCoresTmpRst()
+__aicore__ inline void Isamax<T>::ReduceMaxCoresTmpRst()
 {
     LocalTensor<T> srcLocal = coresRstInDataQueue.DeQue<T>();
     LocalTensor<int32_t> outLocalTensor = coresRstOutDataQueue.AllocTensor<int32_t>();
@@ -524,7 +542,7 @@ __aicore__ inline void Iamax<T>::ReduceMaxCoresTmpRst()
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::copyOutRst()
+__aicore__ inline void Isamax<T>::copyOutRst()
 {
     LocalTensor<int32_t> outLocalTensor = coresRstOutDataQueue.DeQue<int32_t>();
 
@@ -536,7 +554,7 @@ __aicore__ inline void Iamax<T>::copyOutRst()
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::getCoreReduResult()
+__aicore__ inline void Isamax<T>::getCoreReduResult()
 {
     LocalTensor<int32_t> outLocalTensor = coresRstOutDataQueue.AllocTensor<int32_t>();
 
@@ -554,7 +572,7 @@ __aicore__ inline void Iamax<T>::getCoreReduResult()
 }
 
 template <typename T>
-__aicore__ inline void Iamax<T>::CopyTmpRstOut()
+__aicore__ inline void Isamax<T>::CopyTmpRstOut()
 {
     LocalTensor<int32_t> outLocalTensor = coresRstOutDataQueue.DeQue<int32_t>();
 
@@ -567,5 +585,5 @@ __aicore__ inline void Iamax<T>::CopyTmpRstOut()
     coresRstOutDataQueue.FreeTensor(outLocalTensor);
 }
 
-}  // namespace IAMAX
+}  // namespace Isamax
 

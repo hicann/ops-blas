@@ -2,6 +2,4 @@
 # Copyright (c) 2026 Huawei Technologies Co., Ltd.
 # ----------------------------------------------------------------------------------------------------------
 
-if("arch22" IN_LIST SOC_ARCH_DIRS)
-    ops_blas_add_tests(${OPS_BLAS})
-endif()
+ops_blas_add_tests(${OPS_BLAS})

@@ -137,10 +137,6 @@ aclblasStatus_t aclblasScopy_legacy(
 
 aclblasStatus_t aclblasScopy(aclblasHandle_t handle, int n, const float* x, int incx, float* y, int incy);
 
-aclblasStatus_t aclblasSpmv(
-    aclblasHandle_t handle, const float* aPacked, const float* x, const float* y, float* z, const float alpha,
-    const float beta, const int64_t n, const int64_t incx, const int64_t incy);
-
 aclblasStatus_t aclblasSspmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const float* AP, const float* x,
     int incx, const float* beta, float* y, int incy);
@@ -194,11 +190,6 @@ aclblasStatus_t aclblasCdotc(
     uint8_t* result);
 
 aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float* x, int incx, float* result);
-
-aclblasStatus_t aclblasIamax(aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* result);
-
-aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
-aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
 
 aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
 aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float* x, int incx, int* result);

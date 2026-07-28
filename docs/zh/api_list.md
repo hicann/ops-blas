@@ -819,7 +819,7 @@ Level 1 接口在向量之间进行运算，典型操作包括向量缩放（sca
 | [aclblasSdot](../../blas/dot/README.md) | 实数向量点积 |
 | [aclblasCdotu](../../blas/dot/README.md) | 无共轭复数点积 |
 | [aclblasCdotc](../../blas/dot/README.md) | 共轭复数点积 |
-| [aclblasIamax](../../blas/iamax/README.md) | 查找向量中绝对值最大元素的索引 |
+| [aclblasIsamax](../../blas/iamax/README.md) | 查找向量中绝对值最大元素的索引 |
 | [aclblasSnrm2](../../blas/nrm2/README.md) | 实数向量欧几里得范数 |
 | [aclblasScnrm2](../../blas/nrm2/README.md) | 复数向量欧几里得范数 |
 | [aclblasCsrot](../../blas/rot/README.md) | 复数向量平面旋转 |
@@ -852,7 +852,6 @@ Level 2 接口在矩阵与向量之间进行运算，典型操作包括通用矩
 | [aclblasSger](../../blas/ger/README.md) | 单精度浮点矩阵秩-1 更新 |
 | [aclblasCgerc](../../blas/gerc/README.md) | 复数矩阵共轭秩-1 更新 |
 | [aclblasSsbmv](../../blas/sbmv/README.md) | 单精度浮点对称带状矩阵-向量乘法 |
-| [aclblasSpmv](../../blas/spmv/README.md) | 单精度浮点对称压缩矩阵-向量乘法 |
 | [aclblasSspmv](../../blas/spmv/README.md) | 单精度浮点对称 packed 矩阵-向量乘法 |
 | [aclblasSspr](../../blas/spr/README.md) | 单精度对称 packed 秩-1 更新 |
 | [aclblasSspr2](../../blas/spr2/README.md) | 单精度对称矩阵 packed 格式秩-2 更新 |
