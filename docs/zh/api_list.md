@@ -892,7 +892,7 @@ BLAS-like Extension 提供标准 BLAS Level 3 之外的扩展 GEMM 接口（以 
 
 | 接口名 | 说明 |
 |---|---|
-| [aclblasGemmEx](../../blas/gemm/README.md) | 通用矩阵乘法扩展接口，支持 A/B/C 独立数据类型 |
+| [aclblasGemmEx](../../blas/gemm_ex/README.md) | 通用矩阵乘法扩展接口，支持 A/B/C 独立数据类型 |
 | [aclblasGemmBatchedEx](../../blas/gemm_batched_ex/README.md) | 通用矩阵乘法批量扩展接口 |
 | [aclblasGemmGroupedBatchedEx](../../blas/gemm_grouped_batched_ex/README.md) | 通用矩阵乘法分组批量扩展接口 |
 

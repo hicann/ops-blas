@@ -72,7 +72,7 @@
 | 类型 | 要求 | 参考资料 |
 |------|------|---------|
 | 代码交付件 | 需提供算子 Host 侧实现、Device 侧 Kernel 实现、算子测试文件 | [快速入门](docs/QUICKSTART.md) |
-| 文档交付件 | 算子 README 文档为必选，其余文档可视情况提供 | 参考已有算子 README（如 [blas/gemm/README.md](blas/gemm/README.md)） |
+| 文档交付件 | 算子 README 文档为必选，其余文档可视情况提供 | 参考已有算子 README（如 [blas/gemm_ex/README.md](blas/gemm_ex/README.md)） |
 | 精度要求 | 新贡献算子需满足精度标准 | [生态算子开源精度标准](https://gitcode.com/cann/opbase/blob/master/docs/zh/ops_precision_standard/experimental_standard.md) |
 
 **合规检查：**
@@ -129,7 +129,7 @@ Committer 检视通过后，将标注 `/lgtm` 标签。Maintainer 最终审核�
 
 如果您在本项目中发现某些算子文档描述错误，欢迎您新建 Issue 进行反馈和修复。
 
-您可以按照 [提交 Issue/处理 Issue 任务](https://gitcode.com/cann/community#提交Issue处理Issue任务) 指引新建 `Documentation|文档反馈` 类 Issue 指出对应文档的问题。README 文档规范参考已有算子 README（如 [blas/gemm/README.md](ops-blas/docs/zh/develop/readme_develop_guide.md)）。
+您可以按照 [提交 Issue/处理 Issue 任务](https://gitcode.com/cann/community#提交Issue处理Issue任务) 指引新建 `Documentation|文档反馈` 类 Issue 指出对应文档的问题。README 文档规范参考已有算子 README（如 [blas/gemm_ex/README.md](ops-blas/docs/zh/develop/readme_develop_guide.md)）。
 
 ---
 

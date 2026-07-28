@@ -96,13 +96,14 @@ static aclblasStatus_t ValidateSgemmExPointers(
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     }
     float betaVal = *beta;
-    if (k > 0) {
+    float alphaVal = *alpha;
+    if (k > 0 && alphaVal != 0.0f) {
         if (A == nullptr) {
-            OP_LOGE("aclblasSgemmEx", "A must not be nullptr when k > 0");
+            OP_LOGE("aclblasSgemmEx", "A must not be nullptr when k > 0 and alpha != 0");
             return ACLBLAS_STATUS_INVALID_VALUE;
         }
         if (B == nullptr) {
-            OP_LOGE("aclblasSgemmEx", "B must not be nullptr when k > 0");
+            OP_LOGE("aclblasSgemmEx", "B must not be nullptr when k > 0 and alpha != 0");
             return ACLBLAS_STATUS_INVALID_VALUE;
         }
     }

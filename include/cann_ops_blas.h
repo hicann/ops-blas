@@ -397,6 +397,16 @@ aclblasStatus_t aclblasSgelsBatched(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, int nrhs, float* const Aarray[], int lda,
     float* const Carray[], int ldc, int* devInfo, int batchSize);
 
+aclblasStatus_t aclblasSgemm(
+    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb,
+    int m, int n, int k, const float* alpha, const float* A, int lda,
+    const float* B, int ldb, const float* beta, float* C, int ldc);
+
+aclblasStatus_t aclblasCgemm(
+    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb,
+    int m, int n, int k, const aclblasComplex* alpha, const aclblasComplex* A, int lda,
+    const aclblasComplex* B, int ldb, const aclblasComplex* beta, aclblasComplex* C, int ldc);
+
 aclblasStatus_t aclblasGemmBatchedEx(
     aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k,
     const void* alpha, const void* const Aarray[], aclDataType Atype, int lda,

@@ -153,10 +153,11 @@ static aclblasStatus_t ValidateDtypeAndPointers(
         return ACLBLAS_STATUS_SUCCESS;
     }
     const float betaVal = *static_cast<const float*>(beta);
-    if (k > 0) {
-        CHECK_RET(A != nullptr, OP_LOGE("aclblasGemmEx", "A must not be nullptr when k > 0");
+    const float alphaVal = *static_cast<const float*>(alpha);
+    if (k > 0 && alphaVal != 0.0f) {
+        CHECK_RET(A != nullptr, OP_LOGE("aclblasGemmEx", "A must not be nullptr when k > 0 and alpha != 0");
                   return ACLBLAS_STATUS_INVALID_VALUE);
-        CHECK_RET(B != nullptr, OP_LOGE("aclblasGemmEx", "B must not be nullptr when k > 0");
+        CHECK_RET(B != nullptr, OP_LOGE("aclblasGemmEx", "B must not be nullptr when k > 0 and alpha != 0");
                   return ACLBLAS_STATUS_INVALID_VALUE);
     }
     CHECK_RET(C != nullptr || betaVal == 0.0f, OP_LOGE("aclblasGemmEx", "C must not be nullptr when beta != 0");
