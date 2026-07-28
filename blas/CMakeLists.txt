@@ -89,6 +89,13 @@ if(NOT ENABLE_BLAS_GEMM3M)
         STATUS
         "Skipping blas gemm3m/sgemm3m (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
+if(NOT ENABLE_BLAS_SYRK)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syrk/")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syrk/")
+    message(
+        STATUS
+        "Skipping blas syrk/ssyrk (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
 
 set(ALL_BLAS_SRC_FILES
     ${BASE_SRC_FILES}

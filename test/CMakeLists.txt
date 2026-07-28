@@ -75,6 +75,9 @@ if(BUILD_TEST)
                 elseif(NOT ENABLE_BLAS_GEMM3M AND (TEST_NAME STREQUAL "sgemm3m" OR TEST_NAME STREQUAL "gemm3m"))
                     list(APPEND SKIP_REASONS
                         "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
+                elseif(NOT ENABLE_BLAS_SYRK AND (TEST_NAME STREQUAL "ssyrk" OR TEST_NAME STREQUAL "syrk"))
+                    list(APPEND SKIP_REASONS
+                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
                 else()
                     list(APPEND SKIP_REASONS
                         "operator implementation not found for '${SOC_VERSION}' "
