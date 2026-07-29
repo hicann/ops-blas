@@ -158,6 +158,7 @@ set(ALL_BLAS_SRC_FILES "")
 set(OPS_BLAS ops_blas)
 
 add_subdirectory(blas)
+add_subdirectory(extensions)
 
 project(${OPS_BLAS} LANGUAGES ASC CXX)
 
@@ -175,6 +176,8 @@ target_include_directories(${OPS_BLAS} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/include/op_common/
     ./include
     ${CMAKE_CURRENT_LIST_DIR}/blas
+    ${CMAKE_CURRENT_LIST_DIR}/extensions
+    ${CMAKE_CURRENT_LIST_DIR}/extensions/complexmatdot/arch22
     "${_OPS_BLAS_ASC_ROOT}"
     "${_OPS_BLAS_ASC_ROOT}/include"
     "${_OPS_BLAS_ASC_ROOT}/include/utils"

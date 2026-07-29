@@ -198,9 +198,6 @@ aclblasStatus_t aclblasCsrot(
     aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
     const int64_t incy, const float c, const float s);
 
-aclblasStatus_t aclblasColwiseMul(
-    aclblasHandle_t handle, const int64_t m, const int64_t n, uint8_t* mat, uint8_t* vec, uint8_t* result);
-
 aclblasStatus_t aclblasComplexMatDot(
     aclblasHandle_t handle, const int64_t m, const int64_t n, aclblasComplex* matx, aclblasComplex* maty,
     aclblasComplex* result);
@@ -475,6 +472,11 @@ aclblasStatus_t aclblasSdgmm(
     aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n,
     const float* A, int lda, const float* x, int incx,
     float* C, int ldc);
+
+aclblasStatus_t aclblasCdgmm(
+    aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n,
+    const aclblasComplex* A, int lda, const aclblasComplex* x, int incx,
+    aclblasComplex* C, int ldc);
 
 aclblasStatus_t aclblasSgemm3m(
     aclblasHandle handle, aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k,

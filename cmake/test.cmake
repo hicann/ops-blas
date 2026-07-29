@@ -17,7 +17,7 @@ function(_ops_blas_has_blas_op_sources op_name out_var)
         set(${out_var} FALSE PARENT_SCOPE)
         return()
     endif()
-    if(NOT ENABLE_BLAS_DGMM AND (op_name STREQUAL "sdgmm" OR op_name STREQUAL "dgmm"))
+    if(NOT ENABLE_BLAS_SDGMM AND (op_name STREQUAL "sdgmm"))
         set(${out_var} FALSE PARENT_SCOPE)
         return()
     endif()
@@ -37,7 +37,9 @@ function(_ops_blas_has_blas_op_sources op_name out_var)
     foreach(arch_dir ${SOC_ARCH_DIRS})
         file(GLOB arch_dir_srcs ${CMAKE_SOURCE_DIR}/blas/${op_name}/${arch_dir}/*.cpp
                                   ${CMAKE_SOURCE_DIR}/blas/*/${op_name}/${arch_dir}/*.cpp
-                                  ${CMAKE_SOURCE_DIR}/blas/*/${arch_dir}/${op_name}_*.cpp)
+                                  ${CMAKE_SOURCE_DIR}/blas/*/${arch_dir}/${op_name}_*.cpp
+                                  ${CMAKE_SOURCE_DIR}/extensions/*/${op_name}/${arch_dir}/*.cpp
+                                  ${CMAKE_SOURCE_DIR}/extensions/${op_name}/${arch_dir}/*.cpp)
         if(arch_dir_srcs)
             set(has_sources TRUE)
             break()
@@ -47,7 +49,8 @@ function(_ops_blas_has_blas_op_sources op_name out_var)
     if(NOT has_sources AND op_name MATCHES "^[a-zA-Z]")
         string(SUBSTRING "${op_name}" 1 -1 _stripped)
         foreach(arch_dir ${SOC_ARCH_DIRS})
-            file(GLOB arch_dir_srcs ${CMAKE_SOURCE_DIR}/blas/${_stripped}/${arch_dir}/*.cpp)
+            file(GLOB arch_dir_srcs ${CMAKE_SOURCE_DIR}/blas/${_stripped}/${arch_dir}/*.cpp
+                                     ${CMAKE_SOURCE_DIR}/extensions/${_stripped}/${arch_dir}/*.cpp)
             if(arch_dir_srcs)
                 set(has_sources TRUE)
                 break()
@@ -56,7 +59,9 @@ function(_ops_blas_has_blas_op_sources op_name out_var)
     endif()
     if(NOT has_sources)
         file(GLOB base_srcs ${CMAKE_SOURCE_DIR}/blas/${op_name}/*.cpp
-                              ${CMAKE_SOURCE_DIR}/blas/*/${op_name}/*.cpp)
+                              ${CMAKE_SOURCE_DIR}/blas/*/${op_name}/*.cpp
+                              ${CMAKE_SOURCE_DIR}/extensions/${op_name}/*.cpp
+                              ${CMAKE_SOURCE_DIR}/extensions/*/${op_name}/*.cpp)
         if(base_srcs)
             set(has_sources TRUE)
         endif()

@@ -2,19 +2,17 @@
 * Copyright (c) 2026 Huawei Technologies Co., Ltd.
 * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
 * CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+* Please refer to the License for details. You may not use the License for the License.
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
 * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 * See LICENSE in the root of the software repository for the full text of the License.
 */
-
-#ifndef COMPLEX_MAT_DOT_KERNEL_H
-#define COMPLEX_MAT_DOT_KERNEL_H
 
 #include <type_traits>
 #include <cstdint>
 #include "kernel_operator.h"
 #include "lib/matmul_intf.h"
+#include "complexmatdot_kernel.h"
 
 using namespace AscendC;
 using namespace matmul;
@@ -257,5 +255,3 @@ void complex_mat_dot_kernel_do(GM_ADDR matx, GM_ADDR maty, GM_ADDR aug, GM_ADDR 
 {
     complex_mat_dot_kernel<<<numBlocks, nullptr, stream>>>(matx, maty, aug, result, tilingGm);
 }
-
-#endif  // COMPLEX_MAT_DOT_KERNEL_H

@@ -2,15 +2,15 @@
  * Copyright (c) 2026 Huawei Technologies Co., Ltd.
  * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
  * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * Please refer to the License for details. You may not use the License for the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
  * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /* !
- * \file complex_mat_dot_host.cpp
- * \brief Complex matrix dot product host implementation
+ * \file complexmatdot_host.cpp
+ * \brief Complex matrix dot product host implementation (extensions)
  */
 
 #include <cstdint>
@@ -20,11 +20,9 @@
 #include <iterator>
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
+#include "complexmatdot_kernel.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
-
-void complex_mat_dot_kernel_do(uint8_t* matx, uint8_t* maty, uint8_t* aug, uint8_t* result,
-                               uint8_t* tilingGm, uint32_t numBlocks, void *stream);
 
 constexpr uint32_t COMPLEX_NUM = 2;
 
@@ -79,13 +77,11 @@ static void CalTilingData(ComplexMatDotTilingData& tilingData, uint32_t m, uint3
     }
 }
 
-uint32_t* CreateAugComplexMatDot()
+static std::vector<uint32_t> CreateAugComplexMatDot()
 {
     uint32_t complexCount = MAX_DATA_COUNT / 2;
 
-    uint32_t* augData = nullptr;
-
-    augData = new uint32_t[MAX_DATA_COUNT];
+    std::vector<uint32_t> augData(MAX_DATA_COUNT);
 
     for (uint32_t i = 0; i < complexCount; i++) {
         augData[MUL_NUM * i] = FOUR_NUM * i;
@@ -105,7 +101,7 @@ aclblasStatus_t aclblasComplexMatDot(
 
     ComplexMatDotTilingData tiling;
     CalTilingData(tiling, m, n, numBlocks);
-    uint32_t* aug = CreateAugComplexMatDot();
+    std::vector<uint32_t> aug = CreateAugComplexMatDot();
 
     size_t augByteSize = MAX_DATA_COUNT * sizeof(uint32_t);
 
@@ -122,7 +118,7 @@ aclblasStatus_t aclblasComplexMatDot(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMalloc failed. ERROR: %d\n", aclRet); aclrtFree(augDevice);
         return ACLBLAS_STATUS_ALLOC_FAILED);
 
-    aclRet = aclrtMemcpy(augDevice, augByteSize, aug, augByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclRet = aclrtMemcpy(augDevice, augByteSize, aug.data(), augByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);

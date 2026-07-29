@@ -12,7 +12,8 @@
 # - MXFP8/MXFP4：blasLt 矩阵乘法，需 asc-devkit >= 9.1
 # - TRMM/STRMM：仅 arch35(ascend950) 的 strmm 使用 tensor_api，需 asc-devkit >= 9.1；
 #   其他架构的 strmm 不依赖 tensor_api，不受此版本限制
-# - DGMM/SDGMM：仅 arch35(ascend950) 的 sdgmm 使用 tensor_api，需 asc-devkit >= 9.1
+# - SDGMM：仅 arch35(ascend950) 的 sdgmm 使用 tensor_api，需 asc-devkit >= 9.1；
+#   arch22 的 cdgmm 不依赖 tensor_api，不受此版本限制
 # - GEMM_BATCHED：仅 arch35(ascend950) 的 gemm_batched 使用 tensor_api，需 asc-devkit >= 9.1
 # - GEMM3M/SGEMM3M：仅 arch35(ascend950) 的 sgemm3m 使用 tensor_api，需 asc-devkit >= 9.1
 # - SYRK/SSYRK：仅 arch35(ascend950) 的 ssyrk 使用 tensor_api，需 asc-devkit >= 9.1
@@ -23,7 +24,7 @@ function(ops_blas_detect_asc_devkit_version)
   set(ASC_DEVKIT_MINOR 0)
   set(ENABLE_BLASLT_MXFP8 FALSE)
   set(ENABLE_BLAS_TRMM TRUE)
-  set(ENABLE_BLAS_DGMM TRUE)
+  set(ENABLE_BLAS_SDGMM TRUE)
   set(ENABLE_BLAS_GEMM_BATCHED TRUE)
   set(ENABLE_BLAS_GEMM3M TRUE)
   set(ENABLE_BLAS_SYRK TRUE)
@@ -42,30 +43,29 @@ function(ops_blas_detect_asc_devkit_version)
     # arch35 的 strmm/sdgmm/gemm_batched/sgemm3m/ssyrk 使用 tensor_api，需 devkit >= 9.1；其他架构不受限
     if("arch35" IN_LIST SOC_ARCH_DIRS AND NOT (ASC_DEVKIT_MAJOR GREATER_EQUAL 9 AND ASC_DEVKIT_MINOR GREATER 0))
       set(ENABLE_BLAS_TRMM FALSE)
-      set(ENABLE_BLAS_DGMM FALSE)
+      set(ENABLE_BLAS_SDGMM FALSE)
       set(ENABLE_BLAS_GEMM_BATCHED FALSE)
       set(ENABLE_BLAS_GEMM3M FALSE)
       set(ENABLE_BLAS_SYRK FALSE)
     endif()
   else()
     set(ENABLE_BLAS_TRMM FALSE)
-    set(ENABLE_BLAS_DGMM FALSE)
+    set(ENABLE_BLAS_SDGMM FALSE)
     set(ENABLE_BLAS_GEMM_BATCHED FALSE)
     set(ENABLE_BLAS_GEMM3M FALSE)
-    set(ENABLE_BLAS_SYRK FALSE)
-    message(WARNING "asc_devkit_version.h not found: ${_header}, MXFP8/TRMM/DGMM/GEMM_BATCHED/GEMM3M/SYRK will be skipped")
+    message(WARNING "asc_devkit_version.h not found: ${_header}, MXFP8/TRMM/SDGMM/GEMM_BATCHED/GEMM3M will be skipped")
   endif()
 
   set(ASC_DEVKIT_MAJOR ${ASC_DEVKIT_MAJOR} PARENT_SCOPE)
   set(ASC_DEVKIT_MINOR ${ASC_DEVKIT_MINOR} PARENT_SCOPE)
   set(ENABLE_BLASLT_MXFP8 ${ENABLE_BLASLT_MXFP8} PARENT_SCOPE)
   set(ENABLE_BLAS_TRMM ${ENABLE_BLAS_TRMM} PARENT_SCOPE)
-  set(ENABLE_BLAS_DGMM ${ENABLE_BLAS_DGMM} PARENT_SCOPE)
+  set(ENABLE_BLAS_SDGMM ${ENABLE_BLAS_SDGMM} PARENT_SCOPE)
   set(ENABLE_BLAS_GEMM_BATCHED ${ENABLE_BLAS_GEMM_BATCHED} PARENT_SCOPE)
   set(ENABLE_BLAS_GEMM3M ${ENABLE_BLAS_GEMM3M} PARENT_SCOPE)
   set(ENABLE_BLAS_SYRK ${ENABLE_BLAS_SYRK} PARENT_SCOPE)
   message(
     STATUS
-    "ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}, ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}, ENABLE_BLASLT_MXFP8=${ENABLE_BLASLT_MXFP8}, ENABLE_BLAS_TRMM=${ENABLE_BLAS_TRMM}, ENABLE_BLAS_DGMM=${ENABLE_BLAS_DGMM}, ENABLE_BLAS_GEMM_BATCHED=${ENABLE_BLAS_GEMM_BATCHED}, ENABLE_BLAS_GEMM3M=${ENABLE_BLAS_GEMM3M}, ENABLE_BLAS_SYRK=${ENABLE_BLAS_SYRK}"
+    "ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}, ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}, ENABLE_BLASLT_MXFP8=${ENABLE_BLASLT_MXFP8}, ENABLE_BLAS_TRMM=${ENABLE_BLAS_TRMM}, ENABLE_BLAS_SDGMM=${ENABLE_BLAS_SDGMM}, ENABLE_BLAS_GEMM_BATCHED=${ENABLE_BLAS_GEMM_BATCHED}, ENABLE_BLAS_GEMM3M=${ENABLE_BLAS_GEMM3M}"
   )
 endfunction()

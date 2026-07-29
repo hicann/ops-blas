@@ -812,8 +812,8 @@ Level 1 接口在向量之间进行运算，典型操作包括向量缩放（sca
 | [aclblasSasum](../../blas/asum/README.md) | 实数向量绝对值之和 |
 | [aclblasSaxpy](../../blas/axpy/README.md) | 单精度浮点 AXPY（y = αx + y） |
 | [aclblasCaxpy](../../blas/axpy/README.md) | 复数 AXPY |
-| [aclblasColwiseMul](../../blas/colwise_mul/README.md) | 复数向量与矩阵每行逐元素乘法 |
-| [aclblasComplexMatDot](../../blas/complex_mat_dot/README.md) | 复数矩阵逐元素点乘 |
+| [aclblasCdgmm](../../blas/dgmm/README.md) | 行主序单精度复数对角矩阵左乘 |
+| [aclblasComplexMatDot](../../extensions/complexmatdot/README.md) | 复数矩阵逐元素点乘 |
 | [aclblasScopy](../../blas/copy/README.md) | 单精度浮点向量拷贝 |
 | [aclblasCcopy](../../blas/copy/README.md) | 复数向量拷贝 |
 | [aclblasSdot](../../blas/dot/README.md) | 实数向量点积 |

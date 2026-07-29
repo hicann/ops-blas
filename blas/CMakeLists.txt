@@ -68,12 +68,14 @@ if(NOT ENABLE_BLAS_TRMM)
         STATUS
         "Skipping blas trmm/strmm (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
-if(NOT ENABLE_BLAS_DGMM)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/dgmm/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/dgmm/")
+# Only arch35 sdgmm uses tensor_api; arch22 cdgmm does not depend on it.
+# Filter only sdgmm sources so cdgmm (arch22) is not excluded.
+if(NOT ENABLE_BLAS_SDGMM)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/dgmm/arch35/sdgmm")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/dgmm/arch35/sdgmm")
     message(
         STATUS
-        "Skipping blas dgmm/sdgmm (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+        "Skipping blas dgmm/sdgmm arch35 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
 if(NOT ENABLE_BLAS_GEMM_BATCHED)
     list(FILTER OP_SRC_FILES EXCLUDE REGEX "/gemm_batched/")

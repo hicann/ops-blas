@@ -2,7 +2,7 @@
 
 ## 算子概述
 
-Dgmm（Diagonal Matrix-Matrix Multiplication）算子实现了对角矩阵与普通矩阵的乘法运算，使用一个向量构造对角矩阵，按行（LEFT）或按列（RIGHT）对输入矩阵进行缩放，核心运算为逐元素乘法。矩阵按列主序（BLAS 约定）存储。
+Dgmm（Diagonal Matrix-Matrix Multiplication）算子实现了对角矩阵与普通矩阵的乘法运算，使用一个向量构造对角矩阵，按行（LEFT）或按列（RIGHT）对输入矩阵进行缩放，核心运算为逐元素乘法。
 
 数学表达式：
 
@@ -15,7 +15,8 @@ RIGHT 模式： C = A * diag(x)，  C[i,j] = A[i,j] * x[j]    （x 长度为 n�
 
 | 接口名 | 功能简述 |
 |--------|---------|
-| aclblasSdgmm | 单精度浮点对角矩阵乘法 |
+| aclblasSdgmm | 单精度实数对角矩阵乘法 |
+| aclblasCdgmm | 单精度复数对角矩阵乘法，当前仅支持 LEFT 模式，RIGHT 模式暂未实现 |
 
 ## 算子执行接口
 
@@ -237,3 +238,52 @@ C[0,2] = 14.000000
 C[1,2] = 24.000000
 C[2,2] = 36.000000
 ```
+
+### aclblasCdgmm
+
+#### 产品支持情况
+
+- Ascend 950PR / Ascend 950DT：不支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasCdgmm(aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n, const aclblasComplex *A, int lda, const aclblasComplex *x, int incx, aclblasComplex *C, int ldc)
+```
+
+#### 参数说明
+
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
+| mode | 输入 | aclblasSideMode_t | 缩放模式：当前仅支持 ACLBLAS_SIDE_LEFT（C = diag(x) * A，x 长度为 m）；ACLBLAS_SIDE_RIGHT 返回 ACLBLAS_STATUS_NOT_SUPPORTED，Host 内存 |
+| m | 输入 | int | 矩阵 A/C 的行数，m >= 0，Host 内存 |
+| n | 输入 | int | 矩阵 A/C 的列数，n >= 0，Host 内存 |
+| A | 输入 | const aclblasComplex* | 输入矩阵，行主序存储，维度 m×n，Device 内存 |
+| lda | 输入 | int | 矩阵 A 的行跨度（row-major），lda >= max(1, n)，Host 内存 |
+| x | 输入 | const aclblasComplex* | 对角向量，LEFT 模式下长度为 m，Device 内存 |
+| incx | 输入 | int | x 中相邻元素的步长，incx != 0，可为负数，Host 内存 |
+| C | 输出 | aclblasComplex* | 输出矩阵，行主序存储，维度 m×n，Device 内存 |
+| ldc | 输入 | int | 矩阵 C 的行跨度（row-major），ldc >= max(1, n)，Host 内存 |
+
+#### 约束说明
+
+- 当前仅支持 `ACLBLAS_SIDE_LEFT` 模式（C = diag(x) * A，C[i,j] = x[i] * A[i,j]）
+- `ACLBLAS_SIDE_RIGHT` 是合法枚举，但当前返回 `ACLBLAS_STATUS_NOT_SUPPORTED`
+- A 和 C 使用行主序（row-major）存储，与 cuBLAS `cublasCdgmm` 的列主序语义存在差异，不能把 cuBLAS 的列主序输入未经转换直接传入
+- `lda` 和 `ldc` 表示行主序的行跨度（相邻两行起始位置之间的复数元素数），约束为不小于 n
+- handle 不能为 nullptr，否则返回 `ACLBLAS_STATUS_HANDLE_IS_NULLPTR`
+- mode 必须为 `ACLBLAS_SIDE_LEFT` 或 `ACLBLAS_SIDE_RIGHT`，否则返回 `ACLBLAS_STATUS_INVALID_ENUM`
+- m >= 0, n >= 0，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
+- incx != 0（可为负数，表示反向访问 x），否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
+- lda >= max(1, n)，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
+- ldc >= max(1, n)，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
+- 当 m > 0 且 n > 0 时，A、x、C 不能为 nullptr，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
+- m == 0 或 n == 0 时为 no-op，直接返回 `ACLBLAS_STATUS_SUCCESS`
+- 支持正负 `incx`
+- 支持独立 `lda`、`ldc`（lda != ldc）
+- C 的 padding 区域（C[i*ldc+n ... i*ldc+ldc-1]）不被修改
+- 支持 `A == C && lda == ldc` 的原地执行；`A == C && lda != ldc` 返回 `ACLBLAS_STATUS_INVALID_VALUE`
+- arch22 支持；arch35 暂不支持 Cdgmm
