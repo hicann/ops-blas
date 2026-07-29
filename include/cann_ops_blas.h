@@ -488,6 +488,11 @@ aclblasStatus_t aclblasSsyrk(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k, const float* alpha,
     const float* A, int lda, const float* beta, float* C, int ldc);
 
+aclblasStatus_t aclblasSsyr2k(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k,
+    const float* alpha, const float* A, int lda, const float* B, int ldb,
+    const float* beta, float* C, int ldc);
+
 #ifdef __cplusplus
 }
 #endif

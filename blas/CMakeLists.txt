@@ -98,6 +98,13 @@ if(NOT ENABLE_BLAS_SYRK)
         STATUS
         "Skipping blas syrk/ssyrk (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
+if(NOT ENABLE_BLAS_SYR2K)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syr2k/")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syr2k/")
+    message(
+        STATUS
+        "Skipping blas syr2k/ssyr2k (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
 
 set(ALL_BLAS_SRC_FILES
     ${BASE_SRC_FILES}
