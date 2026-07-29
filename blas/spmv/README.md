@@ -1,8 +1,8 @@
-# Sspmv算子
+# Spmv算子
 
 ## 算子概述
 
-Sspmv（Symmetric Packed Matrix-Vector Multiplication）算子实现了对称压缩矩阵与向量的乘法运算。该算子针对对称矩阵的存储特性进行了优化，采用压缩存储格式以节省内存空间，并高效完成矩阵与向量的乘加运算。
+Spmv（Symmetric Packed Matrix-Vector Multiplication）算子实现了对称压缩矩阵与向量的乘法运算。该算子针对对称矩阵的存储特性进行了优化，采用压缩存储格式以节省内存空间，并高效完成矩阵与向量的乘加运算。
 
 数学表达式：
 

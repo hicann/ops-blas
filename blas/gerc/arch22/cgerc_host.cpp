@@ -53,7 +53,7 @@ CgercTilingData CalCgercTilingData(uint32_t m, uint32_t n, float alphaReal, floa
     }
     vecCoreNum = vecCoreNum > DEFAULT_VECTOR_NUM ? DEFAULT_VECTOR_NUM : vecCoreNum;
 
-    // æå¤æ°ä½tilingï¼ä»¥ä¸åä½é½æ¯å¤æ?
+    // 按复数作tiling，以下单位都是复数
     uint64_t rowNumEachCore = m / vecCoreNum;
     uint64_t remainRowNum = m % vecCoreNum;
 
