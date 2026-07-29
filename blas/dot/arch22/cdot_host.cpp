@@ -90,7 +90,8 @@ CdotTilingData CalCdotTilingData(uint32_t n, uint32_t vecCoreNum, uint32_t isCon
 }
 
 static aclblasStatus_t LaunchCdot(
-    bool isConj, _aclblas_handle* h, const int64_t n, uint8_t* x, uint8_t* y, uint8_t* result)
+    bool isConj, _aclblas_handle* h, const int64_t n, const aclblasComplex* x, const aclblasComplex* y,
+    aclblasComplex* result)
 {
     aclrtStream useStream = h->stream;
 
@@ -113,13 +114,15 @@ static aclblasStatus_t LaunchCdot(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet);
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    cdot_kernel_do(x, y, result, workspaceDevice, tilingDevice, numBlocks, useStream);
+    cdot_kernel_do(reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(x)),
+                    reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(y)), reinterpret_cast<uint8_t*>(result),
+                    workspaceDevice, tilingDevice, numBlocks, useStream);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 aclblasStatus_t aclblasCdotu(
-    aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
-    uint8_t* result)
+    aclblasHandle_t handle, const int64_t n, const aclblasComplex* x, const int64_t incx, const aclblasComplex* y,
+    const int64_t incy, aclblasComplex* result)
 {
     if (handle == nullptr) {
         return ACLBLAS_STATUS_NOT_INITIALIZED;
@@ -128,8 +131,8 @@ aclblasStatus_t aclblasCdotu(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (n <= 0) {
-        float zeros[2] = {0.0f, 0.0f};
-        aclError memRet = aclrtMemcpy(result, 2 * sizeof(float), zeros, 2 * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+        aclblasComplex zero = {0.0f, 0.0f};
+        aclError memRet = aclrtMemcpy(result, sizeof(aclblasComplex), &zero, sizeof(aclblasComplex), ACL_MEMCPY_HOST_TO_DEVICE);
         return (memRet == ACL_SUCCESS) ? ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     if (incx != 1 || incy != 1) {
@@ -142,8 +145,8 @@ aclblasStatus_t aclblasCdotu(
 }
 
 aclblasStatus_t aclblasCdotc(
-    aclblasHandle_t handle, const int64_t n, uint8_t* x, const int64_t incx, uint8_t* y, const int64_t incy,
-    uint8_t* result)
+    aclblasHandle_t handle, const int64_t n, const aclblasComplex* x, const int64_t incx, const aclblasComplex* y,
+    const int64_t incy, aclblasComplex* result)
 {
     if (handle == nullptr) {
         return ACLBLAS_STATUS_NOT_INITIALIZED;
@@ -152,8 +155,8 @@ aclblasStatus_t aclblasCdotc(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (n <= 0) {
-        float zeros[2] = {0.0f, 0.0f};
-        aclError memRet = aclrtMemcpy(result, 2 * sizeof(float), zeros, 2 * sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+        aclblasComplex zero = {0.0f, 0.0f};
+        aclError memRet = aclrtMemcpy(result, sizeof(aclblasComplex), &zero, sizeof(aclblasComplex), ACL_MEMCPY_HOST_TO_DEVICE);
         return (memRet == ACL_SUCCESS) ? ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     if (incx != 1 || incy != 1) {
