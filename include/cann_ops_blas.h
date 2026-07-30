@@ -501,6 +501,11 @@ aclblasStatus_t aclblasStrsmBatched(
     float* const B[], int ldb,
     int batchCount);
 
+aclblasStatus_t aclblasSgemmStridedBatched(
+    aclblasHandle_t handle, aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k,
+    const float* alpha, const float* A, int lda, int64_t strideA, const float* B, int ldb, int64_t strideB,
+    const float* beta, float* C, int ldc, int64_t strideC, int batchCount);
+
 #ifdef __cplusplus
 }
 #endif

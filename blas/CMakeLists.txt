@@ -113,6 +113,13 @@ if(NOT ENABLE_BLAS_STRSMBATCHED)
         "Skipping blas strsmbatched arch35 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
 
+if(NOT ENABLE_BLAS_GEMM_STRIDED_BATCHED)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/gemm_strided_batched/")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/gemm_strided_batched/")
+    message(
+        STATUS
+        "Skipping blas gemm_strided_batched (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
 set(ALL_BLAS_SRC_FILES
     ${BASE_SRC_FILES}
     ${OP_SRC_FILES}
