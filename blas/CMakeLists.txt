@@ -105,6 +105,13 @@ if(NOT ENABLE_BLAS_SYR2K)
         STATUS
         "Skipping blas syr2k/ssyr2k (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
+if(NOT ENABLE_BLAS_STRSMBATCHED)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/trsmbatched/arch35/strsmbatched")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/trsmbatched/arch35/strsmbatched")
+    message(
+        STATUS
+        "Skipping blas strsmbatched arch35 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
 
 set(ALL_BLAS_SRC_FILES
     ${BASE_SRC_FILES}

@@ -493,6 +493,14 @@ aclblasStatus_t aclblasSsyr2k(
     const float* alpha, const float* A, int lda, const float* B, int ldb,
     const float* beta, float* C, int ldc);
 
+aclblasStatus_t aclblasStrsmBatched(
+    aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo,
+    aclblasOperation_t trans, aclblasDiagType_t diag,
+    int m, int n, const float* alpha,
+    const float* const A[], int lda,
+    float* const B[], int ldb,
+    int batchCount);
+
 #ifdef __cplusplus
 }
 #endif

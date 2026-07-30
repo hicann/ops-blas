@@ -81,6 +81,9 @@ if(BUILD_TEST)
                 elseif(NOT ENABLE_BLAS_SYR2K AND (TEST_NAME STREQUAL "ssyr2k" OR TEST_NAME STREQUAL "syr2k"))
                     list(APPEND SKIP_REASONS
                         "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
+                elseif(NOT ENABLE_BLAS_STRSMBATCHED AND (TEST_NAME STREQUAL "strsmbatched" OR TEST_NAME STREQUAL "trsmbatched"))
+                    list(APPEND SKIP_REASONS
+                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
                 else()
                     list(APPEND SKIP_REASONS
                         "operator implementation not found for '${SOC_VERSION}' "
