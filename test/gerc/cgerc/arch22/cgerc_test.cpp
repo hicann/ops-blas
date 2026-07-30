@@ -166,7 +166,7 @@ int32_t main(int32_t argc, char* argv[])
     aclRet = aclrtMemcpy(ADevice, aSize, AHost.data(), aSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy ADevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasCgerc(handle, m, n, alpha, xDevice, incx, yDevice, incy, ADevice, lda);
+    ret = aclblasCgerc(handle, m, n, &alpha, xDevice, incx, yDevice, incy, ADevice, lda);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgerc failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);

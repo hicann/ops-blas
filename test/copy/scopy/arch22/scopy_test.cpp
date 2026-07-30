@@ -191,7 +191,7 @@ int32_t main(int32_t argc, char* argv[])
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy cyDevice failed. ERROR: %d\n", aclRet); aclrtFree(cyDevice);
               aclrtFree(cxDevice); aclblasDestroy(handle2); aclrtDestroyStream(stream2); return aclRet);
 
-    ret = aclblasCcopy(handle2, cxDevice, cyDevice, complexLength, incx, incy);
+    ret = aclblasCcopy(handle2, complexLength, cxDevice, incx, cyDevice, incy);
     CHECK_RET(ret == ACL_SUCCESS, LOG_PRINT("aclblasCcopy failed. ERROR: %d\n", ret); aclrtFree(cyDevice);
               aclrtFree(cxDevice); aclblasDestroy(handle2); aclrtDestroyStream(stream2); return ret);
 

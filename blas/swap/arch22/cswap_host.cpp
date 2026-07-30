@@ -85,15 +85,15 @@ static CswapTilingData CalCswapTilingData(uint32_t n, uint32_t vecCoreNum)
 }
 
 aclblasStatus_t aclblasCswap(
-    aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
-    const int64_t incy)
+    aclblasHandle_t handle, int n, aclblasComplex* x, int incx, aclblasComplex* y,
+    int incy)
 {
     auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;
 
-    CswapTilingData tiling = CalCswapTilingData(n, numBlocks);
+    CswapTilingData tiling = CalCswapTilingData(static_cast<uint32_t>(n), numBlocks);
 
     uint8_t* tilingDevice = nullptr;
     aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(CswapTilingData), ACL_MEM_MALLOC_HUGE_FIRST);

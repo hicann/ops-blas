@@ -945,19 +945,10 @@ static aclblasStatus_t ValidateAndBuildPlan(
 
 // 当前 host 编排只覆盖 float、row-major、host scalar alpha/beta 的 ssymm 主路径。
 // 函数负责校验、建 plan、拷贝输入、下发 tiling，并按 trace 中的 backend 分派执行。
-aclblasStatus_t RunSsymmHostOrchestration(aclblasHandle handle,
-                                          aclblasSideMode_t side,
-                                          aclblasFillMode_t uplo,
-                                          int64_t m,
-                                          int64_t n,
-                                          const float *alpha,
-                                          const float *A,
-                                          int64_t lda,
-                                          const float *B,
-                                          int64_t ldb,
-                                          const float *beta,
-                                          float *C,
-                                          int64_t ldc)
+aclblasStatus_t RunSsymmHostOrchestration(aclblasHandle handle, aclblasSideMode_t side, aclblasFillMode_t uplo,
+                                          int64_t m, int64_t n, const float *alpha, const float *A,
+                                          int64_t lda, const float *B, int64_t ldb,
+                                          const float *beta, float *C, int64_t ldc)
 {
     // BLAS 标准规定 m=0 或 n=0 时必须立即返回 SUCCESS，不做任何计算。
     // 此检查必须在 handle 的 null 检查之后、所有其他校验（包括 lda/ldb/指针）之前。
@@ -1009,19 +1000,19 @@ aclblasStatus_t RunSsymmHostOrchestration(aclblasHandle handle,
 // 公开的 aclblasSsymm API 入口。
 // 这里只做一层转发，具体 host 编排和 backend 调度由 RunSsymmHostOrchestration 完成。
 aclblasStatus_t aclblasSsymm(
-    aclblasHandle handle,
+    aclblasHandle_t handle,
     aclblasSideMode_t side,
     aclblasFillMode_t uplo,
-    int64_t m,
-    int64_t n,
+    int m,
+    int n,
     const float *alpha,
     const float *A,
-    int64_t lda,
+    int lda,
     const float *B,
-    int64_t ldb,
+    int ldb,
     const float *beta,
     float *C,
-    int64_t ldc)
+    int ldc)
 {
     return RunSsymmHostOrchestration(handle, side, uplo, m, n, alpha, A, lda, B, ldb, beta, C, ldc);
 }

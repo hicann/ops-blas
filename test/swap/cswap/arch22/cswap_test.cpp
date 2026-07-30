@@ -81,8 +81,8 @@ int32_t main(int32_t argc, char* argv[])
     constexpr aclblasComplex valueY{2.5f, 1.5f};
     std::vector<aclblasComplex> x(totalLength, valueX);
     std::vector<aclblasComplex> y(totalLength, valueY);
-    int64_t incx = 1;
-    int64_t incy = 1;
+    int incx = 1;
+    int incy = 1;
 
     aclInit(nullptr);
     aclrtSetDevice(deviceId);

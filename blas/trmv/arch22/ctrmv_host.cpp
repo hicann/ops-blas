@@ -96,8 +96,8 @@ uint32_t CalCtrmvBlockDim(int64_t n, uint32_t coreNum)
 }
 
 aclblasStatus_t aclblasCtrmv(
-    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n,
-    aclblasComplex* A, int64_t lda, aclblasComplex* x, int64_t incx)
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
+    const aclblasComplex* A, int lda, aclblasComplex* x, int incx)
 {
     auto* h = handle;
     aclrtStream useStream = h->stream;
@@ -170,7 +170,7 @@ aclblasStatus_t aclblasCtrmv(
         aclrtFree(workspaceDevice); aclrtFree(uploDevice); delete[] uploMatrixData;
         return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    ctrmv_kernel_do(reinterpret_cast<uint8_t*>(A), reinterpret_cast<uint8_t*>(x), uploDevice, workspaceDevice,
+    ctrmv_kernel_do(reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(A)), reinterpret_cast<uint8_t*>(x), uploDevice, workspaceDevice,
                     tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(

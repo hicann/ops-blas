@@ -117,7 +117,7 @@ int32_t main(int32_t argc, char* argv[])
     aclRet = aclrtMemcpy(yDevice, inputByteSize, y.data(), inputByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasCsrot(handle, n, xDevice, 1, yDevice, 1, c, s);
+    ret = aclblasCsrot(handle, n, xDevice, 1, yDevice, 1, &c, &s);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCsrot failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);

@@ -83,7 +83,7 @@ SdotTilingData CalSdotTilingData(uint32_t n, uint32_t vecCoreNum)
 }
 
 aclblasStatus_t aclblasSdot(
-    aclblasHandle_t handle, const int64_t n, const float* x, const int64_t incx, const float* y, const int64_t incy,
+    aclblasHandle_t handle, int n, const float* x, int incx, const float* y, int incy,
     float* result)
 {
     if (handle == nullptr) {

@@ -34,9 +34,12 @@ struct RotTilingData {
 };
 
 aclblasStatus_t aclblasCsrot(
-    aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
-    const int64_t incy, const float c, const float s)
+    aclblasHandle_t handle, int n, aclblasComplex* x, int incx, aclblasComplex* y,
+    int incy, const float* c, const float* s)
 {
+    if (c == nullptr || s == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     auto* h = handle;
     aclrtStream useStream = h->stream;
 
@@ -45,8 +48,8 @@ aclblasStatus_t aclblasCsrot(
 
     RotTilingData tiling;
     tiling.elementCount = static_cast<int32_t>(n);
-    tiling.cosValue = c;
-    tiling.sinValue = s;
+    tiling.cosValue = *c;
+    tiling.sinValue = *s;
 
     uint8_t* workSpaceDevice = nullptr;
     uint8_t* tilingDevice = nullptr;

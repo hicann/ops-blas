@@ -121,8 +121,8 @@ static aclblasStatus_t LaunchCdot(
 }
 
 aclblasStatus_t aclblasCdotu(
-    aclblasHandle_t handle, const int64_t n, const aclblasComplex* x, const int64_t incx, const aclblasComplex* y,
-    const int64_t incy, aclblasComplex* result)
+    aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, const aclblasComplex* y,
+    int incy, aclblasComplex* result)
 {
     if (handle == nullptr) {
         return ACLBLAS_STATUS_NOT_INITIALIZED;
@@ -141,12 +141,12 @@ aclblasStatus_t aclblasCdotu(
     if (x == nullptr || y == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    return LaunchCdot(false, handle, n, x, y, result);
+    return LaunchCdot(false, handle, static_cast<int64_t>(n), x, y, result);
 }
 
 aclblasStatus_t aclblasCdotc(
-    aclblasHandle_t handle, const int64_t n, const aclblasComplex* x, const int64_t incx, const aclblasComplex* y,
-    const int64_t incy, aclblasComplex* result)
+    aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, const aclblasComplex* y,
+    int incy, aclblasComplex* result)
 {
     if (handle == nullptr) {
         return ACLBLAS_STATUS_NOT_INITIALIZED;
@@ -165,5 +165,5 @@ aclblasStatus_t aclblasCdotc(
     if (x == nullptr || y == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    return LaunchCdot(true, handle, n, x, y, result);
+    return LaunchCdot(true, handle, static_cast<int64_t>(n), x, y, result);
 }

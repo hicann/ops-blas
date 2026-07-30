@@ -137,7 +137,7 @@ int TestCgemvNoTrans()
     aclRet = aclrtMemcpy(yDevice, yByteSize, y.data(), yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasCgemv(handle, ACLBLAS_OP_N, M, N, alpha, aDevice, lda, xDevice, incx, beta, yDevice, incy);
+    ret = aclblasCgemv(handle, ACLBLAS_OP_N, M, N, &alpha, aDevice, lda, xDevice, incx, &beta, yDevice, incy);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemv failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);
@@ -208,7 +208,7 @@ int TestCgemvTrans()
     aclRet = aclrtMemcpy(yDevice, yByteSize, y.data(), yByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy yDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasCgemv(handle, ACLBLAS_OP_T, M, N, alpha, aDevice, lda, xDevice, incx, beta, yDevice, incy);
+    ret = aclblasCgemv(handle, ACLBLAS_OP_T, M, N, &alpha, aDevice, lda, xDevice, incx, &beta, yDevice, incy);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemv failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);

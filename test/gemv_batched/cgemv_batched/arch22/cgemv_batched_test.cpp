@@ -211,7 +211,7 @@ int main()
         return ret);
 
     blasRet =
-        aclblasCgemvBatched(handle, trans, m, n, alpha, aDevice, lda, xDevice, incx, beta, yDevice, incy, batchCount);
+        aclblasCgemvBatched(handle, trans, m, n, &alpha, aDevice, lda, xDevice, incx, &beta, yDevice, incy, batchCount);
     CHECK_RET(
         blasRet == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCgemvBatched failed. ERROR: %d\n", blasRet);
         aclrtFree(aDevice); aclrtFree(xDevice); aclrtFree(yDevice); aclblasDestroy(handle); aclrtDestroyStream(stream);

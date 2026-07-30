@@ -62,17 +62,20 @@ void CreateMaskData(uint32_t* maskData)
 }
 
 aclblasStatus_t aclblasCscal(
-    aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, const int64_t incx)
+    aclblasHandle_t handle, int n, const aclblasComplex* alpha, aclblasComplex* x, int incx)
 {
+    if (alpha == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 40;
 
-    float alphaReal = alpha.real;
-    float alphaImag = alpha.imag;
+    float alphaReal = alpha->real;
+    float alphaImag = alpha->imag;
 
-    CscalTilingData tiling = CalTilingData(n, alphaReal, alphaImag);
+    CscalTilingData tiling = CalTilingData(static_cast<int32_t>(n), alphaReal, alphaImag);
 
     uint8_t* tilingDevice = nullptr;
     uint8_t* maskDevice = nullptr;

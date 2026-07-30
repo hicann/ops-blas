@@ -18,8 +18,8 @@
 
 // Read a value from symmetric matrix A (row-major, only one triangle stored).
 // The missing triangle is reconstructed by transposing indices.
-static inline float SsymmGetSymValue(const float* a, int64_t lda,
-    aclblasFillMode_t uplo, int64_t row, int64_t col)
+static inline float SsymmGetSymValue(const float* a, int lda,
+    aclblasFillMode_t uplo, int row, int col)
 {
     if (uplo == ACLBLAS_LOWER) {
         return (row >= col) ? a[row * lda + col] : a[col * lda + row];
@@ -31,19 +31,19 @@ static inline float SsymmGetSymValue(const float* a, int64_t lda,
 // Reproduces ValidateSsymmArgs parameter validation followed by the
 // three-loop matrix multiply.
 inline aclblasStatus_t aclblasSsymm_cpu(
-    aclblasHandle handle,
+    aclblasHandle_t handle,
     aclblasSideMode_t side,
     aclblasFillMode_t uplo,
-    int64_t m,
-    int64_t n,
+    int m,
+    int n,
     const float* alpha,
     const float* A,
-    int64_t lda,
+    int lda,
     const float* B,
-    int64_t ldb,
+    int ldb,
     const float* beta,
     float* C,
-    int64_t ldc)
+    int ldc)
 {
     // --- parameter validation (mirrors ValidateSsymmArgs) ---
     if (handle == nullptr) return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
@@ -58,18 +58,14 @@ inline aclblasStatus_t aclblasSsymm_cpu(
     // quick return
     if (m == 0 || n == 0) return ACLBLAS_STATUS_SUCCESS;
 
-    const int64_t aDim   = (side == ACLBLAS_SIDE_LEFT) ? m : n;
-    const int64_t maxU32 = static_cast<int64_t>(UINT32_MAX);
-    if (m > maxU32 || n > maxU32 || aDim > maxU32 ||
-        lda > maxU32 || ldb > maxU32 || ldc > maxU32)
-        return ACLBLAS_STATUS_INVALID_VALUE;
+    const int aDim   = (side == ACLBLAS_SIDE_LEFT) ? m : n;
     if (lda < aDim || ldb < n || ldc < n)
         return ACLBLAS_STATUS_INVALID_VALUE;
 
     // --- computation ---
     // scale C by beta first
-    for (int64_t i = 0; i < m; ++i) {
-        for (int64_t j = 0; j < n; ++j) {
+    for (int i = 0; i < m; ++i) {
+        for (int j = 0; j < n; ++j) {
             C[i * ldc + j] *= (*beta);
         }
     }
@@ -77,10 +73,10 @@ inline aclblasStatus_t aclblasSsymm_cpu(
     // accumulate alpha * A_sym * B  (LEFT) or alpha * B * A_sym  (RIGHT)
     if (side == ACLBLAS_SIDE_LEFT) {
         // C[i][j] += alpha * sum_k( A_sym[i][k] * B[k][j] )
-        for (int64_t i = 0; i < m; ++i) {
-            for (int64_t j = 0; j < n; ++j) {
+        for (int i = 0; i < m; ++i) {
+            for (int j = 0; j < n; ++j) {
                 double acc = 0.0;
-                for (int64_t k = 0; k < m; ++k) {
+                for (int k = 0; k < m; ++k) {
                     acc += static_cast<double>(SsymmGetSymValue(A, lda, uplo, i, k))
                          * static_cast<double>(B[k * ldb + j]);
                 }
@@ -89,10 +85,10 @@ inline aclblasStatus_t aclblasSsymm_cpu(
         }
     } else {
         // C[i][j] += alpha * sum_k( B[i][k] * A_sym[k][j] )
-        for (int64_t i = 0; i < m; ++i) {
-            for (int64_t j = 0; j < n; ++j) {
+        for (int i = 0; i < m; ++i) {
+            for (int j = 0; j < n; ++j) {
                 double acc = 0.0;
-                for (int64_t k = 0; k < n; ++k) {
+                for (int k = 0; k < n; ++k) {
                     acc += static_cast<double>(B[i * ldb + k])
                          * static_cast<double>(SsymmGetSymValue(A, lda, uplo, k, j));
                 }

@@ -91,10 +91,13 @@ static CgemvBatchedTilingData CalTilingData(
 }
 
 aclblasStatus_t aclblasCgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, const int64_t m, const int64_t n, const aclblasComplex alpha,
-    aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta,
-    aclblasComplex* y, const int64_t incy, const int64_t batchCount)
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const aclblasComplex* alpha,
+    const aclblasComplex* A, int lda, const aclblasComplex* x, int incx, const aclblasComplex* beta,
+    aclblasComplex* y, int incy, int batchCount)
 {
+    if (alpha == nullptr || beta == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     auto* h = handle;
     aclrtStream useStream = h->stream;
 
@@ -141,7 +144,7 @@ aclblasStatus_t aclblasCgemvBatched(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(workSpaceDevice); aclrtFree(maskDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    cgemv_batched_kernel_do(reinterpret_cast<uint8_t*>(A), reinterpret_cast<uint8_t*>(x), maskDevice,
+    cgemv_batched_kernel_do(reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(A)), reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(x)), maskDevice,
                             reinterpret_cast<uint8_t*>(y), workSpaceDevice, tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(

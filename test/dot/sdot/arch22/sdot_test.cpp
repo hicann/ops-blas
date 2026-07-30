@@ -58,8 +58,8 @@ int32_t main(int32_t argc, char* argv[])
     int32_t deviceId = 0;
 
     constexpr uint32_t n = 8 * 1024;
-    constexpr int64_t incx = 1;
-    constexpr int64_t incy = 1;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
 
     std::vector<float> x(n);
     std::vector<float> y(n);

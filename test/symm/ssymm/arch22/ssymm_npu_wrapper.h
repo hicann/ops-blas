@@ -20,19 +20,19 @@
 // The ssymm Host implementation owns device allocation, H2D/D2H copies and synchronization.
 // Tests pass host buffers here so the wrapper must not allocate device buffers again.
 inline aclblasStatus_t aclblasSsymm_npu(
-    aclblasHandle handle,
+    aclblasHandle_t handle,
     aclblasSideMode_t side,
     aclblasFillMode_t uplo,
-    int64_t m,
-    int64_t n,
+    int m,
+    int n,
     const float* alpha,
     const float* A,
-    int64_t lda,
+    int lda,
     const float* B,
-    int64_t ldb,
+    int ldb,
     const float* beta,
     float* C,
-    int64_t ldc)
+    int ldc)
 {
     return aclblasSsymm(handle, side, uplo, m, n, alpha, A, lda, B, ldb, beta, C, ldc);
 }

@@ -32,21 +32,21 @@ struct SsymmParam : public BlasTestParamBase {
     {
         side  = parseSideMode(ReadMap(map, "side", "LEFT"));
         uplo  = parseFillMode(ReadMap(map, "uplo", "LOWER"));
-        m     = static_cast<int64_t>(std::stoll(ReadMap(map, "m", "0")));
-        n     = static_cast<int64_t>(std::stoll(ReadMap(map, "n", "0")));
+        m     = parseInt64(ReadMap(map, "m", "0"));
+        n     = parseInt64(ReadMap(map, "n", "0"));
 
         std::string alphaStr = ReadMap(map, "alpha", "1.0");
         nullAlpha = (alphaStr == "null" || alphaStr == "nullptr");
         alpha = nullAlpha ? 0.0f : parseFloat(alphaStr, 1.0f);
 
-        lda = static_cast<int64_t>(std::stoll(ReadMap(map, "lda", "0")));
-        ldb = static_cast<int64_t>(std::stoll(ReadMap(map, "ldb", "0")));
+        lda = parseInt64(ReadMap(map, "lda", "0"));
+        ldb = parseInt64(ReadMap(map, "ldb", "0"));
 
         std::string betaStr = ReadMap(map, "beta", "0.0");
         nullBeta = (betaStr == "null" || betaStr == "nullptr");
         beta = nullBeta ? 0.0f : parseFloat(betaStr, 0.0f);
 
-        ldc = static_cast<int64_t>(std::stoll(ReadMap(map, "ldc", "0")));
+        ldc = parseInt64(ReadMap(map, "ldc", "0"));
     }
 };
 

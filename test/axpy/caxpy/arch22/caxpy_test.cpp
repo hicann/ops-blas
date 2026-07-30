@@ -70,8 +70,8 @@ int32_t TestCaxpy(aclblasHandle handle, aclrtStream stream)
     constexpr aclblasComplex alpha{2.0f, 1.0f};
     std::vector<aclblasComplex> x(totalLength, valueX);
     std::vector<aclblasComplex> y(totalLength, valueY);
-    int64_t incx = 1;
-    int64_t incy = 1;
+    int incx = 1;
+    int incy = 1;
 
     aclblasComplex* xDevice = nullptr;
     aclblasComplex* yDevice = nullptr;
@@ -98,7 +98,7 @@ int32_t TestCaxpy(aclblasHandle handle, aclrtStream stream)
     std::cout << "x = (" << valueX.real << ", " << valueX.imag << ") * " << totalLength << std::endl;
     std::cout << "y = (" << valueY.real << ", " << valueY.imag << ") * " << totalLength << std::endl;
 
-    auto ret = aclblasCaxpy(handle, totalLength, alpha, xDevice, incx, yDevice, incy);
+    auto ret = aclblasCaxpy(handle, totalLength, &alpha, xDevice, incx, yDevice, incy);
     CHECK_RET(
         ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCaxpy failed. ERROR: %d\n", ret); aclrtFree(xDevice);
         aclrtFree(yDevice); return ret);

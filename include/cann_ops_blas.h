@@ -182,12 +182,12 @@ aclblasStatus_t aclblasStbmv(
     const float* A, int lda, float* x, int incx);
 
 aclblasStatus_t aclblasCdotu(
-    aclblasHandle_t handle, const int64_t n, const aclblasComplex* x, const int64_t incx, const aclblasComplex* y,
-    const int64_t incy, aclblasComplex* result);
+    aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, const aclblasComplex* y,
+    int incy, aclblasComplex* result);
 
 aclblasStatus_t aclblasCdotc(
-    aclblasHandle_t handle, const int64_t n, const aclblasComplex* x, const int64_t incx, const aclblasComplex* y,
-    const int64_t incy, aclblasComplex* result);
+    aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, const aclblasComplex* y,
+    int incy, aclblasComplex* result);
 
 aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float* x, int incx, float* result);
 
@@ -195,21 +195,21 @@ aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float* x, int
 aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
 
 aclblasStatus_t aclblasCsrot(
-    aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
-    const int64_t incy, const float c, const float s);
+    aclblasHandle_t handle, int n, aclblasComplex* x, int incx, aclblasComplex* y,
+    int incy, const float* c, const float* s);
 
 aclblasStatus_t aclblasComplexMatDot(
-    aclblasHandle_t handle, const int64_t m, const int64_t n, aclblasComplex* matx, aclblasComplex* maty,
+    aclblasHandle_t handle, int m, int n, const aclblasComplex* matx, const aclblasComplex* maty,
     aclblasComplex* result);
 
 aclblasStatus_t aclblasCgemvBatched(
-    aclblasHandle_t handle, aclblasOperation_t trans, const int64_t m, const int64_t n, const aclblasComplex alpha,
-    aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta,
-    aclblasComplex* y, const int64_t incy, const int64_t batchCount);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const aclblasComplex* alpha,
+    const aclblasComplex* A, int lda, const aclblasComplex* x, int incx, const aclblasComplex* beta,
+    aclblasComplex* y, int incy, int batchCount);
 
 aclblasStatus_t aclblasCgerc(
-    aclblasHandle_t handle, const int64_t m, const int64_t n, const aclblasComplex alpha, aclblasComplex* x,
-    const int64_t incx, aclblasComplex* y, const int64_t incy, aclblasComplex* A, const int64_t lda);
+    aclblasHandle_t handle, int m, int n, const aclblasComplex* alpha, const aclblasComplex* x, int incx,
+    const aclblasComplex* y, int incy, aclblasComplex* A, int lda);
 
 aclblasStatus_t aclblasSgemvBatched(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const float* alpha,
@@ -262,11 +262,11 @@ aclblasStatus_t aclblasTSSgemvStridedBatched(
     const float* beta, float* y, int incy, int64_t stridey, int batchCount);
 
 aclblasStatus_t aclblasCcopy(
-    aclblasHandle_t handle, aclblasComplex* x, aclblasComplex* y, const int64_t n, const int64_t incx,
-    const int64_t incy);
+    aclblasHandle_t handle, int n, const aclblasComplex* x, int incx,
+    aclblasComplex* y, int incy);
 
 aclblasStatus_t aclblasSdot(
-    aclblasHandle_t handle, int64_t n, const float* x, int64_t incx, const float* y, int64_t incy, float* result);
+    aclblasHandle_t handle, int n, const float* x, int incx, const float* y, int incy, float* result);
 
 aclblasStatus_t aclblasDotEx(
     aclblasHandle_t handle, int n,
@@ -276,7 +276,7 @@ aclblasStatus_t aclblasDotEx(
 
 aclblasStatus_t aclblasSnrm2(aclblasHandle_t handle, int n, const float* x, int incx, float* result);
 
-aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, float* result);
+aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, float* result);
 
 aclblasStatus_t aclblasSnrm2Ex(
     aclblasHandle_t handle, aclDataType xtype, const void* x, const int64_t n, const int64_t incx, void* result);
@@ -295,25 +295,25 @@ aclblasStatus_t aclblasRotEx(
     const void *c, const void *s,
     aclDataType csType, aclDataType executionType);
 aclblasStatus_t aclblasCsscal(
-    aclblasHandle_t handle, const int64_t n, const float alpha, aclblasComplex* x, const int64_t incx);
+    aclblasHandle_t handle, int n, const float* alpha, aclblasComplex* x, int incx);
 
 aclblasStatus_t aclblasCscal(
-    aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, const int64_t incx);
+    aclblasHandle_t handle, int n, const aclblasComplex* alpha, aclblasComplex* x, int incx);
 
 aclblasStatus_t aclblasSswap(aclblasHandle_t handle, int n, float* x, int incx, float* y, int incy);
 
 aclblasStatus_t aclblasCswap(
-    aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, aclblasComplex* y,
-    const int64_t incy);
+    aclblasHandle_t handle, int n, aclblasComplex* x, int incx, aclblasComplex* y,
+    int incy);
 
 aclblasStatus_t aclblasCaxpy(
-    aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, int64_t incx,
-    aclblasComplex* y, int64_t incy);
+    aclblasHandle_t handle, int n, const aclblasComplex* alpha, const aclblasComplex* x, int incx,
+    aclblasComplex* y, int incy);
 
 aclblasStatus_t aclblasCgemv(
-    aclblasHandle_t handle, aclblasOperation_t trans, const int64_t m, const int64_t n, const aclblasComplex alpha,
-    aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta,
-    aclblasComplex* y, const int64_t incy);
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const aclblasComplex* alpha,
+    const aclblasComplex* A, int lda, const aclblasComplex* x, int incx, const aclblasComplex* beta,
+    aclblasComplex* y, int incy);
 
 aclblasStatus_t aclblasStrmv(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
@@ -329,8 +329,8 @@ aclblasStatus_t aclblasStrsm(
     aclblasDiagType_t diag, int m, int n, const float* alpha, const float* A, int lda, float* B, int ldb);
 
 aclblasStatus_t aclblasSsymm(
-    aclblasHandle handle, aclblasSideMode_t side, aclblasFillMode_t uplo, int64_t m, int64_t n, const float* alpha,
-    const float* A, int64_t lda, const float* B, int64_t ldb, const float* beta, float* C, int64_t ldc);
+    aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo, int m, int n, const float* alpha,
+    const float* A, int lda, const float* B, int ldb, const float* beta, float* C, int ldc);
 
 aclblasStatus_t aclblasSsyr(
     aclblasHandle_t handle, aclblasFillMode_t uplo, const int n, const float* alpha, const float* x, const int incx,
@@ -348,8 +348,8 @@ aclblasStatus_t aclblasSspr2(
     const float* y, int incy, float* ap);
 
 aclblasStatus_t aclblasCtrmv(
-    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int64_t n,
-    aclblasComplex* A, int64_t lda, aclblasComplex* x, int64_t incx);
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int n,
+    const aclblasComplex* A, int lda, aclblasComplex* x, int incx);
 
 aclblasStatus_t aclblasSgbmv(
     aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, int kl, int ku, const float* alpha, const float* A,

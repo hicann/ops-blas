@@ -95,8 +95,8 @@ int32_t main(int32_t argc, char* argv[])
     int32_t deviceId = 0;
 
     constexpr uint32_t complexNum = 128;
-    int64_t incx = 1;
-    int64_t incy = 1;
+    int incx = 1;
+    int incy = 1;
 
     std::vector<aclblasComplex> x(complexNum);
     std::vector<aclblasComplex> y(complexNum);

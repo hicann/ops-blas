@@ -59,10 +59,13 @@ static uint32_t* CreateCgemvMask(int64_t m)
 }
 
 aclblasStatus_t aclblasCgemv(
-    aclblasHandle_t handle, aclblasOperation_t trans, const int64_t m, const int64_t n, const aclblasComplex alpha,
-    aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta,
-    aclblasComplex* y, const int64_t incy)
+    aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const aclblasComplex* alpha,
+    const aclblasComplex* A, int lda, const aclblasComplex* x, int incx, const aclblasComplex* beta,
+    aclblasComplex* y, int incy)
 {
+    if (alpha == nullptr || beta == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     auto* h = handle;
     aclrtStream useStream = h->stream;
 
@@ -76,10 +79,10 @@ aclblasStatus_t aclblasCgemv(
     tiling.incx = incx;
     tiling.incy = incy;
     tiling.sectionDim = 4;
-    tiling.alphaReal = alpha.real;
-    tiling.alphaImag = alpha.imag;
-    tiling.betaReal = beta.real;
-    tiling.betaImag = beta.imag;
+    tiling.alphaReal = alpha->real;
+    tiling.alphaImag = alpha->imag;
+    tiling.betaReal = beta->real;
+    tiling.betaImag = beta->imag;
 
     uint32_t* mask = CreateCgemvMask(m);
     size_t maskSize = MASK_OFFSET_BASE * 2 * sizeof(uint32_t);
@@ -116,11 +119,11 @@ aclblasStatus_t aclblasCgemv(
         aclrtFree(workSpaceDevice); aclrtFree(maskDevice); delete[] mask; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
     if (trans == ACLBLAS_OP_N) {
-        cgemv_no_trans_kernel_do(reinterpret_cast<uint8_t*>(A), reinterpret_cast<uint8_t*>(x),
+        cgemv_no_trans_kernel_do(reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(A)), reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(x)),
                                  reinterpret_cast<uint8_t*>(y), maskDevice, reinterpret_cast<uint8_t*>(y),
                                  workSpaceDevice, tilingDevice, numBlocks, useStream);
     } else {
-        cgemv_do_trans_kernel_do(reinterpret_cast<uint8_t*>(A), reinterpret_cast<uint8_t*>(x),
+        cgemv_do_trans_kernel_do(reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(A)), reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(x)),
                                  reinterpret_cast<uint8_t*>(y), maskDevice, reinterpret_cast<uint8_t*>(y),
                                  workSpaceDevice, tilingDevice, numBlocks, useStream);
     }

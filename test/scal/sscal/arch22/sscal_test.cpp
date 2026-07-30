@@ -132,7 +132,7 @@ int32_t TestCsscal(aclblasHandle handle, aclrtStream stream)
     constexpr aclblasComplex valueX{1.2f, 0.5f};
     constexpr float alpha = 2.5f;
     std::vector<aclblasComplex> x(totalLength, valueX);
-    int64_t incx = 1;
+    int incx = 1;
 
     aclblasComplex* xDevice = nullptr;
     size_t totalByteSize = totalLength * sizeof(aclblasComplex);
@@ -144,7 +144,7 @@ int32_t TestCsscal(aclblasHandle handle, aclrtStream stream)
         return aclRet);
 
     std::cout << "========== Testing aclblasCsscal ==========" << std::endl;
-    auto ret = aclblasCsscal(handle, totalLength, alpha, xDevice, incx);
+    auto ret = aclblasCsscal(handle, totalLength, &alpha, xDevice, incx);
     CHECK_RET(
         ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCsscal failed. ERROR: %d\n", ret); aclrtFree(xDevice);
         return ret);

@@ -129,15 +129,18 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
 }
 
 aclblasStatus_t aclblasCsscal(
-    aclblasHandle_t handle, const int64_t n, const float alpha, aclblasComplex* x, const int64_t incx)
+    aclblasHandle_t handle, int n, const float* alpha, aclblasComplex* x, int incx)
 {
+    if (alpha == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = 8;
-    uint32_t totalFloatNum = n * 2;
+    uint32_t totalFloatNum = static_cast<uint32_t>(n) * 2;
 
-    SscalTilingData tiling = CalTilingData(totalFloatNum, numBlocks, alpha);
+    SscalTilingData tiling = CalTilingData(totalFloatNum, numBlocks, *alpha);
 
     uint8_t* tilingDevice = nullptr;
     aclError aclRet = aclrtMalloc((void**)&tilingDevice, sizeof(SscalTilingData), ACL_MEM_MALLOC_HUGE_FIRST);

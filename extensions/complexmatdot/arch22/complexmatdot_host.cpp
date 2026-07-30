@@ -91,7 +91,7 @@ static std::vector<uint32_t> CreateAugComplexMatDot()
 }
 
 aclblasStatus_t aclblasComplexMatDot(
-    aclblasHandle_t handle, const int64_t m, const int64_t n, aclblasComplex* matx, aclblasComplex* maty,
+    aclblasHandle_t handle, int m, int n, const aclblasComplex* matx, const aclblasComplex* maty,
     aclblasComplex* result)
 {
     auto* h = handle;
@@ -130,7 +130,7 @@ aclblasStatus_t aclblasComplexMatDot(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(augDevice); return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    complex_mat_dot_kernel_do(reinterpret_cast<uint8_t*>(matx), reinterpret_cast<uint8_t*>(maty), augDevice,
+    complex_mat_dot_kernel_do(reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(matx)), reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(maty)), augDevice,
                               reinterpret_cast<uint8_t*>(result), tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(

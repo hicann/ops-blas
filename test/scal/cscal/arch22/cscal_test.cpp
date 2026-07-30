@@ -70,7 +70,7 @@ int32_t main(int32_t argc, char* argv[])
     const aclblasComplex valueX{1.2f, 0.5f};
     const aclblasComplex alpha{2.5f, 1.0f};
     std::vector<aclblasComplex> x(totalLength, valueX);
-    int64_t incx = 1;
+    int incx = 1;
 
     aclInit(nullptr);
     aclrtSetDevice(deviceId);
@@ -91,7 +91,7 @@ int32_t main(int32_t argc, char* argv[])
     aclRet = aclrtMemcpy(xDevice, totalByteSize, x.data(), totalByteSize, ACL_MEMCPY_HOST_TO_DEVICE);
     CHECK_RET(aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy xDevice failed. ERROR: %d\n", aclRet); return aclRet);
 
-    ret = aclblasCscal(handle, totalLength, alpha, xDevice, incx);
+    ret = aclblasCscal(handle, totalLength, &alpha, xDevice, incx);
     CHECK_RET(ret == ACLBLAS_STATUS_SUCCESS, LOG_PRINT("aclblasCscal failed. ERROR: %d\n", ret); return ret);
 
     aclRet = aclrtSynchronizeStream(stream);

@@ -50,7 +50,7 @@ int32_t test_scnrm2()
 
     std::vector<aclblasComplex> x(n, aclblasComplex{realVal, imagVal});
     float result = 0.0f;
-    int64_t incx = 1;
+    int incx = 1;
 
     aclInit(nullptr);
     aclrtSetDevice(deviceId);

@@ -93,18 +93,21 @@ void GenMaskData(uint32_t* maskData)
 }
 
 aclblasStatus_t aclblasCaxpy(
-    aclblasHandle_t handle, const int64_t n, const aclblasComplex alpha, aclblasComplex* x, int64_t incx,
-    aclblasComplex* y, int64_t incy)
+    aclblasHandle_t handle, int n, const aclblasComplex* alpha, const aclblasComplex* x, int incx,
+    aclblasComplex* y, int incy)
 {
+    if (alpha == nullptr) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     auto* h = handle;
     aclrtStream useStream = h->stream;
 
     uint32_t numBlocks = DEFAULT_VECTOR_NUM;
 
-    float alphaReal = alpha.real;
-    float alphaImag = alpha.imag;
+    float alphaReal = alpha->real;
+    float alphaImag = alpha->imag;
 
-    CaxpyTilingData tiling = CalTilingData(n, numBlocks, alphaReal, alphaImag);
+    CaxpyTilingData tiling = CalTilingData(static_cast<uint32_t>(n), numBlocks, alphaReal, alphaImag);
 
     uint32_t maskSize = MAX_DATA_COUNT * sizeof(uint32_t) * COMPLEX_NUM;
 
@@ -135,7 +138,7 @@ aclblasStatus_t aclblasCaxpy(
         aclRet == ACL_SUCCESS, LOG_PRINT("aclrtMemcpy failed. ERROR: %d\n", aclRet); aclrtFree(tilingDevice);
         aclrtFree(maskDevice); delete[] maskHost; return ACLBLAS_STATUS_INTERNAL_ERROR);
 
-    caxpy_kernel_do(reinterpret_cast<uint8_t*>(x), maskDevice, reinterpret_cast<uint8_t*>(y), nullptr,
+    caxpy_kernel_do(reinterpret_cast<uint8_t*>(const_cast<aclblasComplex*>(x)), maskDevice, reinterpret_cast<uint8_t*>(y), nullptr,
                     tilingDevice, numBlocks, useStream);
     aclRet = aclrtSynchronizeStream(useStream);
     CHECK_RET(

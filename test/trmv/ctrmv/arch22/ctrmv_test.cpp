@@ -126,9 +126,9 @@ int32_t main(int32_t argc, char* argv[])
 
     int ret = 0;
 
-    constexpr int64_t n = 4;
-    constexpr int64_t lda = 4;
-    constexpr int64_t incx = 1;
+    constexpr int n = 4;
+    constexpr int lda = 4;
+    constexpr int incx = 1;
 
     std::vector<aclblasComplex> A(n * lda, {0.0f, 0.0f});
     for (int64_t i = 0; i < n; i++) {
