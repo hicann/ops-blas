@@ -32,9 +32,21 @@ TEST_F(SrotArch35Test, NullHandle)
     EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 }
 
+TEST_F(SrotArch35Test, NullHandleTakesPrecedenceOverQuickReturn)
+{
+    EXPECT_EQ(aclblasSrot(nullptr, 0, nullptr, 1, nullptr, 1, nullptr, nullptr), ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+}
+
+TEST_F(SrotArch35Test, QuickReturnSkipsDataPointerValidation)
+{
+    EXPECT_EQ(
+        aclblasSrot(SrotArch35Test::handle_, 0, nullptr, 1, nullptr, 1, nullptr, nullptr), ACLBLAS_STATUS_SUCCESS);
+    EXPECT_EQ(
+        aclblasSrot(SrotArch35Test::handle_, -1, nullptr, 1, nullptr, 1, nullptr, nullptr), ACLBLAS_STATUS_SUCCESS);
+}
+
 INSTANTIATE_TEST_SUITE_P(
-    Srot, SrotArch35Test,
-    ::testing::ValuesIn(GetCasesFromCsv<SrotParam>(ReplaceFileExtension2Csv(__FILE__))),
+    Srot, SrotArch35Test, ::testing::ValuesIn(GetCasesFromCsv<SrotParam>(ReplaceFileExtension2Csv(__FILE__))),
     PrintCaseInfoString<SrotParam>);
 
 // Helper: build a host buffer matching the stride access pattern.
@@ -71,8 +83,8 @@ TEST_P(SrotArch35Test, CsvDriven)
 
     // Step 2: execute on NPU. csPtrMode ("host"/"device"/"mixed") tells the wrapper where to
     // materialize the c / s scalar pointers; the operator auto-detects each pointer's location.
-    aclblasStatus_t ret = aclblasSrot_npu(SrotArch35Test::handle_, p.n, xPtr, p.incx, yPtr, p.incy, p.c, p.s,
-                                          p.csPtrMode);
+    aclblasStatus_t ret =
+        aclblasSrot_npu(SrotArch35Test::handle_, p.n, xPtr, p.incx, yPtr, p.incy, p.c, p.s, p.csPtrMode);
 
     // Step 3: check return code against expected.
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
@@ -115,8 +127,8 @@ TEST_P(SrotArch35Test, CsvDriven)
             if (!std::isnan(yPtr[static_cast<int64_t>(i) * absIncY]))
                 allNanY = false;
         }
-        std::cout << "[" << p.caseName << "] NaN-propagation check: x_allNan=" << allNanX
-                  << " y_allNan=" << allNanY << std::endl;
+        std::cout << "[" << p.caseName << "] NaN-propagation check: x_allNan=" << allNanX << " y_allNan=" << allNanY
+                  << std::endl;
         EXPECT_TRUE(allNanX && allNanY);
         return;
     }
@@ -137,10 +149,10 @@ TEST_P(SrotArch35Test, CsvDriven)
         // the original input, since cblas_srot with c=1 s=0 also returns input unchanged).
         VerifyConfig cfg;
         cfg.mode = PrecisionMode::EXACT;
-        EXPECT_TRUE(Verifier::verifyVector(xPtr, goldenX.data(), static_cast<size_t>(p.n),
-                                           static_cast<int64_t>(absIncX), cfg, p.caseName + "_x"));
-        EXPECT_TRUE(Verifier::verifyVector(yPtr, goldenY.data(), static_cast<size_t>(p.n),
-                                           static_cast<int64_t>(absIncY), cfg, p.caseName + "_y"));
+        EXPECT_TRUE(Verifier::verifyVector(
+            xPtr, goldenX.data(), static_cast<size_t>(p.n), static_cast<int64_t>(absIncX), cfg, p.caseName + "_x"));
+        EXPECT_TRUE(Verifier::verifyVector(
+            yPtr, goldenY.data(), static_cast<size_t>(p.n), static_cast<int64_t>(absIncY), cfg, p.caseName + "_y"));
         return;
     }
 
@@ -149,8 +161,8 @@ TEST_P(SrotArch35Test, CsvDriven)
     VerifyConfig yCfg;
     applyMixedTolerance(yCfg, ACL_FLOAT, goldenY.data(), static_cast<size_t>(p.n));
 
-    EXPECT_TRUE(Verifier::verifyVector(xPtr, goldenX.data(), static_cast<size_t>(p.n),
-                                       static_cast<int64_t>(absIncX), xCfg, p.caseName + "_x"));
-    EXPECT_TRUE(Verifier::verifyVector(yPtr, goldenY.data(), static_cast<size_t>(p.n),
-                                       static_cast<int64_t>(absIncY), yCfg, p.caseName + "_y"));
+    EXPECT_TRUE(Verifier::verifyVector(
+        xPtr, goldenX.data(), static_cast<size_t>(p.n), static_cast<int64_t>(absIncX), xCfg, p.caseName + "_x"));
+    EXPECT_TRUE(Verifier::verifyVector(
+        yPtr, goldenY.data(), static_cast<size_t>(p.n), static_cast<int64_t>(absIncY), yCfg, p.caseName + "_y"));
 }

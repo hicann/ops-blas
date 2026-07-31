@@ -25,8 +25,7 @@
 #include "common/helper/kernel_constant.h"
 #include "sscal_tiling_data.h"
 
-void sscal_kernel_do(uint8_t* x, uint8_t* workSpace, const SscalTilingData& tiling,
-                     uint32_t numBlocks, void *stream);
+void sscal_kernel_do(uint8_t* x, uint8_t* workSpace, const SscalTilingData& tiling, uint32_t numBlocks, void* stream);
 
 static aclblasStatus_t ValidateSscalParams(aclblasHandle_t handle, const float* x, int incx)
 {
@@ -109,7 +108,12 @@ static SscalTilingData CalSscalTilingDataStrided(int64_t n, int64_t incx, uint32
 
 aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, float* x, int incx)
 {
-    if (n <= 0) {
+    if (handle == nullptr) {
+        OP_LOGE("aclblasSscal", "handle is nullptr");
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    }
+
+    if (n <= 0 || incx <= 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
 
@@ -121,10 +125,6 @@ aclblasStatus_t aclblasSscal(aclblasHandle_t handle, int n, const float* alpha, 
     aclblasStatus_t status = ValidateSscalParams(handle, x, incx);
     if (status != ACLBLAS_STATUS_SUCCESS) {
         return status;
-    }
-
-    if (incx <= 0) {
-        return ACLBLAS_STATUS_SUCCESS;
     }
 
     uint32_t aivCoreNum = GetAivCoreCount();

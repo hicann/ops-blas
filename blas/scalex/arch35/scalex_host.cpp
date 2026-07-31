@@ -29,13 +29,13 @@
 
 static uint32_t GetBytePerElement(uint32_t xType)
 {
-    constexpr uint32_t kFp16Bf16Size = 2;         // sizeof(half) == sizeof(bfloat16_t)
+    constexpr uint32_t kFp16Bf16Size = 2; // sizeof(half) == sizeof(bfloat16_t)
     constexpr uint32_t kFloatSize = sizeof(float);
 
     if (xType == static_cast<uint32_t>(ACL_FLOAT)) {
-        return 2 * kFloatSize;                // inQueue + outQueue
+        return 2 * kFloatSize;             // inQueue + outQueue
     }
-    return 2 * kFp16Bf16Size + kFloatSize;    // inQueue + outQueue + midBuf(cast to float)
+    return 2 * kFp16Bf16Size + kFloatSize; // inQueue + outQueue + midBuf(cast to float)
 }
 
 static uint32_t GetAlignUnit(uint32_t xType)
@@ -47,9 +47,8 @@ static uint32_t GetAlignUnit(uint32_t xType)
 }
 
 static aclblasStatus_t ValidateScalexParams(
-    aclblasHandle_t handle, int n, const void* alpha,
-    aclDataType alphaType, void* x, aclDataType xType,
-    int incx, aclDataType executionType)
+    aclblasHandle_t handle, int n, const void* alpha, aclDataType alphaType, void* x, aclDataType xType, int incx,
+    aclDataType executionType)
 {
     if (handle == nullptr) {
         OP_LOGE("aclblasScalex", "handle is nullptr");
@@ -64,25 +63,23 @@ static aclblasStatus_t ValidateScalexParams(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (alphaType != ACL_FLOAT) {
-        OP_LOGE("aclblasScalex", "alphaType must be ACL_FLOAT(0), got %d",
-                static_cast<int>(alphaType));
+        OP_LOGE("aclblasScalex", "alphaType must be ACL_FLOAT(0), got %d", static_cast<int>(alphaType));
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     }
     if (executionType != ACL_FLOAT) {
-        OP_LOGE("aclblasScalex", "executionType must be ACL_FLOAT(0), got %d",
-                static_cast<int>(executionType));
+        OP_LOGE("aclblasScalex", "executionType must be ACL_FLOAT(0), got %d", static_cast<int>(executionType));
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     }
     if (xType != ACL_FLOAT16 && xType != ACL_BF16 && xType != ACL_FLOAT) {
-        OP_LOGE("aclblasScalex", "xType must be ACL_FLOAT16(1), ACL_FLOAT(0) or ACL_BF16(27), got %d",
-                static_cast<int>(xType));
+        OP_LOGE(
+            "aclblasScalex", "xType must be ACL_FLOAT16(1), ACL_FLOAT(0) or ACL_BF16(27), got %d",
+            static_cast<int>(xType));
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     }
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-static ScalexTilingData CalScalexTilingDataContiguous(
-    uint32_t totalN, uint32_t coreNum, uint32_t xType)
+static ScalexTilingData CalScalexTilingDataContiguous(uint32_t totalN, uint32_t coreNum, uint32_t xType)
 {
     ScalexTilingData tiling{};
     tiling.totalN = totalN;
@@ -104,8 +101,7 @@ static ScalexTilingData CalScalexTilingDataContiguous(
     return tiling;
 }
 
-static ScalexTilingData CalScalexTilingDataStrided(
-    int64_t n, int64_t incx, uint32_t numBlocks, uint32_t xType)
+static ScalexTilingData CalScalexTilingDataStrided(int64_t n, int64_t incx, uint32_t numBlocks, uint32_t xType)
 {
     ScalexTilingData tiling{};
     tiling.totalN = static_cast<uint32_t>(n);
@@ -114,16 +110,14 @@ static ScalexTilingData CalScalexTilingDataStrided(
     tiling.numBlocks = numBlocks;
 
     uint32_t avgElements = CeilDiv<uint32_t>(static_cast<uint32_t>(n), numBlocks);
-    tiling.nthreads = std::min(
-        CeilAlign<uint32_t>(avgElements, SIMT_MIN_THREAD_NUM),
-        SIMT_MAX_THREAD_NUM);
+    tiling.nthreads = std::min(CeilAlign<uint32_t>(avgElements, SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
 
     return tiling;
 }
 
 static aclblasStatus_t LaunchScalexKernel(
-    int n, int incx, uint32_t aivCoreNum, const void* alpha, bool alphaIsDevice,
-    uint32_t xType, void* x, aclrtStream stream)
+    int n, int incx, uint32_t aivCoreNum, const void* alpha, bool alphaIsDevice, uint32_t xType, void* x,
+    aclrtStream stream)
 {
     ScalexTilingData tiling;
     uint32_t numBlocks;
@@ -144,8 +138,9 @@ static aclblasStatus_t LaunchScalexKernel(
         tiling.alpha = 0.0f;
     }
 
-    OP_LOGI("aclblasScalex", "launching kernel: blocks=%u, cores=%u, incx=%d, alphaIsDevice=%u",
-            numBlocks, aivCoreNum, incx, tiling.alphaIsDevice);
+    OP_LOGI(
+        "aclblasScalex", "launching kernel: blocks=%u, cores=%u, incx=%d, alphaIsDevice=%u", numBlocks, aivCoreNum,
+        incx, tiling.alphaIsDevice);
 
     void* alphaPtr = alphaIsDevice ? const_cast<void*>(alpha) : nullptr;
     scalex_kernel_do(reinterpret_cast<uint8_t*>(x), alphaPtr, tiling, numBlocks, stream);
@@ -154,26 +149,21 @@ static aclblasStatus_t LaunchScalexKernel(
 }
 
 aclblasStatus_t aclblasScalex(
-    aclblasHandle_t handle, int n, const void* alpha,
-    aclDataType alphaType, void* x, aclDataType xType,
-    int incx, aclDataType executionType)
+    aclblasHandle_t handle, int n, const void* alpha, aclDataType alphaType, void* x, aclDataType xType, int incx,
+    aclDataType executionType)
 {
-    if (n < 0) {
-        OP_LOGE("aclblasScalex", "n must be >= 0, got %d", n);
-        return ACLBLAS_STATUS_INVALID_VALUE;
+    if (handle == nullptr) {
+        OP_LOGE("aclblasScalex", "handle is nullptr");
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
-    if (n == 0) {
+
+    if (n <= 0 || incx <= 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
 
-    aclblasStatus_t status = ValidateScalexParams(
-        handle, n, alpha, alphaType, x, xType, incx, executionType);
+    aclblasStatus_t status = ValidateScalexParams(handle, n, alpha, alphaType, x, xType, incx, executionType);
     if (status != ACLBLAS_STATUS_SUCCESS) {
         return status;
-    }
-
-    if (incx <= 0) {
-        return ACLBLAS_STATUS_SUCCESS;
     }
 
     uint32_t aivCoreNum = GetAivCoreCount();
@@ -192,6 +182,5 @@ aclblasStatus_t aclblasScalex(
     }
     bool alphaIsDevice = (ptrAttr.location.type == ACL_MEM_LOCATION_TYPE_DEVICE);
 
-    return LaunchScalexKernel(n, incx, aivCoreNum, alpha, alphaIsDevice,
-                                static_cast<uint32_t>(xType), x, h->stream);
+    return LaunchScalexKernel(n, incx, aivCoreNum, alpha, alphaIsDevice, static_cast<uint32_t>(xType), x, h->stream);
 }

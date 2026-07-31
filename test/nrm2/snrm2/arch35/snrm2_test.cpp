@@ -57,20 +57,19 @@ static void TestNoOpPath(const Snrm2Param& p, aclblasHandle_t handle)
     std::vector<float> xHost = makeBlasArray(xLen, p.x, p.randomSeed);
     const float* xPtr = xHost.empty() ? nullptr : xHost.data();
 
-    float result = 0.0f;
+    float result = 123.0f;
     aclblasStatus_t ret = aclblasSnrm2_npu(handle, p.n, xPtr, p.incx, &result);
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
     if (ret == ACLBLAS_STATUS_SUCCESS) {
-        EXPECT_FLOAT_EQ(result, 0.0f)
-            << "[" << p.caseName << "] early return should produce result=0.0f, got " << result;
+        EXPECT_FLOAT_EQ(result, 0.0f) << "[" << p.caseName << "] early return should produce result=0.0f, got "
+                                      << result;
     }
 }
 
 // ---------------------------------------------------------------------------
 // Precision verification helper
 // ---------------------------------------------------------------------------
-static void VerifyNrm2Result(
-    float result, float golden, const std::string& caseName)
+static void VerifyNrm2Result(float result, float golden, const std::string& caseName)
 {
     VerifyConfig cfg;
     applyMixedTolerance(cfg, ACL_FLOAT, golden);

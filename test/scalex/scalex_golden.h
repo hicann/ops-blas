@@ -30,10 +30,8 @@ inline aclblasStatus_t aclblasScalex_cpu(
     // Parameter validation — same order as Host-side spec
     if (handle == nullptr)
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
-    if (n < 0)
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    if (n == 0)
-        return ACLBLAS_STATUS_SUCCESS; // n=0 short-circuit
+    if (n <= 0 || incx <= 0)
+        return ACLBLAS_STATUS_SUCCESS;
     if (alpha == nullptr)
         return ACLBLAS_STATUS_INVALID_VALUE;
     if (x == nullptr)
@@ -46,9 +44,6 @@ inline aclblasStatus_t aclblasScalex_cpu(
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     if (executionType != ACL_FLOAT)
         return ACLBLAS_STATUS_NOT_SUPPORTED;
-    if (incx <= 0)
-        return ACLBLAS_STATUS_SUCCESS;
-
     float alphaVal = *static_cast<const float*>(alpha);
     float* xFloat = static_cast<float*>(x);
 

@@ -31,6 +31,19 @@ TEST_F(SscalArch35Test, NullHandle)
     EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 }
 
+TEST_F(SscalArch35Test, NullHandleTakesPrecedenceOverQuickReturn)
+{
+    EXPECT_EQ(aclblasSscal(nullptr, 0, nullptr, nullptr, 1), ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    EXPECT_EQ(aclblasSscal(nullptr, 5, nullptr, nullptr, 0), ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+}
+
+TEST_F(SscalArch35Test, QuickReturnSkipsDataPointerValidation)
+{
+    EXPECT_EQ(aclblasSscal(SscalArch35Test::handle_, 0, nullptr, nullptr, 1), ACLBLAS_STATUS_SUCCESS);
+    EXPECT_EQ(aclblasSscal(SscalArch35Test::handle_, 5, nullptr, nullptr, 0), ACLBLAS_STATUS_SUCCESS);
+    EXPECT_EQ(aclblasSscal(SscalArch35Test::handle_, 5, nullptr, nullptr, -1), ACLBLAS_STATUS_SUCCESS);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     Sscal, SscalArch35Test, ::testing::ValuesIn(GetCasesFromCsv<SscalParam>(ReplaceFileExtension2Csv(__FILE__))),
     PrintCaseInfoString<SscalParam>);
@@ -40,8 +53,7 @@ TEST_P(SscalArch35Test, CsvDriven)
     const auto& p = GetParam();
 
     std::vector<float> xHost =
-        (p.incx == 1) ? makeBlasArray(p.n, p.x, p.randomSeed)
-                      : makeBlasStrided(p.n, p.incx, p.x, p.randomSeed);
+        (p.incx == 1) ? makeBlasArray(p.n, p.x, p.randomSeed) : makeBlasStrided(p.n, p.incx, p.x, p.randomSeed);
     float* xPtr = xHost.empty() ? nullptr : xHost.data();
     float alpha = p.alpha;
 
@@ -55,13 +67,13 @@ TEST_P(SscalArch35Test, CsvDriven)
         return;
 
     std::vector<float> goldenX =
-        (p.incx == 1) ? makeBlasArray(p.n, p.x, p.randomSeed)
-                      : makeBlasStrided(p.n, p.incx, p.x, p.randomSeed);
+        (p.incx == 1) ? makeBlasArray(p.n, p.x, p.randomSeed) : makeBlasStrided(p.n, p.incx, p.x, p.randomSeed);
     aclblasSscal_cpu(SscalArch35Test::handle_, p.n, &alpha, goldenX.data(), p.incx);
 
     VerifyConfig cfg;
     applyMixedTolerance(cfg, ACL_FLOAT, goldenX.data(), static_cast<size_t>(p.n));
 
     int absInc = std::abs(p.incx);
-    EXPECT_TRUE(Verifier::verifyVector(xPtr, goldenX.data(), static_cast<size_t>(p.n), static_cast<int64_t>(absInc), cfg, p.caseName));
+    EXPECT_TRUE(Verifier::verifyVector(
+        xPtr, goldenX.data(), static_cast<size_t>(p.n), static_cast<int64_t>(absInc), cfg, p.caseName));
 }
