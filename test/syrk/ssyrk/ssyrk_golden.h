@@ -24,7 +24,7 @@ static int ValidateSsyrkCpuParams(
     const float* alpha, const float* beta, const float* A, const float* C)
 {
     if (handle == nullptr) {
-        return static_cast<int>(ACLBLAS_STATUS_NOT_INITIALIZED);
+        return static_cast<int>(ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     }
     if (!IsValidUplo(uplo)) {
         return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);

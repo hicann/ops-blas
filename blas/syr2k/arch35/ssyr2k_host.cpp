@@ -19,7 +19,7 @@
 #include "cann_ops_blas.h"
 #include "ssyr2k_kernel.h"
 #include "common/helper/aclblas_handle_internal.h"
-#include "common/helper/host_utils.h"
+#include "common/helper/syrk_host_utils.h"
 
 static inline GM_ADDR ToGmAddr(const float* p)
 {
@@ -36,11 +36,11 @@ static aclblasStatus_t ValidateSsyr2kParams(
     CHECK_RET(
         uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
         OP_LOGE("aclblasSsyr2k", "uplo must be UPPER(121) or LOWER(122), got %d", static_cast<int>(uplo));
-        return ACLBLAS_STATUS_INVALID_ENUM);
+        return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
         trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
         OP_LOGE("aclblasSsyr2k", "trans must be OP_N(111) or OP_T(112) or OP_C(113), got %d", static_cast<int>(trans));
-        return ACLBLAS_STATUS_INVALID_ENUM);
+        return ACLBLAS_STATUS_INVALID_VALUE);
 
     int minLda = (trans == ACLBLAS_OP_N) ? std::max(1, n) : std::max(1, k);
     int minLdb = (trans == ACLBLAS_OP_N) ? std::max(1, n) : std::max(1, k);
@@ -68,7 +68,7 @@ static aclblasStatus_t ValidateSsyr2kParams(
     CHECK_RET(
         B != nullptr || k == 0, OP_LOGE("aclblasSsyr2k", "B must not be nullptr when k > 0");
         return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(C != nullptr, OP_LOGE("aclblasSsyr2k", "C must not be nullptr");
+    CHECK_RET(C != nullptr || n == 0, OP_LOGE("aclblasSsyr2k", "C must not be nullptr when n > 0");
         return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
@@ -127,63 +127,9 @@ static Ssyr2kScaleTilingData CalScaleTilingData(
     uint8_t isAlphaZero, uint8_t isKZero, uint8_t isBetaZero, uint32_t tempRowStride,
     uint8_t uploMode, float alphaVal, float betaVal)
 {
-    Ssyr2kScaleTilingData tiling{};
-    tiling.n = n;
-    tiling.ldc = ldc;
-    tiling.tempRowStride = tempRowStride;
-    tiling.rowsPerCore = CeilDiv<uint32_t>(n, usedAivCoreNum);
-    tiling.alphaVal = alphaVal;
-    tiling.betaVal = betaVal;
-    tiling.uploMode = uploMode;
-    tiling.isAlphaZero = isAlphaZero;
-    tiling.isKZero = isKZero;
-    tiling.isBetaZero = isBetaZero;
-    return tiling;
-}
-
-static aclblasStatus_t ReadAlphaBetaFromDevice(
-    const float* alpha, const float* beta, float& alphaVal, float& betaVal,
-    aclrtStream stream)
-{
-    alphaVal = 0.0f;
-    betaVal = 0.0f;
-    aclError aclRet = aclrtMemcpyAsync(&alphaVal, sizeof(float), alpha, sizeof(float),
-        ACL_MEMCPY_DEVICE_TO_HOST, stream);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSsyr2k", "aclrtMemcpyAsync alpha D2H failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    aclRet = aclrtMemcpyAsync(&betaVal, sizeof(float), beta, sizeof(float),
-        ACL_MEMCPY_DEVICE_TO_HOST, stream);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSsyr2k", "aclrtMemcpyAsync beta D2H failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    aclRet = aclrtSynchronizeStream(stream);
-    if (aclRet != ACL_SUCCESS) {
-        OP_LOGE("aclblasSsyr2k", "aclrtSynchronizeStream for D2H failed, ret=%d", aclRet);
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    return ACLBLAS_STATUS_SUCCESS;
-}
-
-static uint32_t GetUsedAivCoreNum(uint32_t n, uint32_t aivCoreNum)
-{
-    return std::max<uint32_t>(std::min<uint32_t>(n, aivCoreNum), 1);
-}
-
-static uint32_t GetUsedAicCoreNum(uint32_t n)
-{
-    uint32_t aicCoreNum = GetAicCoreCount();
-    if (aicCoreNum == 0) {
-        OP_LOGE("aclblasSsyr2k", "cube core count is 0");
-        return 0;
-    }
-    uint32_t coreDim = CeilDiv<uint32_t>(n, aicCoreNum);
-    uint32_t singleCoreDim = std::max<uint32_t>(coreDim, SSYR2K_ARCH35_BASE_M);
-    uint64_t tileCount = static_cast<uint64_t>(CeilDiv<uint32_t>(n, singleCoreDim))
-                       * static_cast<uint64_t>(CeilDiv<uint32_t>(n, singleCoreDim));
-    return std::max<uint32_t>(std::min<uint64_t>(tileCount, aicCoreNum), 1);
+    return ::CalScaleTilingData<Ssyr2kScaleTilingData>(
+        usedAivCoreNum, n, ldc, isAlphaZero, isKZero, isBetaZero,
+        tempRowStride, uploMode, alphaVal, betaVal);
 }
 
 static aclblasStatus_t LaunchGemmKernels(
@@ -255,38 +201,18 @@ static aclblasStatus_t LaunchSsyr2kKernel(
     const float* B, uint32_t ldb,
     const float* beta, float* C, uint32_t ldc)
 {
-    float alphaVal = 0.0f;
-    float betaVal = 0.0f;
-    aclblasStatus_t readRet = ReadAlphaBetaFromDevice(alpha, beta, alphaVal, betaVal, h->stream);
-    if (readRet != ACLBLAS_STATUS_SUCCESS) {
-        return readRet;
+    SyrkLaunchCtx ctx;
+    aclblasStatus_t prepRet = PrepareSyrkLaunch(
+        h->stream, n, k, trans, alpha, beta, SSYR2K_ARCH35_BASE_M, SSYR2K_ARCH35_FIXPIPE_N_ALIGN,
+        "aclblasSsyr2k", ctx);
+    if (prepRet != ACLBLAS_STATUS_SUCCESS) {
+        return prepRet;
+    }
+    if (n == 0) {
+        return ACLBLAS_STATUS_SUCCESS;
     }
 
-    bool isAlphaZero = (alphaVal == 0.0f);
-    bool isKZero = (k == 0);
-    bool isBetaZero = (betaVal == 0.0f);
-
-    OP_LOGD("aclblasSsyr2k",
-        "alpha=%.6f beta=%.6f isAlphaZero=%d isKZero=%d isBetaZero=%d",
-        alphaVal, betaVal, isAlphaZero, isKZero, isBetaZero);
-
-    uint32_t aivCoreNum = GetAivCoreCount();
-    if (aivCoreNum == 0) {
-        OP_LOGE("aclblasSsyr2k", "vector core count is 0");
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    uint32_t usedAivCoreNum = GetUsedAivCoreNum(n, aivCoreNum);
-    uint32_t usedAicCoreNum = GetUsedAicCoreNum(n);
-    if (usedAicCoreNum == 0) {
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-
-    uint32_t tempRowStride = CeilAlign<uint32_t>(n, SSYR2K_ARCH35_FIXPIPE_N_ALIGN);
-    constexpr size_t GM_ALIGN = 32;
-    size_t tempSize = static_cast<size_t>(n) * static_cast<size_t>(tempRowStride) * sizeof(float);
-    size_t tempAligned = (tempSize + GM_ALIGN - 1) / GM_ALIGN * GM_ALIGN;
-    size_t requiredBytes = 2 * tempAligned;
-
+    size_t requiredBytes = 2 * ctx.tempAligned;
     aclblasStatus_t wsRet = EnsureDefaultWorkspace(h, requiredBytes);
     if (wsRet != ACLBLAS_STATUS_SUCCESS) {
         OP_LOGE("aclblasSsyr2k", "workspace ensure failed, required=%zu, ret=%d", requiredBytes, wsRet);
@@ -295,19 +221,19 @@ static aclblasStatus_t LaunchSsyr2kKernel(
 
     uint8_t* wsBase = static_cast<uint8_t*>(GetEffectiveWorkspace(h));
     uint8_t* temp1Device = wsBase;
-    uint8_t* temp2Device = temp1Device + tempAligned;
+    uint8_t* temp2Device = temp1Device + ctx.tempAligned;
 
-    if (!isAlphaZero && !isKZero) {
+    if (!ctx.isAlphaZero && !ctx.isKZero) {
         aclblasStatus_t gemmRet = LaunchGemmKernels(h, n, k, lda, ldb, trans, A, B,
-            usedAicCoreNum, tempRowStride, temp1Device, temp2Device);
+            ctx.usedAicCoreNum, ctx.tempRowStride, temp1Device, temp2Device);
         if (gemmRet != ACLBLAS_STATUS_SUCCESS) {
             return gemmRet;
         }
     }
 
-    LaunchScaleKernel(h, usedAivCoreNum, n, ldc,
-        isAlphaZero, isKZero, isBetaZero, uplo, alphaVal, betaVal,
-        tempRowStride, temp1Device, temp2Device, C);
+    LaunchScaleKernel(h, ctx.usedAivCoreNum, n, ldc,
+        ctx.isAlphaZero, ctx.isKZero, ctx.isBetaZero, uplo, ctx.alphaVal, ctx.betaVal,
+        ctx.tempRowStride, temp1Device, temp2Device, C);
 
     return ACLBLAS_STATUS_SUCCESS;
 }
@@ -331,9 +257,6 @@ aclblasStatus_t aclblasSsyr2k(
         OP_LOGE("aclblasSsyr2k", "handle is nullptr");
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
-    if (n == 0) {
-        return ACLBLAS_STATUS_SUCCESS;
-    }
     CHECK_RET(n >= 0,
         OP_LOGE("aclblasSsyr2k", "n must be >= 0, got %d", n);
         return ACLBLAS_STATUS_INVALID_VALUE);
@@ -345,10 +268,6 @@ aclblasStatus_t aclblasSsyr2k(
         uplo, trans, n, k, lda, ldb, ldc, alpha, A, B, beta, C);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
-    }
-
-    if (trans == ACLBLAS_OP_C) {
-        trans = ACLBLAS_OP_T;
     }
 
     auto* h = static_cast<_aclblas_handle*>(handle);

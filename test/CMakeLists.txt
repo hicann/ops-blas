@@ -75,13 +75,16 @@ if(BUILD_TEST)
                 elseif(NOT ENABLE_BLAS_GEMM3M AND (TEST_NAME STREQUAL "sgemm3m" OR TEST_NAME STREQUAL "gemm3m"))
                     list(APPEND SKIP_REASONS
                         "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_SYRK AND (TEST_NAME STREQUAL "ssyrk" OR TEST_NAME STREQUAL "syrk"))
+                elseif(NOT ENABLE_BLAS_SSYRK AND TEST_NAME STREQUAL "ssyrk")
                     list(APPEND SKIP_REASONS
                         "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_SYR2K AND (TEST_NAME STREQUAL "ssyr2k" OR TEST_NAME STREQUAL "syr2k"))
+                elseif(NOT ENABLE_BLAS_SSYR2K AND TEST_NAME STREQUAL "ssyr2k")
                     list(APPEND SKIP_REASONS
                         "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_STRSMBATCHED AND (TEST_NAME STREQUAL "strsmbatched" OR TEST_NAME STREQUAL "trsmbatched"))
+                elseif(NOT ENABLE_BLAS_SSYRKX AND TEST_NAME STREQUAL "ssyrkx")
+                    list(APPEND SKIP_REASONS
+                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
+                elseif(NOT ENABLE_BLAS_STRSMBATCHED AND TEST_NAME STREQUAL "strsmbatched")
                     list(APPEND SKIP_REASONS
                         "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
                 elseif(NOT ENABLE_BLAS_GEMM_STRIDED_BATCHED AND (TEST_NAME STREQUAL "sgemm_strided_batched" OR TEST_NAME STREQUAL "gemm_strided_batched"))

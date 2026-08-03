@@ -91,19 +91,19 @@ if(NOT ENABLE_BLAS_GEMM3M)
         STATUS
         "Skipping blas gemm3m/sgemm3m (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
-if(NOT ENABLE_BLAS_SYRK)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syrk/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syrk/")
+if(NOT ENABLE_BLAS_SSYRK)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syrk/arch35/ssyrk")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syrk/arch35/ssyrk")
     message(
         STATUS
-        "Skipping blas syrk/ssyrk (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+        "Skipping blas ssyrk (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
-if(NOT ENABLE_BLAS_SYR2K)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syr2k/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syr2k/")
+if(NOT ENABLE_BLAS_SSYR2K)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syr2k/arch35/ssyr2k")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syr2k/arch35/ssyr2k")
     message(
         STATUS
-        "Skipping blas syr2k/ssyr2k (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+        "Skipping blas ssyr2k (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
 if(NOT ENABLE_BLAS_STRSMBATCHED)
     list(FILTER OP_SRC_FILES EXCLUDE REGEX "/trsmbatched/arch35/strsmbatched")
@@ -119,6 +119,13 @@ if(NOT ENABLE_BLAS_GEMM_STRIDED_BATCHED)
     message(
         STATUS
         "Skipping blas gemm_strided_batched (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
+if(NOT ENABLE_BLAS_SSYRKX)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syrkx/arch35/ssyrkx")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syrkx/arch35/ssyrkx")
+    message(
+        STATUS
+        "Skipping blas ssyrkx (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
 set(ALL_BLAS_SRC_FILES
     ${BASE_SRC_FILES}

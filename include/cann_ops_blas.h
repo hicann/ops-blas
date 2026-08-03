@@ -506,6 +506,11 @@ aclblasStatus_t aclblasSgemmStridedBatched(
     const float* alpha, const float* A, int lda, int64_t strideA, const float* B, int ldb, int64_t strideB,
     const float* beta, float* C, int ldc, int64_t strideC, int batchCount);
 
+aclblasStatus_t aclblasSsyrkx(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k,
+    const float* alpha, const float* A, int lda, const float* B, int ldb,
+    const float* beta, float* C, int ldc);
+
 #ifdef __cplusplus
 }
 #endif

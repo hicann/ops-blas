@@ -14,6 +14,7 @@
 #include "blas_test.h"
 #include "csv_loader.h"
 #include "fill.h"
+#include "verify_uplo.h"
 #include "ssyrk_param.h"
 #include "ssyrk_golden.h"
 #include "ssyrk_npu_wrapper.h"
@@ -33,7 +34,7 @@ TEST_F(SsyrkArch35Test, NullHandle)
     aclblasStatus_t ret = aclblasSsyrk_npu(
         nullptr, ACLBLAS_UPPER, ACLBLAS_OP_N, 4, 4,
         &alpha, nullptr, 4, &beta, nullptr, 4);
-    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_NOT_INITIALIZED));
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_HANDLE_IS_NULLPTR));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -95,40 +96,6 @@ static bool PrepareHostData(const SsyrkParam& p, SsyrkHostData& d)
     return true;
 }
 
-static void VerifySsyrkResult(const SsyrkParam& p, const SsyrkHostData& d)
-{
-    if (d.cCount == 0) return;
-
-    std::vector<float> npuUplo;
-    std::vector<float> goldenUplo;
-    std::vector<float> npuNonUplo;
-    std::vector<float> goldenNonUplo;
-    for (int j = 0; j < p.n; j++) {
-        for (int i = 0; i < p.n; i++) {
-            size_t idx = static_cast<size_t>(i) + static_cast<size_t>(j) * p.ldc;
-            bool isUplo = (p.uplo == ACLBLAS_UPPER) ? (i <= j) : (i >= j);
-            if (isUplo) {
-                npuUplo.push_back(d.cPtr[idx]);
-                goldenUplo.push_back(d.cGolden[idx]);
-            } else {
-                npuNonUplo.push_back(d.cPtr[idx]);
-                goldenNonUplo.push_back(d.cGolden[idx]);
-            }
-        }
-    }
-
-    VerifyConfig cfg;
-    applyMixedTolerance(cfg, ACL_FLOAT, goldenUplo.data(), goldenUplo.size());
-    EXPECT_TRUE(Verifier::verifyVector(npuUplo.data(), goldenUplo.data(), npuUplo.size(), 1, cfg, p.caseName));
-
-    if (!npuNonUplo.empty()) {
-        VerifyConfig cfgNonUplo;
-        applyMixedTolerance(cfgNonUplo, ACL_FLOAT, goldenNonUplo.data(), goldenNonUplo.size());
-        EXPECT_TRUE(Verifier::verifyVector(npuNonUplo.data(), goldenNonUplo.data(),
-            npuNonUplo.size(), 1, cfgNonUplo, std::string(p.caseName) + "_nonuplo"));
-    }
-}
-
 TEST_P(SsyrkArch35Test, CsvDriven)
 {
     const auto& p = GetParam();
@@ -154,5 +121,5 @@ TEST_P(SsyrkArch35Test, CsvDriven)
         return;
     }
 
-    VerifySsyrkResult(p, d);
+    VerifyUploTriangle(p, d.cPtr, d.cGoldenPtr, d.cCount);
 }

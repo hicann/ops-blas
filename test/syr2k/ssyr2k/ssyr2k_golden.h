@@ -37,10 +37,10 @@ static int ValidateSsyr2kCpuParams(
         return static_cast<int>(ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     }
     if (!Ssyr2kIsValidUplo(uplo)) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_ENUM);
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
     }
     if (!Ssyr2kIsValidTrans(trans)) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_ENUM);
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
     }
     if (n < 0 || k < 0) {
         return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
@@ -58,7 +58,7 @@ static int ValidateSsyr2kCpuParams(
     if (ldc < std::max(1, n)) {
         return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
     }
-    if (C == nullptr) {
+    if (C == nullptr && n > 0) {
         return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
     }
     if (k > 0 && (A == nullptr || B == nullptr)) {
