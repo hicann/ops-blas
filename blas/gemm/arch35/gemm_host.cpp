@@ -8,6 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include "common/helper/devkit_version_compat.h"
+
+#if ASC_DEVKIT_GE_9_1
+
 #include <algorithm>
 #include <cstdint>
 #include <complex>
@@ -597,3 +601,5 @@ extern "C" aclblasStatus_t aclblasCgemm(
     return LaunchCgemmKernel(
         handle, transa, transb, m, n, k, alphaVal, A, lda, B, ldb, betaVal, C, ldc);
 }
+
+#endif

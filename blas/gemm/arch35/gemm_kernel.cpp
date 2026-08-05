@@ -8,6 +8,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
+#include "common/helper/devkit_version_compat.h"
+
+#if ASC_DEVKIT_GE_9_1
+
 #include "kernel_operator.h"
 #define ASCENDC_CUBE_ONLY
 #include "gemm_kernel.h"
@@ -889,3 +893,5 @@ void gemm_cgemm_combine_do(
     gemm_cgemm_combine_kernel<<<numBlocks, nullptr, stream>>>(
         t1, t2, t3, t4, tempLdc, cInOut, m, n, ldc, ar, ai, br, bi);
 }
+
+#endif

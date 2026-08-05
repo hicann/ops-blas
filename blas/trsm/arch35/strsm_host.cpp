@@ -15,6 +15,7 @@
 #include "strsm_tiling_data.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "common/helper/host_utils.h"
+#include "common/helper/devkit_version_compat.h"
 
 namespace {
 constexpr uint32_t SIMT_OPTIMAL_THREADS = 64;
@@ -67,6 +68,8 @@ void strsm_zero_kernel_do(uint8_t* b, uint32_t m, uint32_t n, int32_t ldb, uint3
 void strsm_transpose_kernel_do(
     uint8_t* in, uint8_t* out, uint32_t rows, uint32_t cols, int32_t ldIn, int32_t ldOut,
     uint32_t numBlocks, void* stream);
+
+#if ASC_DEVKIT_GE_9_1
 void strsm_panel_kernel_do(uint8_t* a, uint8_t* b, const StrsmPanelTilingData& tiling, uint32_t numBlocks, void* stream);
 void strsm_gemm_kernel_do(
     uint8_t* a, uint8_t* x, uint8_t* temp, const StrsmGemmTilingData& tiling, uint32_t numBlocks, void* stream);
@@ -82,7 +85,9 @@ void strsm_extract_b_kernel_do(
     uint32_t numBlocks, void* stream);
 void strsm_axpy_trans_kernel_do(uint8_t* b, uint8_t* temp,
     const StrsmAxpyTilingData& tiling, uint32_t numBlocks, void* stream);
+#endif
 
+#if ASC_DEVKIT_GE_9_1
 static uint32_t ChooseTileK(uint32_t k)
 {
     if (k <= 8) return std::max<uint32_t>(k, 8);
@@ -138,6 +143,7 @@ static StrsmGemmTilingData CalcGemmTiling(uint32_t gemmM, uint32_t gemmN, uint32
     t.tempRowStride = tempRowStride;
     return t;
 }
+#endif
 
 
 static aclblasStatus_t StrsmAlphaZeroPath(_aclblas_handle* h, int m, int n, int ldb, float* B, uint32_t aivCoreNum)
@@ -213,6 +219,7 @@ static aclblasStatus_t StrsmLeftSimtPath(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+#if ASC_DEVKIT_GE_9_1
 static uint32_t ChoosePanelSize(uint32_t m)
 {
     if (m <= 64) return 64;
@@ -345,6 +352,7 @@ static aclblasStatus_t StrsmLeftBlockedPath(
     uint32_t nU32 = static_cast<uint32_t>(n);
     uint32_t panelBs = ChoosePanelSize(mU32);
     if (panelBs == 0) {
+        OP_LOGE("aclblasStrsm", "invalid panelBs=0");
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
@@ -392,6 +400,7 @@ static aclblasStatus_t StrsmLeftBlockedPath(
 
     return ACLBLAS_STATUS_SUCCESS;
 }
+#endif
 
 static aclblasStatus_t ValidateStrsmParams(
     aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int m, int n,
@@ -420,6 +429,39 @@ static aclblasStatus_t ValidateStrsmParams(
     CHECK_RET(
         ldb >= std::max(1, m), OP_LOGE("aclblasStrsm", "invalid ldb=%d, m=%d", ldb, m); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
+}
+
+static aclblasStatus_t StrsmLeftDispatch(
+    _aclblas_handle* h, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag,
+    int m, int n, int lda, int ldb, float alpha, const float* A, float* B, uint32_t aivCoreNum)
+{
+#if ASC_DEVKIT_GE_9_1
+    uint32_t mU32 = static_cast<uint32_t>(m);
+    uint32_t panelBs = ChoosePanelSize(mU32);
+    if (panelBs == 0) {
+        OP_LOGE("aclblasStrsm", "invalid panelBs=0");
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+    bool bsTailMisalign = (mU32 % panelBs) % 8u != 0;
+    bool strideMisalign = (static_cast<uint32_t>(lda) % 8u) || (static_cast<uint32_t>(ldb) % 8u);
+    bool isTrans = (trans != ACLBLAS_OP_N);
+    bool blockedGemmUnsafe = bsTailMisalign || (!isTrans && strideMisalign);
+
+    if (mU32 <= BLOCKED_THRESHOLD) {
+        if (static_cast<uint32_t>(n) >= SIMT_BLOCKED_N_THRESHOLD && !blockedGemmUnsafe) {
+            return StrsmLeftBlockedPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
+        }
+        return StrsmLeftSimtPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
+    }
+    if (blockedGemmUnsafe) {
+        OP_LOGI("aclblasStrsm", "fallback to SIMT path due to GEMM alignment: m=%d, n=%d, lda=%d, ldb=%d, trans=%d",
+            m, n, lda, ldb, static_cast<int>(trans));
+        return StrsmLeftSimtPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
+    }
+    return StrsmLeftBlockedPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
+#else
+    return StrsmLeftSimtPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
+#endif
 }
 
 aclblasStatus_t aclblasStrsm(
@@ -457,27 +499,5 @@ aclblasStatus_t aclblasStrsm(
         return StrsmRightDevicePath(h, uplo, trans, diag, m, n, lda, ldb, *alpha, A, B, aivCoreNum);
     }
 
-    uint32_t mU32 = static_cast<uint32_t>(m);
-    uint32_t panelBs = ChoosePanelSize(mU32);
-    if (panelBs == 0) {
-        OP_LOGE("aclblasStrsm", "invalid panelBs=0");
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    bool bsTailMisalign = (mU32 % panelBs) % 8u != 0;
-    bool strideMisalign = (static_cast<uint32_t>(lda) % 8u) || (static_cast<uint32_t>(ldb) % 8u);
-    bool isTrans = (trans != ACLBLAS_OP_N);
-    bool blockedGemmUnsafe = bsTailMisalign || (!isTrans && strideMisalign);
-
-    if (static_cast<uint32_t>(m) <= BLOCKED_THRESHOLD) {
-        if (static_cast<uint32_t>(n) >= SIMT_BLOCKED_N_THRESHOLD && !blockedGemmUnsafe) {
-            return StrsmLeftBlockedPath(h, uplo, trans, diag, m, n, lda, ldb, *alpha, A, B, aivCoreNum);
-        }
-        return StrsmLeftSimtPath(h, uplo, trans, diag, m, n, lda, ldb, *alpha, A, B, aivCoreNum);
-    }
-    if (blockedGemmUnsafe) {
-        OP_LOGI("aclblasStrsm", "fallback to SIMT path due to GEMM alignment: m=%d, n=%d, lda=%d, ldb=%d, trans=%d",
-            m, n, lda, ldb, static_cast<int>(trans));
-        return StrsmLeftSimtPath(h, uplo, trans, diag, m, n, lda, ldb, *alpha, A, B, aivCoreNum);
-    }
-    return StrsmLeftBlockedPath(h, uplo, trans, diag, m, n, lda, ldb, *alpha, A, B, aivCoreNum);
+    return StrsmLeftDispatch(h, uplo, trans, diag, m, n, lda, ldb, *alpha, A, B, aivCoreNum);
 }

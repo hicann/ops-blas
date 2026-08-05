@@ -120,6 +120,19 @@ if(NOT ENABLE_BLAS_GEMM_STRIDED_BATCHED)
         STATUS
         "Skipping blas gemm_strided_batched (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
+if(NOT ENABLE_BLAS_TRSM_BLOCKED)
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "strsm_blocked_kernel")
+    message(
+        STATUS
+        "Skipping blas trsm blocked kernel (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
+if(NOT ENABLE_BLAS_GEMM)
+    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/gemm/arch35/")
+    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/gemm/arch35/")
+    message(
+        STATUS
+        "Skipping blas gemm arch35 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+endif()
 if(NOT ENABLE_BLAS_SSYRKX)
     list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syrkx/arch35/ssyrkx")
     list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syrkx/arch35/ssyrkx")
