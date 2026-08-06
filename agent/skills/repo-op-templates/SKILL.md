@@ -24,6 +24,8 @@ ops-blas 仓中的算子先按 **是否 Ex 变体** 分流，再按 **编程模�
 | **SIMD regbase** | `__VEC_SCOPE__` / `RegTensor` / `MicroAPI::DataCopy/Mul/Add/ReduceSum` | 寄存器级 SIMD 算子，在 UB 内使用寄存器张量计算 | `references/simd-regbase/` |
 | **SIMT** | `__simt_vf__` / `asc_vf_call` / `threadIdx.x` / `blockDim.x` | 线程级并行算子（Level-2/3 BLAS 等，仅 arch35） | `references/simt/` |
 
+> **编程模型选择**：算子开发模板选择时，应优先评估 SIMD 方案（SIMD membase / SIMD regbase）的可行性。仅在经评估后当前目标架构或算子数据依赖模式确实无法使用 SIMD 表达时，才允许退化为 SIMT 方案。
+
 ### 目标架构
 
 | 架构 | SOC_VERSION | NPU_ARCH | 说明 |
@@ -31,6 +33,8 @@ ops-blas 仓中的算子先按 **是否 Ex 变体** 分流，再按 **编程模�
 | arch20 | ascend310p* | dav-1101 | 推理芯片 |
 | arch22 | ascend910b* / ascend910_93* | dav-2201 | 训练/推理芯片 |
 | **arch35** | **ascend950*** | **dav-3510** | **Atlas A5 系列（当前重点）** |
+
+> **架构默认反选**：目标 arch 目录默认由 SOC 参数反选（ascend950 → arch35，ascend910b/910_93 → arch22，ascend310p → arch20），优先使用该默认值。
 
 ---
 

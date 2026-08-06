@@ -85,6 +85,18 @@ bash build.sh --ops=<算子名> --soc=<芯片型号> --run
 
 **注意**：`--soc` 参数支持前缀匹配，例如 `ascend910b3`、`ascend910b4` 都会匹配到 `ascend910b` 对应的 arch22 架构。
 
+### 架构默认反选
+
+根据 SOC 参数确定目标 arch 目录的默认值：
+
+| SOC | 默认 arch |
+|-----|----------|
+| `ascend950` | `arch35` |
+| `ascend910b` / `ascend910_93` | `arch22` |
+| `ascend310p` | `arch20` |
+
+此映射为默认值，开发者若有对应板子可根据实际目标调整。
+
 ## 算子名解析
 
 `--ops` 参数支持两种格式：
@@ -97,3 +109,7 @@ bash build.sh --ops=<算子名> --soc=<芯片型号> --run
 - 编译产物：`build/`
 - 安装输出：`out/`（库文件在 `out/lib64/`，头文件在 `out/include/`）
 - 测试二进制：`build/test/<family>/<op>/<op>_test`
+
+## 提交前检查
+
+> **提醒**：提交 PR 前检查并移除工作流中产生的临时文件（如 `*_perf.cpp`、`*_perf.csv`、`run_perf.py` 等性能迭代产物），这些文件不应带入 PR。
