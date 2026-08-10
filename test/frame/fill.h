@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "dtype_utils.h"
+#include "cann_ops_blas_common.h"
 
 constexpr float kBlasSentinel = -999.0f;
 #ifndef FLT_TRUE_MIN
@@ -869,4 +870,29 @@ inline std::pair<std::vector<std::vector<float>>, std::vector<const float*>> Mak
         }
     }
     return {matrices, ptrs};
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Complex matrix fill (for complex BLAS operators: cherk/chemm/zherk etc.)
+//   fill.h::makeBlasMatrix only produces float buffers. For complex BLAS
+//   operators we need aclblasComplex buffers. Strategy: the BlasFillMode string
+//   applies to both real and imag parts with the SAME value range but
+//   INDEPENDENT seeds — real uses `seed`, imag uses `seed + 1000`. This keeps
+//   the real/imag ranges identical while avoiding degenerate correlation.
+// ─────────────────────────────────────────────────────────────────────────────
+
+inline std::vector<aclblasComplex> makeBlasComplexMatrix(
+    int m, int n, int lda, const BlasFillMode& fill, uint32_t seed)
+{
+    if (fill.method == BlasFillMode::M_NULLPTR || m <= 0 || n <= 0 || lda <= 0) {
+        return {};
+    }
+    std::vector<float> realPart = makeBlasMatrix(m, n, lda, fill, seed);
+    std::vector<float> imagPart = makeBlasMatrix(m, n, lda, fill, seed + 1000U);
+    const size_t sz = realPart.size();
+    std::vector<aclblasComplex> data(sz);
+    for (size_t i = 0; i < sz; i++) {
+        data[i] = aclblasComplex{realPart[i], imagPart[i]};
+    }
+    return data;
 }

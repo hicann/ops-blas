@@ -105,8 +105,15 @@ target_include_directories(${OPS_BLASLT} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/
     ./include
     ${OPTENSOR_INCLUDE_DIR}
-    ${OPTENSOR_INCLUDE_DIR}/tensor_api
-    ${OPTENSOR_INCLUDE_DIR}/tensor_api/include
+)
+# Use -iquote for third_party tensor_api paths so impl headers (e.g.
+# transform_impl.h) are resolved from third_party, not from CANN paths
+# injected by --asc-aicore-lang (CANN's copy_impl.h lacks transform_impl.h).
+# -iquote directories are searched before -I for quoted includes (#include "...").
+# SHELL: prefix prevents CMake from stripping the second -iquote (CMake's
+# Makefile generator treats -iquote as a single-arg flag and drops duplicates).
+target_compile_options(${OPS_BLASLT} PRIVATE
+    $<$<COMPILE_LANGUAGE:ASC>:SHELL:-iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api -iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api/include -DIMPL_TENSOR_API_UTILS_INT_IMPL_H>
 )
 
 if(EXISTS "${_OPS_BLAS_ASC_ROOT}/include")
@@ -140,7 +147,7 @@ target_compile_definitions(${OPS_BLASLT} PRIVATE
   ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR})
 target_compile_features(${OPS_BLASLT} PRIVATE cxx_std_17)
 
-set(ASC_WARN_SUPPRESS "-Wno-#pragma-messages" "-Wno-deprecated-declarations")
+set(ASC_WARN_SUPPRESS "-Wno-#pragma-messages" "-Wno-deprecated-declarations" "-Wno-c++20-extensions")
 
 target_compile_options(${OPS_BLASLT} PRIVATE
     $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS} -DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
@@ -185,8 +192,6 @@ target_include_directories(${OPS_BLAS} PRIVATE
     "${_OPS_BLAS_ASC_ROOT}/impl/c_api"
     "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include"
     ${OPTENSOR_INCLUDE_DIR}
-    ${OPTENSOR_INCLUDE_DIR}/tensor_api
-    ${OPTENSOR_INCLUDE_DIR}/tensor_api/include
 )
 
 target_link_directories(${OPS_BLAS} PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/lib64")
@@ -200,6 +205,7 @@ target_compile_definitions(${OPS_BLAS} PRIVATE
 
 target_compile_options(${OPS_BLAS} PRIVATE
     $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS} -DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
+    $<$<COMPILE_LANGUAGE:ASC>:SHELL:-iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api -iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api/include -DIMPL_TENSOR_API_UTILS_INT_IMPL_H>
     $<$<COMPILE_LANGUAGE:CXX>:-DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
 )
 

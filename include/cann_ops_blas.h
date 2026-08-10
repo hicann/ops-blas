@@ -511,6 +511,12 @@ aclblasStatus_t aclblasSsyrkx(
     const float* alpha, const float* A, int lda, const float* B, int ldb,
     const float* beta, float* C, int ldc);
 
+aclblasStatus_t aclblasCherk(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
+    int n, int k, const float* alpha,
+    const aclblasComplex* A, int lda,
+    const float* beta, aclblasComplex* C, int ldc);
+
 #ifdef __cplusplus
 }
 #endif

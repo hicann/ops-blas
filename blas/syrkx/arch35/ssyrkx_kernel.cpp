@@ -25,9 +25,9 @@
 #include <cstdint>
 
 #include "ssyrkx_tiling_data.h"
-#include "ssyrkx_kernel.h"
 #include "common/helper/syrk_gemm_arch35.h"
 #include "common/helper/syrk_scale_arch35.h"
+#include "ssyrkx_kernel.h"
 
 using namespace AscendC;
 

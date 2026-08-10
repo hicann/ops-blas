@@ -63,34 +63,28 @@ if(BUILD_TEST)
         if(NOT TEST_HAS_OP_SOURCES OR NOT TEST_HAS_TEST_SOURCES)
             set(SKIP_REASONS "")
             if(NOT TEST_HAS_OP_SOURCES)
-                if(NOT ENABLE_BLAS_TRMM AND (TEST_NAME STREQUAL "strmm" OR TEST_NAME STREQUAL "trmm"))
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_SDGMM AND TEST_NAME STREQUAL "sdgmm")
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_GEMM_BATCHED AND (TEST_NAME STREQUAL "sgemm_batched" OR TEST_NAME STREQUAL "gemm_batched"))
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_GEMM3M AND (TEST_NAME STREQUAL "sgemm3m" OR TEST_NAME STREQUAL "gemm3m"))
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_SSYRK AND TEST_NAME STREQUAL "ssyrk")
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_SSYR2K AND TEST_NAME STREQUAL "ssyr2k")
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_SSYRKX AND TEST_NAME STREQUAL "ssyrkx")
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_STRSMBATCHED AND TEST_NAME STREQUAL "strsmbatched")
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                elseif(NOT ENABLE_BLAS_GEMM_STRIDED_BATCHED AND (TEST_NAME STREQUAL "sgemm_strided_batched" OR TEST_NAME STREQUAL "gemm_strided_batched"))
-                    list(APPEND SKIP_REASONS
-                        "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
-                else()
+                # 列表驱动：遍历 TENSOR_API_OPS，低版本时给出对应的 skip reason
+                set(_matched_tensor_op FALSE)
+                foreach(entry ${TENSOR_API_OPS})
+                    string(REPLACE "|" ";" _fields "${entry}")
+                    list(GET _fields 0 _var_suffix)
+                    list(GET _fields 2 _test_names)
+                    if(NOT ENABLE_BLAS_${_var_suffix})
+                        string(REPLACE "," ";" _test_name_list "${_test_names}")
+                        foreach(_tn ${_test_name_list})
+                            if(TEST_NAME STREQUAL "${_tn}")
+                                list(APPEND SKIP_REASONS
+                                    "requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR}")
+                                set(_matched_tensor_op TRUE)
+                                break()
+                            endif()
+                        endforeach()
+                    endif()
+                    if(_matched_tensor_op)
+                        break()
+                    endif()
+                endforeach()
+                if(NOT _matched_tensor_op)
                     list(APPEND SKIP_REASONS
                         "operator implementation not found for '${SOC_VERSION}' "
                         "(checked blas/${TEST_NAME}/ and blasLt/*/)")

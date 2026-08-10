@@ -12,7 +12,7 @@ if(NOT DEFINED CANN_3RD_LIB_PATH)
   set(CANN_3RD_LIB_PATH "${CMAKE_BINARY_DIR}/third_party")
 endif()
 
-set(OPTENSOR_TAG_ID 751b32e477e2a71915b3d91ec4a4946403135d3e)
+set(OPTENSOR_TAG_ID c1326e7a7fb30536dc3517ac40e06935aba5e88d)
 
 if(EXISTS "${CANN_3RD_LIB_PATH}/ops-tensor")
   get_filename_component(OPTENSOR_SOURCE_PATH ${CANN_3RD_LIB_PATH}/ops-tensor REALPATH)
@@ -27,6 +27,30 @@ if(EXISTS "${CANN_3RD_LIB_PATH}/ops-tensor")
   if(${EXEC_RESULT})
     message(FATAL_ERROR "Git checkout failed! error: ${EXEC_ERROR}")
   endif()
+
+  # Submodule: try local cache first (offline-friendly), fall back to network
+  execute_process(
+    COMMAND git submodule update --init --recursive --no-fetch
+    WORKING_DIRECTORY ${OPTENSOR_SOURCE_PATH}
+    RESULT_VARIABLE SUBMODULE_RESULT
+    OUTPUT_QUIET ERROR_QUIET
+  )
+  if(NOT SUBMODULE_RESULT EQUAL 0)
+    message(STATUS "ops-tensor submodule: local cache insufficient, fetching from remote")
+    execute_process(
+      COMMAND git submodule update --init --recursive
+      WORKING_DIRECTORY ${OPTENSOR_SOURCE_PATH}
+      TIMEOUT 20
+      RESULT_VARIABLE SUBMODULE_RESULT
+      ERROR_VARIABLE SUBMODULE_ERROR
+      OUTPUT_QUIET
+    )
+    if(NOT SUBMODULE_RESULT EQUAL 0)
+      message(WARNING "ops-tensor submodule update failed: ${SUBMODULE_ERROR}")
+    else()
+      message(STATUS "ops-tensor submodule update")
+    endif()
+  endif()
 else()
   include(FetchContent)
 
@@ -40,6 +64,20 @@ else()
   FetchContent_Populate(ops-tensor)
 
   set(OPTENSOR_SOURCE_PATH ${CANN_3RD_LIB_PATH}/ops-tensor)
+
+  execute_process(
+    COMMAND git submodule update --init --recursive
+    WORKING_DIRECTORY ${OPTENSOR_SOURCE_PATH}
+    TIMEOUT 20
+    RESULT_VARIABLE SUBMODULE_RESULT
+    ERROR_VARIABLE SUBMODULE_ERROR
+    OUTPUT_QUIET
+  )
+  if(NOT SUBMODULE_RESULT EQUAL 0)
+    message(WARNING "ops-tensor submodule update failed: ${SUBMODULE_ERROR}")
+  else()
+    message(STATUS "ops-tensor submodule update")
+  endif()
 endif()
 
 set(OPTENSOR_INCLUDE_DIR "${OPTENSOR_SOURCE_PATH}/include")

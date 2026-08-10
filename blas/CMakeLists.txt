@@ -60,85 +60,21 @@ foreach(arch_dir ${SOC_ARCH_DIRS})
     list(APPEND ARCH_SRC_FILES ${arch_dir_srcs})
 endforeach()
 
-# strmm/sdgmm 使用 tensor_api，需 asc-devkit >= 9.1（ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR > 0）
-if(NOT ENABLE_BLAS_TRMM)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/trmm/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/trmm/")
-    message(
-        STATUS
-        "Skipping blas trmm/strmm (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-# Only arch35 sdgmm uses tensor_api; arch22 cdgmm does not depend on it.
-# Filter only sdgmm sources so cdgmm (arch22) is not excluded.
-if(NOT ENABLE_BLAS_SDGMM)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/dgmm/arch35/sdgmm")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/dgmm/arch35/sdgmm")
-    message(
-        STATUS
-        "Skipping blas dgmm/sdgmm arch35 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-if(NOT ENABLE_BLAS_GEMM_BATCHED)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/gemm_batched/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/gemm_batched/")
-    message(
-        STATUS
-        "Skipping blas gemm_batched (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-if(NOT ENABLE_BLAS_GEMM3M)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/gemm3m/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/gemm3m/")
-    message(
-        STATUS
-        "Skipping blas gemm3m/sgemm3m (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-if(NOT ENABLE_BLAS_SSYRK)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syrk/arch35/ssyrk")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syrk/arch35/ssyrk")
-    message(
-        STATUS
-        "Skipping blas ssyrk (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-if(NOT ENABLE_BLAS_SSYR2K)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syr2k/arch35/ssyr2k")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syr2k/arch35/ssyr2k")
-    message(
-        STATUS
-        "Skipping blas ssyr2k (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-if(NOT ENABLE_BLAS_STRSMBATCHED)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/trsmbatched/arch35/strsmbatched")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/trsmbatched/arch35/strsmbatched")
-    message(
-        STATUS
-        "Skipping blas strsmbatched arch35 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-
-if(NOT ENABLE_BLAS_GEMM_STRIDED_BATCHED)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/gemm_strided_batched/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/gemm_strided_batched/")
-    message(
-        STATUS
-        "Skipping blas gemm_strided_batched (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
+# 列表驱动：遍历 TENSOR_API_OPS，低版本时过滤对应算子源文件
+# TRSM_BLOCKED 为特例（仅按文件名过滤 ARCH_SRC_FILES），保持单独处理
+foreach(entry ${TENSOR_API_OPS})
+    string(REPLACE "|" ";" _fields "${entry}")
+    list(GET _fields 0 _var_suffix)
+    list(GET _fields 1 _regex)
+    if(NOT ENABLE_BLAS_${_var_suffix})
+        list(FILTER OP_SRC_FILES EXCLUDE REGEX "${_regex}")
+        list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "${_regex}")
+        message(STATUS "Skipping blas ${_regex} (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+    endif()
+endforeach()
 if(NOT ENABLE_BLAS_TRSM_BLOCKED)
     list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "strsm_blocked_kernel")
-    message(
-        STATUS
-        "Skipping blas trsm blocked kernel (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-if(NOT ENABLE_BLAS_GEMM)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/gemm/arch35/")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/gemm/arch35/")
-    message(
-        STATUS
-        "Skipping blas gemm arch35 (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
-endif()
-if(NOT ENABLE_BLAS_SSYRKX)
-    list(FILTER OP_SRC_FILES EXCLUDE REGEX "/syrkx/arch35/ssyrkx")
-    list(FILTER ARCH_SRC_FILES EXCLUDE REGEX "/syrkx/arch35/ssyrkx")
-    message(
-        STATUS
-        "Skipping blas ssyrkx (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
+    message(STATUS "Skipping blas trsm blocked kernel (requires asc-devkit >= 9.1, current ${ASC_DEVKIT_MAJOR}.${ASC_DEVKIT_MINOR})")
 endif()
 set(ALL_BLAS_SRC_FILES
     ${BASE_SRC_FILES}

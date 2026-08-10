@@ -10,37 +10,43 @@
 
 # 读取 asc_devkit_version.h，判断是否满足所需版本：ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR > 0
 # - MXFP8/MXFP4：blasLt 矩阵乘法，需 asc-devkit >= 9.1
-# - TRMM/STRMM：仅 arch35(ascend950) 的 strmm 使用 tensor_api，需 asc-devkit >= 9.1；
-#   其他架构的 strmm 不依赖 tensor_api，不受此版本限制
-# - SDGMM：仅 arch35(ascend950) 的 sdgmm 使用 tensor_api，需 asc-devkit >= 9.1；
-#   arch22 的 cdgmm 不依赖 tensor_api，不受此版本限制
-# - GEMM_BATCHED：仅 arch35(ascend950) 的 gemm_batched 使用 tensor_api，需 asc-devkit >= 9.1
-# - GEMM3M/SGEMM3M：仅 arch35(ascend950) 的 sgemm3m 使用 tensor_api，需 asc-devkit >= 9.1
-# - SSYRK：仅 arch35(ascend950) 的 ssyrk 使用 tensor_api，需 asc-devkit >= 9.1
-# - SSYR2K：仅 arch35(ascend950) 的 ssyr2k 使用 tensor_api，需 asc-devkit >= 9.1
-# - GEMM_STRIDED_BATCHED：仅 arch35(ascend950) 的 gemm_strided_batched 使用 tensor_api，需 asc-devkit >= 9.1
-# - STRSMBATCHED：仅 arch35(ascend950) 的 strsmbatched 使用 tensor_api，需 asc-devkit >= 9.1
+# - TENSOR_API_OPS 列表中的算子：仅 arch35(ascend950) 使用 tensor_api，需 asc-devkit >= 9.1；
+#   其他架构不受此版本限制。新增算子只需在下方列表中加一行。
 # - TRSM_BLOCKED：仅 arch35(ascend950) 的 strsm_blocked_kernel 使用 tensor_api，需 asc-devkit >= 9.1；
-#   strsm_kernel(SIMT path) 不依赖 tensor_api，低版本下 fallback 到 SIMT
-# - GEMM/SGEMM：仅 arch35(ascend950) 的 gemm 使用 tensor_api，需 asc-devkit >= 9.1
-# - SSYRKX：仅 arch35(ascend950) 的 ssyrkx 使用 tensor_api，需 asc-devkit >= 9.1
+#   strsm_kernel(SIMT path) 不依赖 tensor_api，低版本下 fallback 到 SIMT（特例，不纳入列表驱动）
 function(ops_blas_detect_asc_devkit_version)
   set(_header
       "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/include/version/asc_devkit_version.h")
   set(ASC_DEVKIT_MAJOR 0)
   set(ASC_DEVKIT_MINOR 0)
   set(ENABLE_BLASLT_MXFP8 FALSE)
-  set(ENABLE_BLAS_TRMM TRUE)
-  set(ENABLE_BLAS_SDGMM TRUE)
-  set(ENABLE_BLAS_GEMM_BATCHED TRUE)
-  set(ENABLE_BLAS_GEMM3M TRUE)
-  set(ENABLE_BLAS_SSYRK TRUE)
-  set(ENABLE_BLAS_SSYR2K TRUE)
-  set(ENABLE_BLAS_STRSMBATCHED TRUE)
-  set(ENABLE_BLAS_GEMM_STRIDED_BATCHED TRUE)
+
+  # 列表驱动的 tensor_api 算子注册。
+  # 格式: VAR_SUFFIX|blas_filter_regex|test_name1,test_name2
+  # 使用 '|' 作为字段分隔符（CMake 列表以 ';' 分隔，字段内不能用 ';'）。
+  # 新增算子只需在此列表中添加一行，cmake/asc_devkit_version.cmake、blas/CMakeLists.txt、
+  # cmake/test.cmake、test/CMakeLists.txt 四个文件中的 foreach 会自动处理。
+  set(TENSOR_API_OPS
+      "STRMM|/trmm/arch35/strmm|strmm"
+      "SDGMM|/dgmm/arch35/sdgmm|sdgmm"
+      "GEMM_BATCHED|/gemm_batched/arch35/gemm_batched_|sgemm_batched,cgemm_batched"
+      "SGEMM3M|/gemm3m/arch35/sgemm3m|sgemm3m"
+      "SSYRK|/syrk/arch35/ssyrk|ssyrk"
+      "SSYR2K|/syr2k/arch35/ssyr2k|ssyr2k"
+      "SSYRKX|/syrkx/arch35/ssyrkx|ssyrkx"
+      "CHERK|/herk/arch35/cherk|cherk"
+      "STRSMBATCHED|/trsmbatched/arch35/strsmbatched|strsmbatched"
+      "GEMM_STRIDED_BATCHED|/gemm_strided_batched/arch35/gemm_strided_batched_|gemm_strided_batched"
+      "GEMM|/gemm/arch35/gemm_|gemm"
+  )
+
+  # 初始化所有 tensor_api 算子为 TRUE
+  foreach(entry ${TENSOR_API_OPS})
+    string(REPLACE "|" ";" _fields "${entry}")
+    list(GET _fields 0 _suffix)
+    set(ENABLE_BLAS_${_suffix} TRUE)
+  endforeach()
   set(ENABLE_BLAS_TRSM_BLOCKED TRUE)
-  set(ENABLE_BLAS_GEMM TRUE)
-  set(ENABLE_BLAS_SSYRKX TRUE)
 
   if(EXISTS "${_header}")
     file(READ "${_header}" _version_content)
@@ -53,51 +59,42 @@ function(ops_blas_detect_asc_devkit_version)
     if(ASC_DEVKIT_MAJOR GREATER_EQUAL 9 AND ASC_DEVKIT_MINOR GREATER 0)
       set(ENABLE_BLASLT_MXFP8 TRUE)
     endif()
-    # arch35 的 strmm/sdgmm/gemm_batched/sgemm3m/ssyrk/ssyr2k/strsmbatched/gemm_strided_batched/strsm_blocked/gemm/ssyrkx 使用 tensor_api，需 devkit >= 9.1；其他架构不受限
+    # arch35 的 tensor_api 算子需 devkit >= 9.1；其他架构不受限
     if("arch35" IN_LIST SOC_ARCH_DIRS AND NOT (ASC_DEVKIT_MAJOR GREATER 9 OR (ASC_DEVKIT_MAJOR EQUAL 9 AND ASC_DEVKIT_MINOR GREATER 0)))
-      set(ENABLE_BLAS_TRMM FALSE)
-      set(ENABLE_BLAS_SDGMM FALSE)
-      set(ENABLE_BLAS_GEMM_BATCHED FALSE)
-      set(ENABLE_BLAS_GEMM3M FALSE)
-      set(ENABLE_BLAS_SSYRK FALSE)
-      set(ENABLE_BLAS_SSYR2K FALSE)
-      set(ENABLE_BLAS_STRSMBATCHED FALSE)
-      set(ENABLE_BLAS_GEMM_STRIDED_BATCHED FALSE)
+      foreach(entry ${TENSOR_API_OPS})
+        string(REPLACE "|" ";" _fields "${entry}")
+        list(GET _fields 0 _suffix)
+        set(ENABLE_BLAS_${_suffix} FALSE)
+      endforeach()
       set(ENABLE_BLAS_TRSM_BLOCKED FALSE)
-      set(ENABLE_BLAS_GEMM FALSE)
-      set(ENABLE_BLAS_SSYRKX FALSE)
     endif()
   else()
-    set(ENABLE_BLAS_TRMM FALSE)
-    set(ENABLE_BLAS_SDGMM FALSE)
-    set(ENABLE_BLAS_GEMM_BATCHED FALSE)
-    set(ENABLE_BLAS_GEMM3M FALSE)
-    set(ENABLE_BLAS_SSYRK FALSE)
-    set(ENABLE_BLAS_SSYR2K FALSE)
-    set(ENABLE_BLAS_STRSMBATCHED FALSE)
-    set(ENABLE_BLAS_GEMM_STRIDED_BATCHED FALSE)
+    foreach(entry ${TENSOR_API_OPS})
+      string(REPLACE "|" ";" _fields "${entry}")
+      list(GET _fields 0 _suffix)
+      set(ENABLE_BLAS_${_suffix} FALSE)
+    endforeach()
     set(ENABLE_BLAS_TRSM_BLOCKED FALSE)
-    set(ENABLE_BLAS_GEMM FALSE)
-    set(ENABLE_BLAS_SSYRKX FALSE)
-    message(WARNING "asc_devkit_version.h not found: ${_header}, MXFP8/TRMM/SDGMM/GEMM_BATCHED/GEMM3M/SSYRK/SSYR2K/STRSMBATCHED/GEMM_STRIDED_BATCHED/TRSM_BLOCKED/GEMM/SSYRKX will be skipped")
+    message(WARNING "asc_devkit_version.h not found: ${_header}, tensor_api ops and TRSM_BLOCKED will be skipped")
   endif()
 
   set(ASC_DEVKIT_MAJOR ${ASC_DEVKIT_MAJOR} PARENT_SCOPE)
   set(ASC_DEVKIT_MINOR ${ASC_DEVKIT_MINOR} PARENT_SCOPE)
   set(ENABLE_BLASLT_MXFP8 ${ENABLE_BLASLT_MXFP8} PARENT_SCOPE)
-  set(ENABLE_BLAS_TRMM ${ENABLE_BLAS_TRMM} PARENT_SCOPE)
-  set(ENABLE_BLAS_SDGMM ${ENABLE_BLAS_SDGMM} PARENT_SCOPE)
-  set(ENABLE_BLAS_GEMM_BATCHED ${ENABLE_BLAS_GEMM_BATCHED} PARENT_SCOPE)
-  set(ENABLE_BLAS_GEMM3M ${ENABLE_BLAS_GEMM3M} PARENT_SCOPE)
-  set(ENABLE_BLAS_SSYRK ${ENABLE_BLAS_SSYRK} PARENT_SCOPE)
-  set(ENABLE_BLAS_SSYR2K ${ENABLE_BLAS_SSYR2K} PARENT_SCOPE)
-  set(ENABLE_BLAS_STRSMBATCHED ${ENABLE_BLAS_STRSMBATCHED} PARENT_SCOPE)
-  set(ENABLE_BLAS_GEMM_STRIDED_BATCHED ${ENABLE_BLAS_GEMM_STRIDED_BATCHED} PARENT_SCOPE)
+  foreach(entry ${TENSOR_API_OPS})
+    string(REPLACE "|" ";" _fields "${entry}")
+    list(GET _fields 0 _suffix)
+    set(ENABLE_BLAS_${_suffix} ${ENABLE_BLAS_${_suffix}} PARENT_SCOPE)
+  endforeach()
   set(ENABLE_BLAS_TRSM_BLOCKED ${ENABLE_BLAS_TRSM_BLOCKED} PARENT_SCOPE)
-  set(ENABLE_BLAS_GEMM ${ENABLE_BLAS_GEMM} PARENT_SCOPE)
-  set(ENABLE_BLAS_SSYRKX ${ENABLE_BLAS_SSYRKX} PARENT_SCOPE)
-  message(
-    STATUS
-    "ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}, ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}, ENABLE_BLASLT_MXFP8=${ENABLE_BLASLT_MXFP8}, ENABLE_BLAS_TRMM=${ENABLE_BLAS_TRMM}, ENABLE_BLAS_SDGMM=${ENABLE_BLAS_SDGMM}, ENABLE_BLAS_GEMM_BATCHED=${ENABLE_BLAS_GEMM_BATCHED}, ENABLE_BLAS_GEMM3M=${ENABLE_BLAS_GEMM3M}, ENABLE_BLAS_SSYRK=${ENABLE_BLAS_SSYRK}, ENABLE_BLAS_SSYR2K=${ENABLE_BLAS_SSYR2K}, ENABLE_BLAS_STRSMBATCHED=${ENABLE_BLAS_STRSMBATCHED}, ENABLE_BLAS_GEMM_STRIDED_BATCHED=${ENABLE_BLAS_GEMM_STRIDED_BATCHED}, ENABLE_BLAS_TRSM_BLOCKED=${ENABLE_BLAS_TRSM_BLOCKED}, ENABLE_BLAS_GEMM=${ENABLE_BLAS_GEMM}, ENABLE_BLAS_SSYRKX=${ENABLE_BLAS_SSYRKX}"
-  )
+  set(TENSOR_API_OPS ${TENSOR_API_OPS} PARENT_SCOPE)
+
+  set(_enable_status "")
+  foreach(entry ${TENSOR_API_OPS})
+    string(REPLACE "|" ";" _fields "${entry}")
+    list(GET _fields 0 _suffix)
+    string(APPEND _enable_status ", ENABLE_BLAS_${_suffix}=${ENABLE_BLAS_${_suffix}}")
+  endforeach()
+  string(APPEND _enable_status ", ENABLE_BLAS_TRSM_BLOCKED=${ENABLE_BLAS_TRSM_BLOCKED}")
+  message(STATUS "ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}, ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}, ENABLE_BLASLT_MXFP8=${ENABLE_BLASLT_MXFP8}${_enable_status}")
 endfunction()
