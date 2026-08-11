@@ -11,4 +11,4 @@
 ops_blas_add_gtest_tests(${OPS_BLAS} gemm_batched_ex_test)
 
 # Reuse parseAclDataType / physRows / physCols from gemm_ex
-target_include_directories(gemm_batched_ex_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../gemm/gemm_ex)
+target_include_directories(gemm_batched_ex_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../gemm_ex)
