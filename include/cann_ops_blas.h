@@ -478,6 +478,22 @@ aclblasStatus_t aclblasCdgmm(
     const aclblasComplex* A, int lda, const aclblasComplex* x, int incx,
     aclblasComplex* C, int ldc);
 
+aclblasStatus_t aclblasSgeam(
+    aclblasHandle_t handle,
+    aclblasOperation_t transa, aclblasOperation_t transb,
+    int m, int n,
+    const float* alpha, const float* A, int lda,
+    const float* beta, const float* B, int ldb,
+    float* C, int ldc);
+
+aclblasStatus_t aclblasCgeam(
+    aclblasHandle_t handle,
+    aclblasOperation_t transa, aclblasOperation_t transb,
+    int m, int n,
+    const aclblasComplex* alpha, const aclblasComplex* A, int lda,
+    const aclblasComplex* beta, const aclblasComplex* B, int ldb,
+    aclblasComplex* C, int ldc);
+
 aclblasStatus_t aclblasSgemm3m(
     aclblasHandle handle, aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k,
     const float* alpha, const float* A, int lda,
