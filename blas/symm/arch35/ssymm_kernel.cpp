@@ -43,7 +43,6 @@ constexpr int64_t L0C_SIZE = 256 * 1024;
 constexpr int64_t L1_SIZE = 512 * 1024;
 
 constexpr uint64_t HALF_L0_SIZE = L0A_SIZE / DB_COUNT / sizeof(float);
-constexpr uint32_t VEC4_ELEMS = 4;
 
 // ================================================================================
 // Phase 1: Mirror Kernel (AIV-only, SIMT)
@@ -56,34 +55,32 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsymmMirror
     uint32_t rowStart, uint32_t rowEnd)
 {
     int64_t lda64 = static_cast<int64_t>(lda);
-    bool vecOk = (lda % VEC4_ELEMS == 0);
-    auto* aVec = reinterpret_cast<__gm__ float4*>(aGm);
-    auto* wsVec = reinterpret_cast<__gm__ float4*>(workspaceGm);
-    int64_t ldaVec = lda64 / VEC4_ELEMS;
-    uint32_t vecCols = vecOk ? (dimA / VEC4_ELEMS) : 0;
-    uint32_t tailStart = vecCols * VEC4_ELEMS;
-
+    // Column-major: A[col*lda + row] stores A[row][col]. The mirror kernel reads A and
+    // fills workspaceGm in column-major. Since the resulting workspace is a full symmetric
+    // matrix, its row-major and column-major memory layouts are identical — the row-major
+    // GEMM kernel reads it correctly either way.
+    // vec4 optimization is dropped because column-major access by row is non-contiguous
+    // (stride = lda between elements); correctness takes priority.
     for (uint32_t row = rowStart + threadIdx.x; row < rowEnd; row += blockDim.x) {
         int64_t row64 = static_cast<int64_t>(row);
-        if (vecOk) {
-            for (uint32_t vc = 0; vc < vecCols; ++vc) {
-                wsVec[row64 * ldaVec + vc] = aVec[row64 * ldaVec + vc];
-            }
-            for (uint32_t col = tailStart; col < dimA; ++col) {
-                workspaceGm[row64 * lda64 + col] = aGm[row64 * lda64 + col];
-            }
-        } else {
-            for (uint32_t col = 0; col < dimA; ++col) {
-                workspaceGm[row64 * lda64 + col] = aGm[row64 * lda64 + col];
-            }
-        }
-        if constexpr (UPLO_IS_UPPER) {
-            for (uint32_t j = 0; j < row; ++j) {
-                workspaceGm[row64 * lda64 + j] = aGm[static_cast<int64_t>(j) * lda64 + row64];
-            }
-        } else {
-            for (uint32_t j = row + 1; j < dimA; ++j) {
-                workspaceGm[row64 * lda64 + j] = aGm[static_cast<int64_t>(j) * lda64 + row64];
+        for (uint32_t col = 0; col < dimA; ++col) {
+            int64_t col64 = static_cast<int64_t>(col);
+            if constexpr (UPLO_IS_UPPER) {
+                // UPPER: upper triangle (col >= row) stored directly,
+                //         lower triangle (col < row) mirrored from symmetric position.
+                if (col >= row) {
+                    workspaceGm[col64 * lda64 + row64] = aGm[col64 * lda64 + row64];
+                } else {
+                    workspaceGm[col64 * lda64 + row64] = aGm[row64 * lda64 + col64];
+                }
+            } else {
+                // LOWER: lower triangle (col <= row) stored directly,
+                //         upper triangle (col > row) mirrored from symmetric position.
+                if (col <= row) {
+                    workspaceGm[col64 * lda64 + row64] = aGm[col64 * lda64 + row64];
+                } else {
+                    workspaceGm[col64 * lda64 + row64] = aGm[row64 * lda64 + col64];
+                }
             }
         }
     }
@@ -108,10 +105,10 @@ __global__ __aicore__ void ssymm_mirror_kernel(
 
     if (tiling.uploMode == ACLBLAS_UPPER) {
         asc_vf_call<SsymmMirrorCompute<true>>(
-            dim3{SIMT_MAX_THREAD_NUM, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+            dim3{tiling.nthreads, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
     } else {
         asc_vf_call<SsymmMirrorCompute<false>>(
-            dim3{SIMT_MAX_THREAD_NUM, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+            dim3{tiling.nthreads, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
     }
 }
 
@@ -125,8 +122,17 @@ void ssymm_mirror_kernel_do(
 // ================================================================================
 // Phase 2: GEMM Kernel (AIC-only, SIMD membase, double-buffered)
 // MMAD: left_matrix * right_matrix -> temp GM (row-major, NZ2ND via DataCopyCO12DstParams)
-// Side=Left:  left=A_sym(M×K), right=B(K×N), K=m
-// Side=Right: left=B(M×K),    right=A_sym(K×N), K=n
+//
+// Column-major adaptation (host-side m↔n swap, see ExecuteSsymmKernels in ssymm_host.cpp):
+//   The host swaps m↔n and flips side before calling this kernel, so the kernel computes
+//   C^T (row-major n×m) instead of C (row-major m×n). This works because:
+//   - workspaceA is a full symmetric matrix: row-major == column-major in memory.
+//   - Column-major B(m×n) in memory == row-major B^T(n×m): the kernel reads B as B^T.
+//   The kernel code itself is unchanged; only the tiling parameters (m, n, side, lda, ldb)
+//   are swapped by the host. The temp buffer stores C^T in row-major (n rows × tempRowStride).
+//
+//   Kernel view (post-swap):  Side=Left:  left=A_sym(M×K), right=B(K×N), K=orig_m
+//                             Side=Right: left=B(M×K),    right=A_sym(K×N), K=orig_n
 // ================================================================================
 
 template <typename T>
@@ -379,55 +385,78 @@ void ssymm_gemm_kernel_do(
 
 // ================================================================================
 // Phase 3: Scale Kernel (AIV-only, SIMT)
-// C = alpha * temp + beta * C
-// alpha/beta read directly from GM (Device pointers, no D2H memcpy)
-// temp is row-major (row stride = tempRowStride)
-// C is row-major (row stride = ldc)
+// C = alpha * temp + beta * C  (skipTemp == 0)
+// C = beta * C                 (skipTemp == 1, alpha==0 fast path — temp not read)
+// alpha/beta follow BLAS host-or-device semantics:
+//   alphaIsDevice==0 → alphaVal carried in tiling (host dereferenced on host)
+//   alphaIsDevice==1 → alpha read from device GM (alphaGm[0]); alphaVal is a placeholder
+// beta likewise. The two pointers are independent (alpha on host + beta on device
+// is legal). The scalar is resolved once per block from GM before the SIMT compute
+// call, so the per-element loop below is unchanged.
+// temp stores C^T in row-major (n rows × tempRowStride, tempRowStride = CeilAlign(m)).
+//   Reading temp[col*tempRowStride + row] gives C^T[col][row] = C[row][col].
+// C is column-major (ldc is column stride, ldc >= m).
+//   C[row][col] is at cGm[col*ldc + row].
 // ================================================================================
+
+__simt_callee__ __aicore__ inline void SsymmScaleOneElement(
+    float alphaVal, float betaVal, uint32_t skipTemp,
+    int64_t i64, int64_t j64, int64_t ldc64, int64_t tempStride64,
+    __gm__ float* __restrict tempGm, __gm__ float* __restrict cGm)
+{
+    if (skipTemp != 0) {
+        if (betaVal == 0.0f) {
+            cGm[j64 * ldc64 + i64] = 0.0f;
+        } else if (betaVal != 1.0f) {
+            cGm[j64 * ldc64 + i64] = betaVal * cGm[j64 * ldc64 + i64];
+        }
+    } else {
+        float tempVal = tempGm[j64 * tempStride64 + i64];
+        if (betaVal == 0.0f) {
+            cGm[j64 * ldc64 + i64] = alphaVal * tempVal;
+        } else if (betaVal == 1.0f) {
+            cGm[j64 * ldc64 + i64] = alphaVal * tempVal + cGm[j64 * ldc64 + i64];
+        } else {
+            cGm[j64 * ldc64 + i64] = alphaVal * tempVal + betaVal * cGm[j64 * ldc64 + i64];
+        }
+    }
+}
 
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsymmScaleCompute(
     uint32_t m, uint32_t n, uint32_t ldc, uint32_t tempRowStride,
-    __gm__ float* __restrict alphaGm, __gm__ float* __restrict betaGm,
+    float alphaVal, float betaVal, uint32_t skipTemp,
     __gm__ float* __restrict tempGm, __gm__ float* __restrict cGm,
     uint32_t rowStart, uint32_t rowEnd)
 {
-    __ubuf__ float scalarUb[2];
-    if (threadIdx.x == 0) {
-        scalarUb[0] = alphaGm[0];
-        scalarUb[1] = betaGm[0];
-    }
-    asc_syncthreads();
-    float alphaVal = scalarUb[0];
-    float betaVal = scalarUb[1];
     int64_t ldc64 = static_cast<int64_t>(ldc);
     int64_t tempStride64 = static_cast<int64_t>(tempRowStride);
 
     for (uint32_t i = rowStart + threadIdx.x; i < rowEnd; i += blockDim.x) {
         int64_t i64 = static_cast<int64_t>(i);
         for (uint32_t j = 0; j < n; ++j) {
-            int64_t j64 = static_cast<int64_t>(j);
-            float tempVal = tempGm[i64 * tempStride64 + j64];
-            float cVal = cGm[i64 * ldc64 + j64];
-            cGm[i64 * ldc64 + j64] = alphaVal * tempVal + betaVal * cVal;
+            SsymmScaleOneElement(alphaVal, betaVal, skipTemp, i64,
+                static_cast<int64_t>(j), ldc64, tempStride64, tempGm, cGm);
         }
     }
 }
 
 __global__ __aicore__ void ssymm_scale_kernel(
-    GM_ADDR gmTemp, GM_ADDR gmC, GM_ADDR gmAlpha, GM_ADDR gmBeta,
+    GM_ADDR gmTemp, GM_ADDR gmC, const GM_ADDR gmAlpha, const GM_ADDR gmBeta,
     const SsymmScaleTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
     auto* tempGm = reinterpret_cast<__gm__ float* __restrict>(gmTemp);
     auto* cGm = reinterpret_cast<__gm__ float* __restrict>(gmC);
-    auto* alphaGm = reinterpret_cast<__gm__ float* __restrict>(gmAlpha);
-    auto* betaGm = reinterpret_cast<__gm__ float* __restrict>(gmBeta);
 
     uint32_t m = tiling.m;
     uint32_t n = tiling.n;
     uint32_t ldc = tiling.ldc;
     uint32_t tempRowStride = tiling.tempRowStride;
+    // Resolve alpha/beta once per block: device pointer → read GM[0], host scalar → tiling.
+    float alphaVal = tiling.alphaIsDevice ? *reinterpret_cast<const __gm__ float*>(gmAlpha) : tiling.alphaVal;
+    float betaVal = tiling.betaIsDevice ? *reinterpret_cast<const __gm__ float*>(gmBeta) : tiling.betaVal;
+    uint32_t skipTemp = tiling.skipTemp;
 
     int32_t blkIdx = AscendC::GetBlockIdx();
     uint32_t rowStart = static_cast<uint32_t>(blkIdx) * tiling.scaleRowsPerCore;
@@ -437,13 +466,13 @@ __global__ __aicore__ void ssymm_scale_kernel(
     }
 
     asc_vf_call<SsymmScaleCompute>(
-        dim3{SIMT_MAX_THREAD_NUM, 1, 1},
-        m, n, ldc, tempRowStride, alphaGm, betaGm,
+        dim3{tiling.nthreads, 1, 1},
+        m, n, ldc, tempRowStride, alphaVal, betaVal, skipTemp,
         tempGm, cGm, rowStart, rowEnd);
 }
 
 void ssymm_scale_kernel_do(
-    GM_ADDR gmTemp, GM_ADDR gmC, GM_ADDR gmAlpha, GM_ADDR gmBeta,
+    GM_ADDR gmTemp, GM_ADDR gmC, const GM_ADDR gmAlpha, const GM_ADDR gmBeta,
     const SsymmScaleTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {

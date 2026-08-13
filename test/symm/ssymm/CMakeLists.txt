@@ -9,3 +9,11 @@
 # ----------------------------------------------------------------------------------------------------------
 
 ops_blas_add_gtest_tests(${OPS_BLAS} ssymm_test)
+
+if(SOC_ARCH_DIRS MATCHES "arch35")
+    target_compile_definitions(ssymm_test PRIVATE SSYMM_ARCH35=1)
+elseif(SOC_ARCH_DIRS MATCHES "arch22")
+    target_compile_definitions(ssymm_test PRIVATE SSYMM_ARCH22=1)
+else()
+    message(FATAL_ERROR "Unsupported SOC_ARCH_DIRS='${SOC_ARCH_DIRS}' for ssymm_test (expected arch35 or arch22)")
+endif()

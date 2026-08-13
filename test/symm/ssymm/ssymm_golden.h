@@ -16,6 +16,77 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
+#ifdef SSYMM_ARCH35
+// ===== arch35: column-major =====
+#include "cblas_compat.h"
+
+static inline CBLAS_SIDE ToCblasSide(aclblasSideMode_t side)
+{
+    switch (side) {
+        case ACLBLAS_SIDE_LEFT:  return CblasLeft;
+        case ACLBLAS_SIDE_RIGHT: return CblasRight;
+        default: assert(false && "Invalid aclblasSideMode_t"); return CblasLeft;
+    }
+}
+
+static const int SSYMM_CPU_VALID_OK = 0x7FFFFFFF;
+
+static inline int SsymmCpuValidateParams(aclblasSideMode_t side,
+    int m, int n, const float* alpha, const float* beta,
+    const float* A, const float* B, const float* C,
+    int lda, int ldb, int ldc)
+{
+    if (side != ACLBLAS_SIDE_LEFT && side != ACLBLAS_SIDE_RIGHT)
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_ENUM);
+    if (m < 0 || n < 0)
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
+    if (m == 0 || n == 0)
+        return static_cast<int>(ACLBLAS_STATUS_SUCCESS);
+    if (alpha == nullptr || beta == nullptr || A == nullptr || B == nullptr)
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
+    int aDim = (side == ACLBLAS_SIDE_LEFT) ? m : n;
+    if (lda < std::max(1, aDim) || ldb < std::max(1, m) || ldc < std::max(1, m))
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
+    if (*beta != 0.0f && C == nullptr)
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
+    return SSYMM_CPU_VALID_OK;
+}
+
+inline aclblasStatus_t aclblasSsymm_cpu(aclblasHandle_t handle, aclblasSideMode_t side,
+    aclblasFillMode_t uplo, int m, int n, const float* alpha, const float* A, int lda,
+    const float* B, int ldb, const float* beta, float* C, int ldc)
+{
+    if (handle == nullptr) return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    if (uplo != ACLBLAS_LOWER && uplo != ACLBLAS_UPPER) return ACLBLAS_STATUS_INVALID_ENUM;
+
+    int st = SsymmCpuValidateParams(side, m, n, alpha, beta, A, B, C, lda, ldb, ldc);
+    if (st != SSYMM_CPU_VALID_OK) {
+        return static_cast<aclblasStatus_t>(st);
+    }
+
+    if (m == 0 || n == 0) return ACLBLAS_STATUS_SUCCESS;
+
+    float alphaVal = *alpha;
+    float betaVal = *beta;
+
+    // BLAS: beta==0 and C==nullptr → no valid output, return success.
+    if (betaVal == 0.0f && C == nullptr) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    cblas_ssymm(
+        CblasColMajor,
+        ToCblasSide(side),
+        ToCblasUplo(uplo),
+        m, n,
+        alphaVal, A, lda,
+        B, ldb,
+        betaVal, C, ldc);
+
+    return ACLBLAS_STATUS_SUCCESS;
+}
+#else
+// ===== arch22: row-major (original) =====
 // Read a value from symmetric matrix A (row-major, only one triangle stored).
 // The missing triangle is reconstructed by transposing indices.
 static inline float SsymmGetSymValue(const float* a, int lda,
@@ -98,4 +169,4 @@ inline aclblasStatus_t aclblasSsymm_cpu(
     }
     return ACLBLAS_STATUS_SUCCESS;
 }
-
+#endif

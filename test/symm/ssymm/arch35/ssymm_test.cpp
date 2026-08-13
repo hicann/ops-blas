@@ -20,6 +20,10 @@
 
 class SsymmArch35Test : public BlasTest<SsymmParam> {};
 
+// ---------------------------------------------------------------------------
+// L0 TEST_F cases — null pointers and validation-order quick returns
+// ---------------------------------------------------------------------------
+
 TEST_F(SsymmArch35Test, NullHandle)
 {
     float alpha = 1.0f;
@@ -33,6 +37,192 @@ TEST_F(SsymmArch35Test, NullHandle)
     EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 }
 
+TEST_F(SsymmArch35Test, NullA)
+{
+    float alpha = 1.0f;
+    float beta  = 1.0f;
+    std::vector<float> b(16, 0.0f);
+    std::vector<float> c(16, 0.0f);
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, 4, 4,
+        &alpha, nullptr, 4, b.data(), 4, &beta, c.data(), 4);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_INVALID_VALUE);
+}
+
+TEST_F(SsymmArch35Test, NullB)
+{
+    float alpha = 1.0f;
+    float beta  = 1.0f;
+    std::vector<float> a(16, 0.0f);
+    std::vector<float> c(16, 0.0f);
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, 4, 4,
+        &alpha, a.data(), 4, nullptr, 4, &beta, c.data(), 4);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_INVALID_VALUE);
+}
+
+TEST_F(SsymmArch35Test, NullC)
+{
+    float alpha = 1.0f;
+    float beta  = 1.0f;
+    std::vector<float> a(16, 0.0f);
+    std::vector<float> b(16, 0.0f);
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, 4, 4,
+        &alpha, a.data(), 4, b.data(), 4, &beta, nullptr, 4);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_INVALID_VALUE);
+}
+
+// BLAS: beta==0 allows C to be NULL (C does not have to be a valid input).
+TEST_F(SsymmArch35Test, NullCBetaZero)
+{
+    float alpha = 1.0f;
+    float beta  = 0.0f;
+    std::vector<float> a(16, 0.0f);
+    std::vector<float> b(16, 0.0f);
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, 4, 4,
+        &alpha, a.data(), 4, b.data(), 4, &beta, nullptr, 4);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
+}
+
+// Exposes Problem 2 fix: handle checked before m==0||n==0 quick return.
+TEST_F(SsymmArch35Test, QuickReturnNullHandle)
+{
+    float alpha = 1.0f;
+    float beta  = 1.0f;
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        nullptr, ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, 0, 0,
+        &alpha, nullptr, 0, nullptr, 0, &beta, nullptr, 0);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+}
+
+// Exposes Problem 2 fix: side enum checked before m==0 quick return.
+TEST_F(SsymmArch35Test, QuickReturnInvalidSide)
+{
+    float alpha = 1.0f;
+    float beta  = 1.0f;
+    std::vector<float> b(16, 0.0f);
+    std::vector<float> c(16, 0.0f);
+    aclblasSideMode_t invalidSide = static_cast<aclblasSideMode_t>(0xFF);
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, invalidSide, ACLBLAS_LOWER, 0, 4,
+        &alpha, nullptr, 0, b.data(), 4, &beta, c.data(), 4);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_INVALID_ENUM);
+}
+
+// Exposes Problem 2 fix: uplo enum checked before n==0 quick return.
+TEST_F(SsymmArch35Test, QuickReturnInvalidUplo)
+{
+    float alpha = 1.0f;
+    float beta  = 1.0f;
+    std::vector<float> a(16, 0.0f);
+    std::vector<float> b(16, 0.0f);
+    aclblasFillMode_t invalidUplo = static_cast<aclblasFillMode_t>(0xFF);
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_LEFT, invalidUplo, 4, 0,
+        &alpha, a.data(), 4, b.data(), 0, &beta, nullptr, 0);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_INVALID_ENUM);
+}
+
+// ---------------------------------------------------------------------------
+// L0 TEST_F cases — device alpha/beta pointer mode (cuBLAS host-or-device)
+//   Exercises the aclrtPointerGetAttributes detection path: alpha/beta scalars
+//   are copied to device memory and passed as device pointers. The host must
+//   NOT dereference them; the scale kernel reads them from GM. Combinations
+//   cover both-device, alpha-device/beta-host, alpha-host/beta-device, and the
+//   alpha==0 device case (fast path must be skipped → full pipeline gives beta*C).
+// ---------------------------------------------------------------------------
+
+// Shared driver for the device-scale TEST_F cases: builds column-major matrices,
+// runs the NPU op with the requested pointer modes, and verifies against the
+// CPU golden (which always dereferences host &alpha/&&beta). alpha==0 → EXACT
+// (C = beta*C is bit-reproducible); otherwise mixed tolerance.
+static void RunSsymmDeviceScaleCase(aclblasHandle handle,
+    aclblasSideMode_t side, aclblasFillMode_t uplo, int m, int n,
+    float alpha, float beta, bool alphaOnDevice, bool betaOnDevice,
+    const char* caseName)
+{
+    const int aDim = (side == ACLBLAS_SIDE_LEFT) ? m : n;
+    const int lda = aDim;
+    const int ldb = m;
+    const int ldc = m;
+
+    std::vector<float> aHost = makeBlasMatrix(aDim, aDim, lda, "RANDOM_NORM_5_5", 42);
+    std::vector<float> bHost = makeBlasMatrix(m, n, ldb, "RANDOM_NORM_5_5", 43);
+    std::vector<float> cHost = makeBlasMatrix(m, n, ldc, "RANDOM_NORM_5_5", 44);
+    std::vector<float> cResult = cHost;
+
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        handle, side, uplo, m, n,
+        &alpha, aHost.data(), lda,
+        bHost.data(), ldb,
+        &beta, cResult.data(), ldc,
+        alphaOnDevice, betaOnDevice);
+    ASSERT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_SUCCESS)) << caseName;
+
+    std::vector<float> cGolden = cHost;
+    aclblasSsymm_cpu(
+        handle, side, uplo, m, n,
+        &alpha, aHost.data(), lda,
+        bHost.data(), ldb,
+        &beta, cGolden.data(), ldc);
+
+    const size_t cCount = static_cast<size_t>(ldc) * static_cast<size_t>(n);
+    VerifyConfig cfg;
+    if (alpha == 0.0f) {
+        cfg.mode = PrecisionMode::EXACT;
+    } else {
+        applyMixedTolerance(cfg, ACL_FLOAT, cGolden.data(), cCount);
+    }
+    EXPECT_TRUE(Verifier::verifyVector(cResult.data(), cGolden.data(), cCount, 1, cfg, caseName))
+        << caseName;
+}
+
+TEST_F(SsymmArch35Test, DeviceAlphaDeviceBeta)
+{
+    RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,
+        ACLBLAS_SIDE_LEFT, ACLBLAS_UPPER, 8, 6,
+        2.0f, 0.5f, /*alphaOnDevice=*/true, /*betaOnDevice=*/true,
+        "DeviceAlphaDeviceBeta");
+}
+
+TEST_F(SsymmArch35Test, DeviceAlphaHostBeta)
+{
+    RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,
+        ACLBLAS_SIDE_RIGHT, ACLBLAS_LOWER, 8, 8,
+        1.5f, 1.0f, /*alphaOnDevice=*/true, /*betaOnDevice=*/false,
+        "DeviceAlphaHostBeta");
+}
+
+TEST_F(SsymmArch35Test, HostAlphaDeviceBeta)
+{
+    RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,
+        ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, 8, 8,
+        1.0f, 0.0f, /*alphaOnDevice=*/false, /*betaOnDevice=*/true,
+        "HostAlphaDeviceBeta");
+}
+
+// alpha==0 on device: the host cannot evaluate alpha==0 (device pointer), so the
+// alpha==0 fast path MUST be skipped and the full pipeline runs. The scale kernel
+// reads alpha=0 from GM and produces beta*C. beta==1 → C unchanged (EXACT).
+TEST_F(SsymmArch35Test, DeviceAlphaZeroBetaOne)
+{
+    RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,
+        ACLBLAS_SIDE_LEFT, ACLBLAS_UPPER, 8, 8,
+        0.0f, 1.0f, /*alphaOnDevice=*/true, /*betaOnDevice=*/true,
+        "DeviceAlphaZeroBetaOne");
+}
+
+// alpha==0 + beta==0.5, both device: full pipeline, C = 0.5*C (EXACT).
+TEST_F(SsymmArch35Test, DeviceAlphaZeroBetaScale)
+{
+    RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,
+        ACLBLAS_SIDE_RIGHT, ACLBLAS_UPPER, 8, 8,
+        0.0f, 0.5f, /*alphaOnDevice=*/true, /*betaOnDevice=*/true,
+        "DeviceAlphaZeroBetaScale");
+}
+
 INSTANTIATE_TEST_SUITE_P(
     Ssymm, SsymmArch35Test,
     ::testing::ValuesIn(GetCasesFromCsv<SsymmParam>(ReplaceFileExtension2Csv(__FILE__))),
@@ -41,11 +231,11 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_P(SsymmArch35Test, CsvDriven)
 {
     const auto& p = GetParam();
-    const int64_t aDim = (p.side == ACLBLAS_SIDE_LEFT) ? p.m : p.n;
+    const int aDim = (p.side == ACLBLAS_SIDE_LEFT) ? p.m : p.n;
 
-    std::vector<float> aHost = makeBlasMatrixRM(aDim, p.n, p.lda, "RANDOM:-10:10", p.randomSeed);
-    std::vector<float> bHost = makeBlasMatrixRM(p.m, p.n, p.ldb, "RANDOM:-10:10", p.randomSeed + 1);
-    std::vector<float> cHost = makeBlasMatrixRM(p.m, p.n, p.ldc, "RANDOM:-10:10", p.randomSeed + 2);
+    std::vector<float> aHost = makeBlasMatrix(aDim, aDim, p.lda, p.aFill, p.randomSeed);
+    std::vector<float> bHost = makeBlasMatrix(p.m, p.n, p.ldb, p.bFill, p.randomSeed + 1);
+    std::vector<float> cHost = makeBlasMatrix(p.m, p.n, p.ldc, p.cFill, p.randomSeed + 2);
     std::vector<float> cResult = cHost;
 
     const float* alphaPtr = p.nullAlpha ? nullptr : &p.alpha;
@@ -78,11 +268,15 @@ TEST_P(SsymmArch35Test, CsvDriven)
         betaPtr,  goldPtr, p.ldc);
 
     if (p.m == 0 || p.n == 0) return;
-    const size_t cCount = static_cast<size_t>(p.m) * static_cast<size_t>(p.ldc);
+    const size_t cCount = static_cast<size_t>(p.ldc) * static_cast<size_t>(p.n);
 
+    // Use mixed tolerance (ops-precision-standard); alpha==0 → exact (C = beta*C, bit-reproducible).
+    float alphaVal = p.alpha;
     VerifyConfig cfg;
-    cfg.mode           = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold  = (p.mereThreshold > 0.0) ? p.mereThreshold : (1.0 / 8192.0);
-    cfg.mareMultiplier = (p.mareMultiplier > 0.0) ? p.mareMultiplier : 10.0;
+    if (alphaVal == 0.0f) {
+        cfg.mode = PrecisionMode::EXACT;
+    } else {
+        applyMixedTolerance(cfg, ACL_FLOAT, goldPtr, cCount);
+    }
     EXPECT_TRUE(Verifier::verifyVector(cPtr, goldPtr, cCount, 1, cfg, p.caseName));
 }
