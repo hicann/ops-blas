@@ -10,8 +10,11 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <vector>
 #include <securec.h>
 
@@ -26,6 +29,10 @@ inline size_t dtypeByteSize(aclDataType dtype)
         case ACL_BF16:
             return 2;
         case ACL_FLOAT:
+            return 4;
+        case ACL_INT8:
+            return 1;
+        case ACL_INT32:
             return 4;
         case ACL_FLOAT8_E4M3FN:
             return 1;
@@ -158,6 +165,26 @@ inline float fp8E5m2ToFloat(uint8_t fp8)
     return sign ? -val : val;
 }
 
+inline void quantizeInt8ToBytes(float src, uint8_t* dst, size_t dstSize)
+{
+    float rounded = std::nearbyint(src);
+    rounded = std::max(
+        static_cast<float>(std::numeric_limits<int8_t>::min()),
+        std::min(static_cast<float>(std::numeric_limits<int8_t>::max()), rounded));
+    int8_t value = static_cast<int8_t>(rounded);
+    memcpy_s(dst, dstSize, &value, sizeof(value));
+}
+
+inline void quantizeInt32ToBytes(float src, uint8_t* dst, size_t dstSize)
+{
+    double rounded = std::nearbyint(static_cast<double>(src));
+    rounded = std::max(
+        static_cast<double>(std::numeric_limits<int32_t>::min()),
+        std::min(static_cast<double>(std::numeric_limits<int32_t>::max()), rounded));
+    int32_t value = static_cast<int32_t>(rounded);
+    memcpy_s(dst, dstSize, &value, sizeof(value));
+}
+
 inline std::vector<uint8_t> quantizeToBytes(const std::vector<float>& src, aclDataType dtype)
 {
     if (src.empty())
@@ -182,6 +209,14 @@ inline std::vector<uint8_t> quantizeToBytes(const std::vector<float>& src, aclDa
             }
             case ACL_FLOAT8_E5M2: {
                 dst[i] = floatToFp8E5m2(src[i]);
+                break;
+            }
+            case ACL_INT8: {
+                quantizeInt8ToBytes(src[i], &dst[i], dst.size() - i);
+                break;
+            }
+            case ACL_INT32: {
+                quantizeInt32ToBytes(src[i], &dst[i * elemSize], dst.size() - i * elemSize);
                 break;
             }
             default: {
@@ -219,6 +254,18 @@ inline std::vector<float> dequantizeFromBytes(const std::vector<uint8_t>& src, a
             }
             case ACL_FLOAT8_E5M2: {
                 dst[i] = fp8E5m2ToFloat(src[i]);
+                break;
+            }
+            case ACL_INT8: {
+                int8_t v = 0;
+                memcpy_s(&v, sizeof(v), &src[i], sizeof(v));
+                dst[i] = static_cast<float>(v);
+                break;
+            }
+            case ACL_INT32: {
+                int32_t v = 0;
+                memcpy_s(&v, sizeof(v), &src[i * elemSize], sizeof(v));
+                dst[i] = static_cast<float>(v);
                 break;
             }
             default: {

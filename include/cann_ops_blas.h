@@ -411,6 +411,13 @@ aclblasStatus_t aclblasGemmBatchedEx(
     const void* beta, void* const Carray[], aclDataType Ctype, int ldc,
     int batchCount, aclblasComputeType_t computeType, aclblasGemmAlgo_t algo);
 
+aclblasStatus_t aclblasGemmStridedBatchedEx(
+    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k,
+    const void* alpha, const void* A, aclDataType Atype, int lda, int64_t strideA,
+    const void* B, aclDataType Btype, int ldb, int64_t strideB,
+    const void* beta, void* C, aclDataType Ctype, int ldc, int64_t strideC,
+    int batchCount, aclblasComputeType_t computeType, aclblasGemmAlgo_t algo);
+
 aclblasStatus_t aclblasSgemmBatched(
     aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k,
     const float* alpha, const float* const Aarray[], int lda,

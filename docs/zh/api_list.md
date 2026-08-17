@@ -896,6 +896,7 @@ BLAS-like Extension 提供标准 BLAS Level 3 之外的扩展 GEMM 接口（以 
 | [aclblasCgeam](../../blas/geam/README.md) | 复数矩阵加法：C = alpha * op(A) + beta * op(B) |
 | [aclblasGemmEx](../../blas/gemm_ex/README.md) | 通用矩阵乘法扩展接口，支持 A/B/C 独立数据类型 |
 | [aclblasGemmBatchedEx](../../blas/gemm_batched_ex/README.md) | 通用矩阵乘法批量扩展接口 |
+| [aclblasGemmStridedBatchedEx](../../blas/gemm_strided_batched_ex/README.md) | 通用矩阵乘法跨步批量扩展接口 |
 | [aclblasGemmGroupedBatchedEx](../../blas/gemm_grouped_batched_ex/README.md) | 通用矩阵乘法分组批量扩展接口 |
 
 ## aclBLASLt Datatypes Reference
