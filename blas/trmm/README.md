@@ -48,23 +48,25 @@ aclblasStatus_t aclblasStrmm(aclblasHandle_t handle, aclblasSideMode_t side, acl
 | diag | 输入 | aclblasDiagType_t | 对角线类型：ACLBLAS_UNIT（单位三角，对角线为 1）或 ACLBLAS_NON_UNIT（非单位三角），Host 内存 |
 | m | 输入 | int | 矩阵 B/C 的行数，m >= 0，Host 内存 |
 | n | 输入 | int | 矩阵 B/C 的列数，n >= 0，Host 内存 |
-| alpha | 输入 | const float*（FP32） | 标量 alpha，不可为 nullptr，Host 内存 |
-| A | 输入 | const float*（FP32） | 三角矩阵，side=LEFT 时 m×m，side=RIGHT 时 n×n，Device 内存 |
-| lda | 输入 | int | 矩阵 A 的主维，side=LEFT 时 lda >= m，side=RIGHT 时 lda >= n，Host 内存 |
-| B | 输入 | const float*（FP32） | m×n 输入矩阵，Device 内存 |
-| ldb | 输入 | int | 矩阵 B 的主维，ldb >= n，Host 内存 |
-| C | 输出 | float*（FP32） | m×n 输出矩阵，Device 内存 |
-| ldc | 输入 | int | 矩阵 C 的主维，ldc >= n，Host 内存 |
+| alpha | 输入 | const float*（FP32） | 标量 alpha，不可为 nullptr，支持 Host 或 Device 内存 |
+| A | 输入 | const float*（FP32） | 三角矩阵，列主序存储，side=LEFT 时 m×m，side=RIGHT 时 n×n，Device 内存 |
+| lda | 输入 | int | 矩阵 A 的主维（列主序），side=LEFT 时 lda >= max(1, m)，side=RIGHT 时 lda >= max(1, n)，Host 内存 |
+| B | 输入 | const float*（FP32） | m×n 输入矩阵，列主序存储，Device 内存 |
+| ldb | 输入 | int | 矩阵 B 的主维（列主序），ldb >= max(1, m)，Host 内存 |
+| C | 输出 | float*（FP32） | m×n 输出矩阵，列主序存储，Device 内存 |
+| ldc | 输入 | int | 矩阵 C 的主维（列主序），ldc >= max(1, m)，Host 内存 |
 
 #### 约束说明
 
 - m >= 0, n >= 0
-- side=LEFT 时：lda >= m
-- side=RIGHT 时：lda >= n
-- ldb >= n
-- ldc >= n
+- side=LEFT 时：lda >= max(1, m)
+- side=RIGHT 时：lda >= max(1, n)
+- ldb >= max(1, m)
+- ldc >= max(1, m)
 - alpha 不可为 nullptr
-- A、B、C 不可为 nullptr
+- alpha == 0 时，A 和 B 不需要是有效的输入指针（可为 nullptr），结果 C 全为 0
+- alpha != 0 时，A、B 不可为 nullptr
+- C 不可为 nullptr
 
 #### 调用示例
 
@@ -87,24 +89,32 @@ int main()
     constexpr int lda = 4;
     constexpr int ldb = 4;
     constexpr int ldc = 4;
-    constexpr size_t aSize = m * lda * sizeof(float);
-    constexpr size_t bSize = m * ldb * sizeof(float);
-    constexpr size_t cSize = m * ldc * sizeof(float);
+    constexpr int dimA = m;  // side=LEFT → dimA=m
+    constexpr size_t aBytes = lda * dimA * sizeof(float);
+    constexpr size_t bBytes = ldb * n * sizeof(float);
+    constexpr size_t cBytes = ldc * n * sizeof(float);
     float alpha = 1.0f;
 
-    float hA[m * lda] = {
-        1.0f, 2.0f, 3.0f, 4.0f,
-        0.0f, 5.0f, 6.0f, 7.0f,
-        0.0f, 0.0f, 8.0f, 9.0f,
-        0.0f, 0.0f, 0.0f, 10.0f
+    // 列主序存储：A[col*lda + row] = A[row][col]
+    // 上三角 A (4x4):
+    //   1  2  3  4
+    //   0  5  6  7
+    //   0  0  8  9
+    //   0  0  0 10
+    float hA[lda * dimA] = {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        2.0f, 5.0f, 0.0f, 0.0f,
+        3.0f, 6.0f, 8.0f, 0.0f,
+        4.0f, 7.0f, 9.0f, 10.0f
     };
-    float hB[m * ldb] = {
-        1.0f, 2.0f, 3.0f, 4.0f,
-        5.0f, 6.0f, 7.0f, 8.0f,
-        9.0f, 10.0f, 11.0f, 12.0f,
-        13.0f, 14.0f, 15.0f, 16.0f
+    // 列主序存储：B[col*ldb + row] = B[row][col]
+    float hB[ldb * n] = {
+        1.0f, 5.0f, 9.0f, 13.0f,
+        2.0f, 6.0f, 10.0f, 14.0f,
+        3.0f, 7.0f, 11.0f, 15.0f,
+        4.0f, 8.0f, 12.0f, 16.0f
     };
-    float hC[m * ldc] = {0};
+    float hC[ldc * n] = {0};
 
     aclrtStream stream;
     aclrtCreateStream(&stream);
@@ -113,12 +123,12 @@ int main()
     float *dA = nullptr;
     float *dB = nullptr;
     float *dC = nullptr;
-    aclrtMalloc((void**)&dA, aSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&dB, bSize, ACL_MEM_MALLOC_HUGE_FIRST);
-    aclrtMalloc((void**)&dC, cSize, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&dA, aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&dB, bBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc((void**)&dC, cBytes, ACL_MEM_MALLOC_HUGE_FIRST);
 
-    aclrtMemcpy(dA, aSize, hA, aSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(dB, bSize, hB, bSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dA, aBytes, hA, aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(dB, bBytes, hB, bBytes, ACL_MEMCPY_HOST_TO_DEVICE);
 
     aclblasStatus_t status = aclblasStrmm(
         handle, ACLBLAS_SIDE_LEFT, ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
@@ -126,7 +136,7 @@ int main()
 
     aclrtSynchronizeStream(stream);
 
-    aclrtMemcpy(hC, cSize, dC, cSize, ACL_MEMCPY_DEVICE_TO_HOST);
+    aclrtMemcpy(hC, cBytes, dC, cBytes, ACL_MEMCPY_DEVICE_TO_HOST);
 
     aclrtFree(dA);
     aclrtFree(dB);

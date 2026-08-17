@@ -178,7 +178,7 @@ __aicore__ inline void SdgmmProcessLeft(
 // 2D block decomposition: blockIdx = colBlock * mBlocks + mBlock.
 // ==========================================================================
 extern "C" __global__ __aicore__ void sdgmm_aiv_kernel(
-    GM_ADDR x, GM_ADDR A, GM_ADDR C, const SdgmmTilingData tiling)
+    const GM_ADDR x, const GM_ADDR A, GM_ADDR C, const SdgmmTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
@@ -227,9 +227,12 @@ extern "C" __global__ __aicore__ void sdgmm_aiv_kernel(
                                          : -static_cast<int64_t>(tiling.incx);
     uint64_t xTotalEl = static_cast<uint64_t>(xLen - 1) * static_cast<uint64_t>(absIncx) + 1;
 
+    // AscendC::GlobalTensor::SetGlobalBuffer requires non-const __gm__ float*.
+    // The const_cast is safe: xGm/aGm are only read (GetValue/DataCopyPad),
+    // never written. This is a framework API limitation that cannot be avoided.
     AscendC::GlobalTensor<float> xGm, aGm, cGm;
-    xGm.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(x), xTotalEl);
-    aGm.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(A),
+    xGm.SetGlobalBuffer(const_cast<__gm__ float*>(reinterpret_cast<const __gm__ float*>(x)), xTotalEl);
+    aGm.SetGlobalBuffer(const_cast<__gm__ float*>(reinterpret_cast<const __gm__ float*>(A)),
                         static_cast<uint64_t>(tiling.n) * static_cast<uint64_t>(tiling.lda));
     cGm.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(C),
                         static_cast<uint64_t>(tiling.n) * static_cast<uint64_t>(tiling.ldc));
@@ -252,7 +255,7 @@ extern "C" __global__ __aicore__ void sdgmm_aiv_kernel(
 
 // Kernel launcher: asynchronously launches the kernel.
 // tiling.mode is the normalized value (SDGMM_MODE_LEFT / SDGMM_MODE_RIGHT).
-void sdgmm_kernel_do(GM_ADDR x, GM_ADDR A, GM_ADDR C,
+void sdgmm_kernel_do(const GM_ADDR x, const GM_ADDR A, GM_ADDR C,
                      const SdgmmTilingData& tiling,
                      uint32_t numBlocks, void* stream)
 {

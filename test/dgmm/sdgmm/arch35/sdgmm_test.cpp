@@ -93,11 +93,9 @@ TEST_P(SdgmmArch35Test, CsvDriven) {
         aPtr, p.lda, xPtr, p.incx, goldenC.data(), p.ldc);
     EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
 
-    // Step 5: Precision verification — MERE_MARE (FP32: MERE < 2^-13, MARE < 10*2^-13)
+    // Step 5: Precision verification — mixed tolerance (ops-precision-standard).
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    cfg.mereThreshold = p.mereThreshold;
-    cfg.mareMultiplier = p.mareMultiplier;
+    applyMixedTolerance(cfg, ACL_FLOAT, goldenC.data(), cHost.size());
 
     // Compare entire C storage (ldc * n elements, stride 1).
     // Padding rows (if lda/ldc > m) are sentinel in both cHost and goldenC.

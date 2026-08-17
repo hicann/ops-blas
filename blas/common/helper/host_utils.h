@@ -21,6 +21,8 @@
 #include <type_traits>
 #include "log/log.h"
 #include "tiling/platform/platform_ascendc.h"
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
 
 #define CHECK_RET(cond, return_expr) \
     do {                             \
@@ -92,4 +94,21 @@ static inline uint32_t GetAicCoreCount()
         return 0;
     }
     return platform->GetCoreNumAic();
+}
+
+// ==========================================================================
+//  CheckPtrLocation — determine whether a pointer lives on host or device.
+//  Uses aclrtPointerGetAttributes. On query failure returns ACLBLAS_STATUS_INVALID_VALUE.
+//  Shared by all operators that support host-or-device scalar pointers.
+// ==========================================================================
+static inline aclblasStatus_t CheckPtrLocation(const void* ptr, bool* isDevice)
+{
+    aclrtPtrAttributes ptrAttr{};
+    aclError aclRet = aclrtPointerGetAttributes(ptr, &ptrAttr);
+    if (aclRet != ACL_SUCCESS) {
+        OP_LOGE("[ERROR] CheckPtrLocation", "aclrtPointerGetAttributes failed, aclRet=%d", static_cast<int>(aclRet));
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    *isDevice = (ptrAttr.location.type == ACL_MEM_LOCATION_TYPE_DEVICE);
+    return ACLBLAS_STATUS_SUCCESS;
 }

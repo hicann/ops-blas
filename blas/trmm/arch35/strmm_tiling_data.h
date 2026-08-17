@@ -32,6 +32,7 @@ struct StrmmMirrorTilingData {
     uint32_t mirrorRowsPerCore;
     uint32_t lda;
     uint32_t dimA;
+    uint32_t nthreads;
 };
 
 struct StrmmGemmTilingData {
@@ -56,4 +57,7 @@ struct StrmmScaleTilingData {
     uint32_t tempRowStride;
     uint32_t usedAivCoreNum;
     uint32_t scaleRowsPerCore;
+    float alphaVal;
+    uint32_t alphaIsDevice;
+    uint32_t nthreads;
 };

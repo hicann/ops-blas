@@ -47,7 +47,7 @@ aclblasStatus_t aclblasSdgmm(aclblasHandle_t handle, aclblasSideMode_t mode, int
 | A | 输入 | const float*（FP32） | 输入矩阵，列主序存储，维度 m×n，Device 内存 |
 | lda | 输入 | int | 矩阵 A 的主维（leading dimension），lda >= max(1, m)，Host 内存 |
 | x | 输入 | const float*（FP32） | 对角向量，mode=LEFT 时长度为 m，mode=RIGHT 时长度为 n，Device 内存 |
-| incx | 输入 | int | x 中相邻元素的步长，incx != 0，可为负数，Host 内存 |
+| incx | 输入 | int | x 中相邻元素的步长，可为任意整数（包括 0，incx==0 时等价于标量乘法 C = x[0] * A），可为负数表示反向访问 x，Host 内存 |
 | C | 输出 | float*（FP32） | 输出矩阵，列主序存储，维度 m×n，Device 内存 |
 | ldc | 输入 | int | 矩阵 C 的主维（leading dimension），ldc >= max(1, m)，Host 内存 |
 
@@ -56,7 +56,7 @@ aclblasStatus_t aclblasSdgmm(aclblasHandle_t handle, aclblasSideMode_t mode, int
 - handle 不能为 nullptr，否则返回 ACLBLAS_STATUS_HANDLE_IS_NULLPTR
 - mode 必须为 ACLBLAS_SIDE_LEFT 或 ACLBLAS_SIDE_RIGHT，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - m >= 0, n >= 0，否则返回 ACLBLAS_STATUS_INVALID_VALUE
-- incx != 0（可为负数，表示反向访问 x），否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- incx 可为任意整数（包括 0，incx==0 时等价于标量乘法 C = x[0] * A），可为负数表示反向访问 x
 - lda >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - ldc >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - 当 m > 0 且 n > 0 时，A、x、C 不能为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE

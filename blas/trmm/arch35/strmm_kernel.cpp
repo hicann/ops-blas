@@ -42,34 +42,43 @@ constexpr uint32_t NON_FINAL_ACCUMULATION = 2;
 // For TRMM: missing triangle is filled with zeros (NOT symmetric values).
 // trans=T/C: mirror stage reads A^T (transpose on read) into workspaceA.
 // diag=UNIT: workspaceA diagonal = 1.0 (not A's diagonal).
+//
+// Column-major storage: A[col*lda + row] stores A[row][col]. The mirror kernel
+// reads A and fills workspaceGm in column-major (workspaceGm[col*lda + row] =
+// workspaceA[row][col]). The row-major GEMM kernel then reads workspaceGm as
+// row-major, which is workspaceA^T — this is the column-major adaptation (see
+// strmm_host.cpp for the m↔n swap + side flip trick).
 // ================================================================================
 
 template <bool UPLO_IS_UPPER, bool TRANS_IS_T, bool DIAG_IS_UNIT>
 __simt_callee__ __aicore__ inline float ComputeMirrorVal(
-    __gm__ float* aGm, int64_t lda64, uint32_t row, uint32_t col)
+    const __gm__ float* aGm, int64_t lda64, uint32_t row, uint32_t col)
 {
     int64_t row64 = static_cast<int64_t>(row);
     int64_t col64 = static_cast<int64_t>(col);
     float val = 0.0f;
 
+    // Column-major: aGm[col*lda + row] = A[row][col], aGm[row*lda + col] = A[col][row].
+    // trans=N reads A[row][col] → aGm[col*lda + row].
+    // trans=T reads A^T[row][col] = A[col][row] → aGm[row*lda + col].
     if constexpr (UPLO_IS_UPPER) {
         if constexpr (TRANS_IS_T) {
             if (col <= row) {
-                val = aGm[col64 * lda64 + row64];
+                val = aGm[row64 * lda64 + col64];
             }
         } else {
             if (row <= col) {
-                val = aGm[row64 * lda64 + col64];
+                val = aGm[col64 * lda64 + row64];
             }
         }
     } else {
         if constexpr (TRANS_IS_T) {
             if (col >= row) {
-                val = aGm[col64 * lda64 + row64];
+                val = aGm[row64 * lda64 + col64];
             }
         } else {
             if (row >= col) {
-                val = aGm[row64 * lda64 + col64];
+                val = aGm[col64 * lda64 + row64];
             }
         }
     }
@@ -85,7 +94,7 @@ __simt_callee__ __aicore__ inline float ComputeMirrorVal(
 
 template <bool UPLO_IS_UPPER, bool TRANS_IS_T, bool DIAG_IS_UNIT>
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StrmmMirrorCompute(
-    uint32_t dimA, uint32_t lda, __gm__ float* aGm, __gm__ float* workspaceGm,
+    uint32_t dimA, uint32_t lda, const __gm__ float* aGm, __gm__ float* workspaceGm,
     uint32_t rowStart, uint32_t rowEnd)
 {
     int64_t lda64 = static_cast<int64_t>(lda);
@@ -94,7 +103,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StrmmMirror
         int64_t row64 = static_cast<int64_t>(row);
         for (uint32_t col = 0; col < dimA; ++col) {
             int64_t col64 = static_cast<int64_t>(col);
-            workspaceGm[row64 * lda64 + col64] =
+            workspaceGm[col64 * lda64 + row64] =
                 ComputeMirrorVal<UPLO_IS_UPPER, TRANS_IS_T, DIAG_IS_UNIT>(
                     aGm, lda64, row, col);
         }
@@ -104,37 +113,37 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StrmmMirror
 template <bool UPLO_IS_UPPER, bool TRANS_IS_T>
 __aicore__ inline void DispatchMirrorDiag(
     bool diagUnit, uint32_t dimA, uint32_t lda,
-    __gm__ float* aGm, __gm__ float* workspaceGm,
-    uint32_t rowStart, uint32_t rowEnd)
+    const __gm__ float* aGm, __gm__ float* workspaceGm,
+    uint32_t rowStart, uint32_t rowEnd, uint32_t nthreads)
 {
     if (diagUnit) {
         asc_vf_call<StrmmMirrorCompute<UPLO_IS_UPPER, TRANS_IS_T, true>>(
-            dim3{SIMT_MAX_THREAD_NUM, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+            dim3{nthreads, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
     } else {
         asc_vf_call<StrmmMirrorCompute<UPLO_IS_UPPER, TRANS_IS_T, false>>(
-            dim3{SIMT_MAX_THREAD_NUM, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+            dim3{nthreads, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
     }
 }
 
 template <bool UPLO_IS_UPPER>
 __aicore__ inline void DispatchMirrorTrans(
     bool transT, bool diagUnit, uint32_t dimA, uint32_t lda,
-    __gm__ float* aGm, __gm__ float* workspaceGm,
-    uint32_t rowStart, uint32_t rowEnd)
+    const __gm__ float* aGm, __gm__ float* workspaceGm,
+    uint32_t rowStart, uint32_t rowEnd, uint32_t nthreads)
 {
     if (transT) {
-        DispatchMirrorDiag<UPLO_IS_UPPER, true>(diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+        DispatchMirrorDiag<UPLO_IS_UPPER, true>(diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd, nthreads);
     } else {
-        DispatchMirrorDiag<UPLO_IS_UPPER, false>(diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+        DispatchMirrorDiag<UPLO_IS_UPPER, false>(diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd, nthreads);
     }
 }
 
 __global__ __aicore__ void strmm_mirror_kernel(
-    GM_ADDR gmA, GM_ADDR gmWorkspaceA, const StrmmMirrorTilingData tiling)
+    const GM_ADDR gmA, GM_ADDR gmWorkspaceA, const StrmmMirrorTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
-    auto* aGm = reinterpret_cast<__gm__ float* __restrict>(gmA);
+    auto* aGm = reinterpret_cast<const __gm__ float* __restrict>(gmA);
     auto* workspaceGm = reinterpret_cast<__gm__ float* __restrict>(gmWorkspaceA);
     uint32_t dimA = tiling.dimA;
     uint32_t lda = tiling.lda;
@@ -151,9 +160,9 @@ __global__ __aicore__ void strmm_mirror_kernel(
     bool diagUnit = (tiling.diagMode == ACLBLAS_UNIT);
 
     if (uploUpper) {
-        DispatchMirrorTrans<true>(transT, diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+        DispatchMirrorTrans<true>(transT, diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd, tiling.nthreads);
     } else {
-        DispatchMirrorTrans<false>(transT, diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+        DispatchMirrorTrans<false>(transT, diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd, tiling.nthreads);
     }
 }
 
@@ -161,14 +170,22 @@ void strmm_mirror_kernel_do(
     const uint8_t* gmA, uint8_t* gmWorkspaceA, const StrmmMirrorTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {
-    strmm_mirror_kernel<<<numBlocks, nullptr, stream>>>(
-        const_cast<uint8_t*>(gmA), gmWorkspaceA, tiling);
+    strmm_mirror_kernel<<<numBlocks, nullptr, stream>>>(gmA, gmWorkspaceA, tiling);
 }
 
 // ================================================================================
 // Phase 2: GEMM Kernel (AIC-only, tensor_api)
 // Side=Left:  left=workspaceA(M×K), right=B(K×N), K=m
 // Side=Right: left=B(M×K),    right=workspaceA(K×N), K=n
+//
+// Column-major adaptation (host-side m↔n swap, see ExecuteStrmmKernels in strmm_host.cpp):
+//   The host swaps m↔n and flips side before calling this kernel, so the kernel computes
+//   C^T (row-major n×m) instead of C (row-major m×n). This works because:
+//   - workspaceA is stored column-major by the mirror kernel: the row-major GEMM kernel
+//     reads it as workspaceA^T, which is A^T (trans=N) or A (trans=T).
+//   - Column-major B(m×n) in memory == row-major B^T(n×m): the kernel reads B as B^T.
+//   The kernel code itself is unchanged; only the tiling parameters (m, n, side, lda, ldb)
+//   are swapped by the host. The temp buffer stores C^T in row-major (n rows × tempRowStride).
 //
 // Uses AscendC::Te (tensor_api) for all data movement and computation:
 //   GM→L1: Te::Copy(Te::CopyGM2L1{})       — replaces Nd2Nz + DataCopy
@@ -318,28 +335,26 @@ __aicore__ inline void StrmmProcessTile(
 }
 
 __global__ __aicore__ void strmm_gemm_kernel(
-    GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmTemp,
+    GM_ADDR gmA, const GM_ADDR gmB, GM_ADDR gmTemp,
     const StrmmGemmTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
     uint32_t K = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? tiling.m : tiling.n;
-    GM_ADDR gmLeft = gmA;
-    uint64_t leftLd = tiling.lda;
+    // gmB is const GM_ADDR (read-only input B). gmLeft/gmRight are kept const to
+    // preserve const safety. The const_cast at te::MakeTensor is required because
+    // the Blaze tensor API (te::MakeMemPtr<te::Location::GM>) accepts only non-const
+    // __gm__ float*. The cast is safe: tensors are only read (GM→L1 copy), never written.
+    const GM_ADDR gmLeft = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? gmA : gmB;
+    const GM_ADDR gmRight = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? gmB : gmA;
+    uint64_t leftLd = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? tiling.lda : tiling.ldb;
     uint64_t leftRows = tiling.m;
-    GM_ADDR gmRight = gmB;
-    uint64_t rightLd = tiling.ldb;
+    uint64_t rightLd = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? tiling.ldb : tiling.lda;
     uint64_t rightRows = K;
-    if (tiling.sideMode == ACLBLAS_SIDE_RIGHT) {
-        gmLeft = gmB;
-        leftLd = tiling.ldb;
-        gmRight = gmA;
-        rightLd = tiling.lda;
-    }
     auto gmLeftTensor = te::MakeTensor(
-        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(gmLeft)),
+        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(const_cast<GM_ADDR>(gmLeft))),
         te::MakeFrameLayout<te::NDExtLayoutPtn>(leftRows, leftLd));
     auto gmRightTensor = te::MakeTensor(
-        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(gmRight)),
+        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(const_cast<GM_ADDR>(gmRight))),
         te::MakeFrameLayout<te::NDExtLayoutPtn>(rightRows, rightLd));
     auto gmTempTensor = te::MakeTensor(
         te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(gmTemp)),
@@ -375,23 +390,29 @@ __global__ __aicore__ void strmm_gemm_kernel(
 }
 
 void strmm_gemm_kernel_do(
-    const uint8_t* gmA, const uint8_t* gmB, uint8_t* gmTemp,
+    uint8_t* gmA, const uint8_t* gmB, uint8_t* gmTemp,
     const StrmmGemmTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {
-    strmm_gemm_kernel<<<numBlocks, nullptr, stream>>>(
-        const_cast<uint8_t*>(gmA), const_cast<uint8_t*>(gmB), gmTemp, tiling);
+    strmm_gemm_kernel<<<numBlocks, nullptr, stream>>>(gmA, gmB, gmTemp, tiling);
 }
 
 // ================================================================================
 // Phase 3: Scale Kernel (AIV-only, SIMT)
 // C = alpha * temp
+// alpha follows BLAS host-or-device semantics:
+//   alphaIsDevice==0 → alphaVal carried in tiling (host dereferenced on host)
+//   alphaIsDevice==1 → alpha read from device GM (alphaGm[0]); alphaVal is a placeholder
+// temp stores C^T in row-major (n rows × tempRowStride, tempRowStride = CeilAlign(m)).
+//   Reading temp[j*tempRowStride + i] gives C^T[j][i] = C[i][j].
+// C is column-major (ldc is column stride, ldc >= m).
+//   C[i][j] is at cGm[j*ldc + i].
 // ================================================================================
 
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StrmmScaleCompute(
     uint32_t n, uint32_t ldc, uint32_t tempRowStride,
     float alphaVal,
-    __gm__ float* __restrict tempGm, __gm__ float* __restrict cGm,
+    const __gm__ float* __restrict tempGm, __gm__ float* __restrict cGm,
     uint32_t rowStart, uint32_t rowEnd)
 {
     int64_t ldc64 = static_cast<int64_t>(ldc);
@@ -401,25 +422,26 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StrmmScaleC
         int64_t i64 = static_cast<int64_t>(i);
         for (uint32_t j = 0; j < n; ++j) {
             int64_t j64 = static_cast<int64_t>(j);
-            float tempVal = tempGm[i64 * tempStride64 + j64];
-            cGm[i64 * ldc64 + j64] = alphaVal * tempVal;
+            float tempVal = tempGm[j64 * tempStride64 + i64];
+            cGm[j64 * ldc64 + i64] = alphaVal * tempVal;
         }
     }
 }
 
 __global__ __aicore__ void strmm_scale_kernel(
-    GM_ADDR gmTemp, GM_ADDR gmC, float alpha,
+    const GM_ADDR gmTemp, GM_ADDR gmC, const GM_ADDR gmAlpha,
     const StrmmScaleTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
-    auto* tempGm = reinterpret_cast<__gm__ float* __restrict>(gmTemp);
+    auto* tempGm = reinterpret_cast<const __gm__ float* __restrict>(gmTemp);
     auto* cGm = reinterpret_cast<__gm__ float* __restrict>(gmC);
 
     uint32_t m = tiling.m;
     uint32_t n = tiling.n;
     uint32_t ldc = tiling.ldc;
     uint32_t tempRowStride = tiling.tempRowStride;
+    float alphaVal = tiling.alphaIsDevice ? *reinterpret_cast<const __gm__ float*>(gmAlpha) : tiling.alphaVal;
 
     int32_t blkIdx = AscendC::GetBlockIdx();
     uint32_t rowStart = static_cast<uint32_t>(blkIdx) * tiling.scaleRowsPerCore;
@@ -429,16 +451,15 @@ __global__ __aicore__ void strmm_scale_kernel(
     }
 
     asc_vf_call<StrmmScaleCompute>(
-        dim3{SIMT_MAX_THREAD_NUM, 1, 1},
-        n, ldc, tempRowStride, alpha,
+        dim3{tiling.nthreads, 1, 1},
+        n, ldc, tempRowStride, alphaVal,
         tempGm, cGm, rowStart, rowEnd);
 }
 
 void strmm_scale_kernel_do(
-    const uint8_t* gmTemp, uint8_t* gmC, float alpha,
+    const uint8_t* gmTemp, uint8_t* gmC, const uint8_t* gmAlpha,
     const StrmmScaleTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {
-    strmm_scale_kernel<<<numBlocks, nullptr, stream>>>(
-        const_cast<uint8_t*>(gmTemp), gmC, alpha, tiling);
+    strmm_scale_kernel<<<numBlocks, nullptr, stream>>>(gmTemp, gmC, gmAlpha, tiling);
 }

@@ -14,6 +14,7 @@
 #include <string>
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
+#include "fill.h"
 
 struct StrmmParam : public BlasTestParamBase {
     aclblasSideMode_t side = ACLBLAS_SIDE_LEFT;
@@ -30,6 +31,8 @@ struct StrmmParam : public BlasTestParamBase {
     int lda = 0;
     int ldb = 0;
     int ldc = 0;
+    BlasFillMode aFill = parseFill("RANDOM_NORM_5_5");
+    BlasFillMode bFill = parseFill("RANDOM_NORM_5_5");
 
     explicit StrmmParam(const csv_map& map) : BlasTestParamBase(map)
     {
@@ -51,6 +54,8 @@ struct StrmmParam : public BlasTestParamBase {
         lda = std::stoi(ReadMap(map, "lda", "0"));
         ldb = std::stoi(ReadMap(map, "ldb", "0"));
         ldc = std::stoi(ReadMap(map, "ldc", "0"));
+        aFill = parseFill(ReadMap(map, "a_fill", "RANDOM_NORM_5_5"));
+        bFill = parseFill(ReadMap(map, "b_fill", "RANDOM_NORM_5_5"));
     }
 };
 

@@ -21,29 +21,31 @@
 #include "strmm_golden.h"
 #include "strmm_npu_wrapper.h"
 
-constexpr int64_t kMaxSafeTestElems = 64LL * 1024 * 1024;
-static inline int64_t SafeElemCount(int rows, int cols)
-{
-    if (rows <= 0 || cols <= 0) return 0;
-    if (static_cast<int64_t>(cols) > kMaxSafeTestElems / std::max(static_cast<int64_t>(rows), int64_t(1))) return 0;
-    return static_cast<int64_t>(rows) * cols;
-}
-
+// Column-major matrix buffer: m×n with leading dimension ld.
+// makeBlasMatrix handles m<=0 / n<=0 / ld<=0 by returning an empty vector.
 static inline std::vector<float> MakeMatrix(int rows, int cols, int ld,
-    uint32_t seed)
+    const BlasFillMode& fill, uint32_t seed)
 {
-    int64_t count = SafeElemCount(rows, ld);
-    if (count <= 0) return {};
-    return makeBlasArray(count, "RANDOM:-10:10", seed);
+    return makeBlasMatrix(rows, cols, ld, fill, seed);
 }
 
+// Triangular matrix: dimA×dimA column-major, only the uplo triangle is filled.
+// The full matrix is generated with the original fill (preserving the CSV-specified
+// val1/val2 value range), then the non-triangular part is manually zeroed by uplo.
 static inline std::vector<float> MakeTriMatrix(int dimA, int lda,
-    aclblasFillMode_t uplo, uint32_t seed)
+    aclblasFillMode_t uplo, const BlasFillMode& fill, uint32_t seed)
 {
-    int64_t count = SafeElemCount(dimA, lda);
-    if (count <= 0) return {};
-    std::string pattern = (uplo == ACLBLAS_UPPER) ? "UPPER" : "LOWER";
-    return makeBlasArray(count, "RANDOM:-10:10:" + pattern, seed);
+    std::vector<float> data = makeBlasMatrix(dimA, dimA, lda, fill, seed);
+    if (data.empty()) return data;
+    for (int col = 0; col < dimA; ++col) {
+        for (int row = 0; row < dimA; ++row) {
+            bool inTriangle = (uplo == ACLBLAS_UPPER) ? (row <= col) : (row >= col);
+            if (!inTriangle) {
+                data[static_cast<size_t>(col) * lda + row] = 0.0f;
+            }
+        }
+    }
+    return data;
 }
 
 static inline void ApplySpecialValues(const std::string& desc,
@@ -79,18 +81,118 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::ValuesIn(GetCasesFromCsv<StrmmParam>(ReplaceFileExtension2Csv(__FILE__))),
     PrintCaseInfoString<StrmmParam>);
 
+// Builds the triangular A and rectangular B host buffers, applies special
+// NaN/Inf values from the case description, and resolves the alpha/A/B pointers
+// (nullptr when the corresponding null flag is set). Sets alphaOnDevice when the
+// case description contains "dev_alpha" (device-pointer alpha path).
+static void PrepareTestData(const StrmmParam& p, int aDim,
+    std::vector<float>& aHost, std::vector<float>& bHost,
+    const float*& alphaPtr, const float*& aPtr, const float*& bPtr,
+    bool& alphaOnDevice)
+{
+    aHost = MakeTriMatrix(aDim, p.lda, p.uplo, p.aFill, p.randomSeed);
+    bHost = MakeMatrix(p.m, p.n, p.ldb, p.bFill, p.randomSeed + 1);
+    ApplySpecialValues(p.description, aHost, bHost);
+
+    alphaPtr = p.nullAlpha ? nullptr : &p.alpha;
+    aPtr = p.nullA ? nullptr : (aHost.empty() ? nullptr : aHost.data());
+    bPtr = p.nullB ? nullptr : (bHost.empty() ? nullptr : bHost.data());
+
+    alphaOnDevice = (!p.nullAlpha && p.description.find("dev_alpha") != std::string::npos);
+}
+
+// alpha==0 with nullA/nullB: the host alpha==0 fast path memsets C without
+// reading A/B. A device dC is used so the host's aclrtMemset fast path works on
+// device memory, then D2H back to the host C buffer. The result is
+// bit-reproducible (C is all zeros), verified with EXACT equality.
+static void HandleAlphaZeroNullAB(const StrmmParam& p, aclblasHandle_t handle,
+    const float* alphaPtr, const float* aPtr, const float* bPtr, float* cPtr,
+    bool alphaOnDevice)
+{
+    const size_t cCount = static_cast<size_t>(p.ldc) * static_cast<size_t>(p.n);
+    const size_t cBytes = cCount * sizeof(float);
+    void* dC = nullptr;
+    aclError aclRet = aclrtMalloc(&dC, cBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    if (aclRet != ACL_SUCCESS) {
+        EXPECT_EQ(static_cast<int>(aclRet), ACL_SUCCESS) << "aclrtMalloc failed for dC";
+        return;
+    }
+    void* dAlpha = nullptr;
+    const float* alphaArg = alphaPtr;
+    if (alphaOnDevice && alphaPtr != nullptr) {
+        aclError alphaRet = aclrtMalloc(&dAlpha, sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+        if (alphaRet != ACL_SUCCESS) {
+            EXPECT_EQ(static_cast<int>(alphaRet), ACL_SUCCESS) << "aclrtMalloc failed for dAlpha";
+            FreeDev(dC);
+            return;
+        }
+        alphaRet = aclrtMemcpy(dAlpha, sizeof(float), alphaPtr, sizeof(float), ACL_MEMCPY_HOST_TO_DEVICE);
+        if (alphaRet != ACL_SUCCESS) {
+            EXPECT_EQ(static_cast<int>(alphaRet), ACL_SUCCESS) << "aclrtMemcpy failed for dAlpha";
+            FreeDev(dAlpha);
+            FreeDev(dC);
+            return;
+        }
+        alphaArg = static_cast<const float*>(dAlpha);
+    }
+    aclblasStatus_t ret = aclblasStrmm(
+        handle,
+        p.side, p.uplo, p.trans, p.diag, p.m, p.n,
+        alphaArg, aPtr, p.lda, bPtr, p.ldb,
+        static_cast<float*>(dC), p.ldc);
+    if (ret == ACLBLAS_STATUS_SUCCESS) {
+        ret = StrmmSyncAndCopyD2H(handle, dC, cPtr, cBytes);
+    }
+    FreeDev(dAlpha);
+    FreeDev(dC);
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
+    if (ret == ACLBLAS_STATUS_SUCCESS && cPtr != nullptr) {
+        for (size_t i = 0; i < cCount; i++) {
+            EXPECT_EQ(cPtr[i], 0.0f) << "C should be all zeros when alpha==0";
+        }
+    }
+}
+
+// Computes the golden C via aclblasStrmm_cpu and verifies the NPU result with
+// mixed tolerance. alpha==0 uses EXACT equality (C = 0, bit-reproducible).
+static void RunGoldenAndVerify(const StrmmParam& p, aclblasHandle_t handle,
+    const float* alphaPtr, const float* aPtr, const float* bPtr, float* cPtr)
+{
+    std::vector<float> cGolden = std::vector<float>(static_cast<size_t>(p.ldc) * static_cast<size_t>(p.n), 0.0f);
+    float* goldPtr = cGolden.empty() ? nullptr : cGolden.data();
+
+    aclblasStatus_t goldenRet = aclblasStrmm_cpu(
+        handle,
+        p.side, p.uplo, p.trans, p.diag, p.m, p.n,
+        alphaPtr, aPtr, p.lda, bPtr, p.ldb, goldPtr, p.ldc);
+    if (goldenRet != ACLBLAS_STATUS_SUCCESS) {
+        EXPECT_EQ(goldenRet, ACLBLAS_STATUS_SUCCESS) << "golden computation failed";
+        return;
+    }
+
+    const size_t cCount = static_cast<size_t>(p.ldc) * static_cast<size_t>(p.n);
+    if (cCount == 0) return;
+
+    VerifyConfig cfg;
+    if (p.alpha == 0.0f) {
+        cfg.mode = PrecisionMode::EXACT;
+    } else {
+        applyMixedTolerance(cfg, ACL_FLOAT, goldPtr, cCount);
+    }
+    EXPECT_TRUE(Verifier::verifyVector(cPtr, goldPtr, cCount, 1, cfg, p.caseName));
+}
+
 TEST_P(StrmmArch35Test, CsvDriven)
 {
     const auto& p = GetParam();
     const int aDim = (p.side == ACLBLAS_SIDE_LEFT) ? p.m : p.n;
 
-    std::vector<float> aHost = MakeTriMatrix(aDim, p.lda, p.uplo, p.randomSeed);
-    std::vector<float> bHost = MakeMatrix(p.m, p.n, p.ldb, p.randomSeed + 1);
-    ApplySpecialValues(p.description, aHost, bHost);
-
-    const float* alphaPtr = p.nullAlpha ? nullptr : &p.alpha;
-    const float* aPtr     = p.nullA ? nullptr : (aHost.empty() ? nullptr : aHost.data());
-    const float* bPtr     = p.nullB ? nullptr : (bHost.empty() ? nullptr : bHost.data());
+    std::vector<float> aHost, bHost;
+    const float* alphaPtr = nullptr;
+    const float* aPtr = nullptr;
+    const float* bPtr = nullptr;
+    bool alphaOnDevice = false;
+    PrepareTestData(p, aDim, aHost, bHost, alphaPtr, aPtr, bPtr, alphaOnDevice);
 
     if (p.m <= 0 || p.n <= 0 || p.lda <= 0 || p.ldb <= 0 || p.ldc <= 0) {
         float dummy = 0.0f;
@@ -102,13 +204,19 @@ TEST_P(StrmmArch35Test, CsvDriven)
         return;
     }
 
-    std::vector<float> cHost = std::vector<float>(static_cast<size_t>(p.m) * static_cast<size_t>(p.ldc), 0.0f);
+    std::vector<float> cHost(static_cast<size_t>(p.ldc) * static_cast<size_t>(p.n), 0.0f);
     float* cPtr = p.nullC ? nullptr : cHost.data();
+
+    if (p.alpha == 0.0f && !p.nullAlpha && (p.nullA || p.nullB)) {
+        HandleAlphaZeroNullAB(p, StrmmArch35Test::handle_, alphaPtr, aPtr, bPtr, cPtr, alphaOnDevice);
+        return;
+    }
 
     aclblasStatus_t ret = aclblasStrmm_npu(
         StrmmArch35Test::handle_,
         p.side, p.uplo, p.trans, p.diag, p.m, p.n,
-        alphaPtr, aPtr, p.lda, bPtr, p.ldb, cPtr, p.ldc);
+        alphaPtr, aPtr, p.lda, bPtr, p.ldb, cPtr, p.ldc,
+        alphaOnDevice);
 
     if (p.expectResult != ACLBLAS_STATUS_SUCCESS) {
         EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
@@ -116,26 +224,5 @@ TEST_P(StrmmArch35Test, CsvDriven)
     }
     ASSERT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
 
-    std::vector<float> cGolden = std::vector<float>(static_cast<size_t>(p.m) * static_cast<size_t>(p.ldc), 0.0f);
-    float* goldPtr = cGolden.empty() ? nullptr : cGolden.data();
-
-    aclblasStatus_t goldenRet = aclblasStrmm_cpu(
-        StrmmArch35Test::handle_,
-        p.side, p.uplo, p.trans, p.diag, p.m, p.n,
-        alphaPtr, aPtr, p.lda, bPtr, p.ldb, goldPtr, p.ldc);
-    if (goldenRet != ACLBLAS_STATUS_SUCCESS) {
-        EXPECT_EQ(goldenRet, ACLBLAS_STATUS_SUCCESS) << "golden computation failed";
-        return;
-    }
-
-    const size_t cCount = static_cast<size_t>(p.m) * static_cast<size_t>(p.ldc);
-    if (cCount == 0) return;
-
-    VerifyConfig cfg;
-    cfg.mode           = PrecisionMode::MERE_MARE;
-    constexpr double kDefaultMereThreshold = 1.0 / 8192.0;
-    constexpr double kDefaultMareMultiplier = 10.0;
-    cfg.mereThreshold  = (p.mereThreshold > 0.0) ? p.mereThreshold : kDefaultMereThreshold;
-    cfg.mareMultiplier = (p.mareMultiplier > 0.0) ? p.mareMultiplier : kDefaultMareMultiplier;
-    EXPECT_TRUE(Verifier::verifyVector(cPtr, goldPtr, cCount, 1, cfg, p.caseName));
+    RunGoldenAndVerify(p, StrmmArch35Test::handle_, alphaPtr, aPtr, bPtr, cPtr);
 }

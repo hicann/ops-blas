@@ -30,26 +30,29 @@ static inline void FreeDev(void* dPtr)
     if (dPtr) aclrtFree(dPtr);
 }
 
+// Column-major B→C copy: B and C are both ldb/ldc × n (column stride × n cols).
+// When ldb==ldc the entire ldb*n block is copied in one D2D transfer.
+// Otherwise each column (m elements) is copied individually.
 static inline aclblasStatus_t StrmmCopyB2C(void* dC, const void* dB,
-    int m, int n, int ldb, int ldc, size_t cBytes, size_t bBytes)
+    int m, int n, int ldb, int ldc, size_t cBytes, size_t bBytes, aclrtStream stream)
 {
     if (ldb == ldc) {
-        if (aclrtMemcpy(dC, cBytes, dB, bBytes, ACL_MEMCPY_DEVICE_TO_DEVICE) != ACL_SUCCESS) {
+        if (aclrtMemcpyAsync(dC, cBytes, dB, bBytes, ACL_MEMCPY_DEVICE_TO_DEVICE, stream) != ACL_SUCCESS) {
             return ACLBLAS_STATUS_EXECUTION_FAILED;
         }
         return ACLBLAS_STATUS_SUCCESS;
     }
-    if (aclrtMemset(dC, cBytes, 0, cBytes) != ACL_SUCCESS) {
+    if (aclrtMemsetAsync(dC, cBytes, 0, cBytes, stream) != ACL_SUCCESS) {
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
-    size_t rowBytes = static_cast<size_t>(n) * sizeof(float);
-    for (int i = 0; i < m; ++i) {
-        size_t offset = static_cast<size_t>(i) * static_cast<size_t>(ldc) * sizeof(float);
-        if (aclrtMemcpy(static_cast<float*>(dC) + static_cast<size_t>(i) * ldc,
+    size_t colBytes = static_cast<size_t>(m) * sizeof(float);
+    for (int j = 0; j < n; ++j) {
+        size_t offset = static_cast<size_t>(j) * static_cast<size_t>(ldc) * sizeof(float);
+        if (aclrtMemcpyAsync(static_cast<float*>(dC) + static_cast<size_t>(j) * ldc,
                 cBytes - offset,
-                static_cast<const float*>(dB) + static_cast<size_t>(i) * ldb,
-                rowBytes,
-                ACL_MEMCPY_DEVICE_TO_DEVICE) != ACL_SUCCESS) {
+                static_cast<const float*>(dB) + static_cast<size_t>(j) * ldb,
+                colBytes,
+                ACL_MEMCPY_DEVICE_TO_DEVICE, stream) != ACL_SUCCESS) {
             return ACLBLAS_STATUS_EXECUTION_FAILED;
         }
     }
@@ -72,6 +75,57 @@ static inline aclblasStatus_t StrmmSyncAndCopyD2H(aclblasHandle handle,
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+// Device buffer bundle for strmm: A, B, C and optional device-side alpha.
+struct StrmmDevBuffers {
+    void* dA;
+    void* dB;
+    void* dC;
+    void* dAlpha;
+};
+
+// Allocates and H2D-copies A/B, allocates C, and optionally copies alpha to
+// device. On any failure all previously allocated buffers are freed and
+// ACLBLAS_STATUS_ALLOC_FAILED is returned.
+static inline aclblasStatus_t AllocStrmmDevBuffers(
+    StrmmDevBuffers& bufs, const float* A, const float* B,
+    size_t aBytes, size_t bBytes, size_t cBytes,
+    bool alphaOnDevice, const float* alpha)
+{
+    bufs.dA = nullptr;
+    bufs.dB = nullptr;
+    bufs.dC = nullptr;
+    bufs.dAlpha = nullptr;
+    if (AllocCopyH2D(bufs.dA, A, aBytes) != ACL_SUCCESS) {
+        return ACLBLAS_STATUS_ALLOC_FAILED;
+    }
+    if (AllocCopyH2D(bufs.dB, B, bBytes) != ACL_SUCCESS) {
+        FreeDev(bufs.dA);
+        return ACLBLAS_STATUS_ALLOC_FAILED;
+    }
+    if (aclrtMalloc(&bufs.dC, cBytes, ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
+        FreeDev(bufs.dA);
+        FreeDev(bufs.dB);
+        return ACLBLAS_STATUS_ALLOC_FAILED;
+    }
+    if (alphaOnDevice) {
+        if (AllocCopyH2D(bufs.dAlpha, alpha, sizeof(float)) != ACL_SUCCESS) {
+            FreeDev(bufs.dA);
+            FreeDev(bufs.dB);
+            FreeDev(bufs.dC);
+            return ACLBLAS_STATUS_ALLOC_FAILED;
+        }
+    }
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+static inline void FreeStrmmDevBuffers(StrmmDevBuffers& bufs)
+{
+    FreeDev(bufs.dA);
+    FreeDev(bufs.dB);
+    FreeDev(bufs.dC);
+    FreeDev(bufs.dAlpha);
+}
+
 inline aclblasStatus_t aclblasStrmm_npu(
     aclblasHandle handle,
     aclblasSideMode_t side,
@@ -86,51 +140,54 @@ inline aclblasStatus_t aclblasStrmm_npu(
     const float* B,
     int ldb,
     float* C,
-    int ldc)
+    int ldc,
+    bool alphaOnDevice = false)
 {
     const int aDim = (side == ACLBLAS_SIDE_LEFT) ? m : n;
     if (handle == nullptr || m <= 0 || n <= 0 ||
         alpha == nullptr || A == nullptr || B == nullptr || C == nullptr ||
         (side != ACLBLAS_SIDE_LEFT && side != ACLBLAS_SIDE_RIGHT) ||
-        lda < aDim || ldb < n || ldc < n) {
+        lda < aDim || ldb < m || ldc < m) {
         return aclblasStrmm(handle, side, uplo, trans, diag, m, n, alpha, A, lda, B, ldb, C, ldc);
     }
 
+    // Column-major buffer sizes: A is lda×aDim, B is ldb×n, C is ldc×n.
     const size_t aBytes = static_cast<size_t>(aDim) * static_cast<size_t>(lda) * sizeof(float);
-    const size_t bBytes = static_cast<size_t>(m) * static_cast<size_t>(ldb) * sizeof(float);
-    const size_t cBytes = static_cast<size_t>(m) * static_cast<size_t>(ldc) * sizeof(float);
+    const size_t bBytes = static_cast<size_t>(ldb) * static_cast<size_t>(n) * sizeof(float);
+    const size_t cBytes = static_cast<size_t>(ldc) * static_cast<size_t>(n) * sizeof(float);
 
-    void* dA = nullptr;
-    void* dB = nullptr;
-    void* dC = nullptr;
+    StrmmDevBuffers bufs;
+    aclblasStatus_t allocSt = AllocStrmmDevBuffers(
+        bufs, A, B, aBytes, bBytes, cBytes, alphaOnDevice, alpha);
+    if (allocSt != ACLBLAS_STATUS_SUCCESS) {
+        return allocSt;
+    }
 
-    aclError aclRet = AllocCopyH2D(dA, A, aBytes);
-    if (aclRet != ACL_SUCCESS) return ACLBLAS_STATUS_ALLOC_FAILED;
-    aclRet = AllocCopyH2D(dB, B, bBytes);
-    if (aclRet != ACL_SUCCESS) { FreeDev(dA); return ACLBLAS_STATUS_ALLOC_FAILED; }
-    aclRet = aclrtMalloc(&dC, cBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) { FreeDev(dA); FreeDev(dB); return ACLBLAS_STATUS_ALLOC_FAILED; }
-
-    aclblasStatus_t cRet = StrmmCopyB2C(dC, dB, m, n, ldb, ldc, cBytes, bBytes);
+    aclrtStream stream = nullptr;
+    aclblasStatus_t getStreamRet = aclblasGetStream(handle, &stream);
+    if (getStreamRet != ACLBLAS_STATUS_SUCCESS) {
+        fprintf(stderr, "[WARN] strmm: aclblasGetStream failed, ret=%d, fallback to default stream\n",
+                static_cast<int>(getStreamRet));
+    }
+    aclblasStatus_t cRet = StrmmCopyB2C(bufs.dC, bufs.dB, m, n, ldb, ldc, cBytes, bBytes, stream);
     if (cRet != ACLBLAS_STATUS_SUCCESS) {
-        FreeDev(dA); FreeDev(dB); FreeDev(dC);
+        FreeStrmmDevBuffers(bufs);
         return cRet;
     }
 
+    const float* alphaArg = alphaOnDevice ? static_cast<const float*>(bufs.dAlpha) : alpha;
     aclblasStatus_t ret = aclblasStrmm(
         handle, side, uplo, trans, diag, m, n,
-        alpha,
-        static_cast<const float*>(dA), lda,
-        static_cast<const float*>(dB), ldb,
-        static_cast<float*>(dC), ldc);
+        alphaArg,
+        static_cast<const float*>(bufs.dA), lda,
+        static_cast<const float*>(bufs.dB), ldb,
+        static_cast<float*>(bufs.dC), ldc);
 
     if (ret == ACLBLAS_STATUS_SUCCESS) {
-        ret = StrmmSyncAndCopyD2H(handle, dC, C, cBytes);
+        ret = StrmmSyncAndCopyD2H(handle, bufs.dC, C, cBytes);
     }
 
-    FreeDev(dA);
-    FreeDev(dB);
-    FreeDev(dC);
+    FreeStrmmDevBuffers(bufs);
     return ret;
 }
 

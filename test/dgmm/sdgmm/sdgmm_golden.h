@@ -26,7 +26,7 @@ static inline aclblasStatus_t SdgmmValidateParams(
     if (mode != ACLBLAS_SIDE_LEFT && mode != ACLBLAS_SIDE_RIGHT) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (m < 0 || n < 0 || incx == 0) {
+    if (m < 0 || n < 0) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (lda < std::max(1, m) || ldc < std::max(1, m)) {

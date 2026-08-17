@@ -40,6 +40,6 @@
  * \param numBlocks block count for the <<<>>> launch
  * \param stream    aclrtStream handle
  */
-void sdgmm_kernel_do(GM_ADDR x, GM_ADDR A, GM_ADDR C,
+void sdgmm_kernel_do(const GM_ADDR x, const GM_ADDR A, GM_ADDR C,
                      const SdgmmTilingData& tiling,
                      uint32_t numBlocks, void* stream);

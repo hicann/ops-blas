@@ -15,9 +15,11 @@
 
 #include <cstdint>
 #include <algorithm>
+#include "acl/acl.h"
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "common/helper/host_utils.h"
+#include "common/helper/kernel_constant.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "strmm_tiling_data.h"
 
@@ -25,53 +27,35 @@ struct StrmmMirrorTilingData;
 void strmm_mirror_kernel_do(const uint8_t* gmA, uint8_t* gmWorkspaceA, const StrmmMirrorTilingData &tiling,
                               uint32_t numBlocks, void *stream);
 struct StrmmGemmTilingData;
-void strmm_gemm_kernel_do(const uint8_t* gmA, const uint8_t* gmB, uint8_t* gmTemp,
+void strmm_gemm_kernel_do(uint8_t* gmA, const uint8_t* gmB, uint8_t* gmTemp,
                             const StrmmGemmTilingData &tiling, uint32_t numBlocks, void *stream);
 struct StrmmScaleTilingData;
-void strmm_scale_kernel_do(const uint8_t* gmTemp, uint8_t* gmC, float alpha,
+void strmm_scale_kernel_do(const uint8_t* gmTemp, uint8_t* gmC, const uint8_t* gmAlpha,
                             const StrmmScaleTilingData &tiling, uint32_t numBlocks, void *stream);
 
 static aclblasStatus_t ValidateStrmmParams(
-    aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
-    aclblasDiagType_t diag, int m, int n,
+    aclblasSideMode_t side, int m, int n,
     int lda, int ldb, int ldc,
-    const float* alpha, const float* A, const float* B, float* C)
+    const float* alpha)
 {
-    CHECK_RET(
-        side == ACLBLAS_SIDE_LEFT || side == ACLBLAS_SIDE_RIGHT,
-        OP_LOGE("aclblasStrmm", "side must be LEFT or RIGHT, got %d", static_cast<int>(side));
-        return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(
-        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
-        OP_LOGE("aclblasStrmm", "uplo must be UPPER or LOWER, got %d", static_cast<int>(uplo));
-        return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(
-        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
-        OP_LOGE("aclblasStrmm", "trans must be N, T or C, got %d", static_cast<int>(trans));
-        return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(
-        diag == ACLBLAS_UNIT || diag == ACLBLAS_NON_UNIT,
-        OP_LOGE("aclblasStrmm", "diag must be UNIT or NON_UNIT, got %d", static_cast<int>(diag));
-        return ACLBLAS_STATUS_INVALID_VALUE);
-
     int dimA = (side == ACLBLAS_SIDE_LEFT) ? m : n;
+    int minLda = std::max(1, dimA);
+    int minLdb = std::max(1, m);
+    int minLdc = std::max(1, m);
     CHECK_RET(
-        lda >= dimA,
-        OP_LOGE("aclblasStrmm", "lda must be >= dimA, got lda=%d, dimA=%d", lda, dimA);
+        lda >= minLda,
+        OP_LOGE("aclblasStrmm", "lda must be >= max(1, dimA), got lda=%d, dimA=%d", lda, dimA);
         return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
-        ldb >= n,
-        OP_LOGE("aclblasStrmm", "ldb must be >= n, got ldb=%d, n=%d", ldb, n);
+        ldb >= minLdb,
+        OP_LOGE("aclblasStrmm", "ldb must be >= max(1, m), got ldb=%d, m=%d", ldb, m);
         return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
-        ldc >= n,
-        OP_LOGE("aclblasStrmm", "ldc must be >= n, got ldc=%d, n=%d", ldc, n);
+        ldc >= minLdc,
+        OP_LOGE("aclblasStrmm", "ldc must be >= max(1, m), got ldc=%d, m=%d", ldc, m);
         return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
         alpha != nullptr, OP_LOGE("aclblasStrmm", "alpha must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(A != nullptr, OP_LOGE("aclblasStrmm", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(B != nullptr, OP_LOGE("aclblasStrmm", "B must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(C != nullptr, OP_LOGE("aclblasStrmm", "C must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -88,6 +72,7 @@ static StrmmMirrorTilingData CalMirrorTilingData(
     tiling.dimA = (sideMode == ACLBLAS_SIDE_LEFT) ? m : n;
     tiling.mirrorRowsPerCore = CeilDiv<uint32_t>(tiling.dimA, usedAivCoreNum);
     tiling.lda = lda;
+    tiling.nthreads = std::min(CeilAlign<uint32_t>(tiling.mirrorRowsPerCore, SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
     return tiling;
 }
 
@@ -145,7 +130,7 @@ static StrmmGemmTilingData CalGemmTilingData(
 
 static StrmmScaleTilingData CalScaleTilingData(
     uint32_t usedAivCoreNum, uint32_t m, uint32_t n, uint32_t ldc,
-    uint32_t tempRowStride)
+    uint32_t tempRowStride, float alphaVal, uint32_t alphaIsDevice)
 {
     StrmmScaleTilingData tiling{};
     tiling.m = m;
@@ -154,21 +139,54 @@ static StrmmScaleTilingData CalScaleTilingData(
     tiling.tempRowStride = tempRowStride;
     tiling.usedAivCoreNum = usedAivCoreNum;
     tiling.scaleRowsPerCore = CeilDiv<uint32_t>(m, usedAivCoreNum);
+    tiling.alphaVal = alphaVal;
+    tiling.alphaIsDevice = alphaIsDevice;
+    tiling.nthreads = std::min(CeilAlign<uint32_t>(tiling.scaleRowsPerCore, SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
     return tiling;
 }
 
+static aclblasStatus_t ResolveStrmmScalars(const float* alpha,
+    float* alphaVal, bool* alphaIsDevice)
+{
+    aclblasStatus_t alphaLocSt = CheckPtrLocation(alpha, alphaIsDevice);
+    if (alphaLocSt != ACLBLAS_STATUS_SUCCESS) {
+        return alphaLocSt;
+    }
+    *alphaVal = *alphaIsDevice ? 0.0f : (*alpha);
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+// ==========================================================================
+// HandleStrmmAlphaZero — C = 0 when alpha == 0.
+// Called when host alpha==0 (fast path) or device alpha with null A/B
+// (assume alpha==0, the only valid BLAS scenario).
+// Uses aclrtMemsetAsync to zero the entire ldc×n C block asynchronously.
+// ==========================================================================
+static aclblasStatus_t HandleStrmmAlphaZero(
+    aclblasHandle_t handle, uint32_t m, uint32_t n, uint32_t ldc, float* C)
+{
+    auto* h = static_cast<_aclblas_handle*>(handle);
+    size_t cBytes = static_cast<size_t>(ldc) * static_cast<size_t>(n) * STRMM_ARCH35_FP32_SIZE;
+    aclError ret = aclrtMemsetAsync(C, cBytes, 0, cBytes, h->stream);
+    if (ret != ACL_SUCCESS) {
+        OP_LOGE("aclblasStrmm", "aclrtMemsetAsync failed, ret=%d", ret);
+        return ACLBLAS_STATUS_EXECUTION_FAILED;
+    }
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
 static aclblasStatus_t LaunchStrmmPipeline(
-    _aclblas_handle* h, const float* A, const float* B, const float* alpha, float* C,
-    uint32_t dimA, uint32_t uM,
+    _aclblas_handle* h, const float* A, const float* B, float* C,
+    uint32_t dimA, uint32_t uM, uint32_t uN,
     const StrmmMirrorTilingData& mirrorTiling, uint32_t usedAivCoreNum,
     const StrmmGemmTilingData& gemmTiling, uint32_t usedAicCoreNum,
     const StrmmScaleTilingData& scaleTiling, uint32_t usedAivCoreNumScale,
-    uint32_t uLda)
+    uint32_t uLda, const float* alphaPtr)
 {
     size_t workspaceASize = static_cast<size_t>(uLda) * static_cast<size_t>(dimA) * STRMM_ARCH35_FP32_SIZE;
     constexpr size_t GM_ALIGN = 32;
     size_t workspaceASizeAligned = (workspaceASize + GM_ALIGN - 1) / GM_ALIGN * GM_ALIGN;
-    size_t tempSize = static_cast<size_t>(uM) * static_cast<size_t>(gemmTiling.tempRowStride) * STRMM_ARCH35_FP32_SIZE;
+    size_t tempSize = static_cast<size_t>(uN) * static_cast<size_t>(gemmTiling.tempRowStride) * STRMM_ARCH35_FP32_SIZE;
     if (workspaceASizeAligned > SIZE_MAX - tempSize) {
         OP_LOGE("aclblasStrmm", "workspace size overflow: wsAligned=%zu, temp=%zu", workspaceASizeAligned, tempSize);
         return ACLBLAS_STATUS_INVALID_VALUE;
@@ -191,21 +209,92 @@ static aclblasStatus_t LaunchStrmmPipeline(
     strmm_gemm_kernel_do(
         workspaceADevice, reinterpret_cast<const uint8_t*>(B), tempDevice,
         gemmTiling, usedAicCoreNum, h->stream);
+    // Forward device alpha pointer verbatim; host-mode forwards nullptr
+    // (kernel reads the tiling scalar instead). See StrmmScaleTilingData flags.
     strmm_scale_kernel_do(
-        tempDevice, reinterpret_cast<uint8_t*>(C), *alpha,
+        tempDevice, reinterpret_cast<uint8_t*>(C),
+        reinterpret_cast<const uint8_t*>(alphaPtr),
         scaleTiling, usedAivCoreNumScale, h->stream);
 
     return ACLBLAS_STATUS_SUCCESS;
+}
+
+struct StrmmTilings {
+    StrmmMirrorTilingData mirror;
+    StrmmGemmTilingData gemm;
+    StrmmScaleTilingData scale;
+    uint32_t usedAivCoreNum;
+    uint32_t usedAicCoreNum;
+    uint32_t usedAivCoreNumScale;
+};
+
+static StrmmTilings CalStrmmTilings(
+    uint32_t aivCoreNum, uint32_t aicCoreNum,
+    aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
+    aclblasDiagType_t diag,
+    uint32_t uM, uint32_t uN, uint32_t uLda, uint32_t uLdb, uint32_t uLdc,
+    float alphaVal, uint32_t alphaIsDevice)
+{
+    StrmmTilings t;
+    uint32_t dimA = (side == ACLBLAS_SIDE_LEFT) ? uM : uN;
+    t.usedAivCoreNum = std::max<uint32_t>(std::min<uint32_t>(dimA, aivCoreNum), 1);
+    uint64_t tileCount = static_cast<uint64_t>(CeilDiv<uint32_t>(uM, STRMM_ARCH35_BASE_M))
+                       * static_cast<uint64_t>(CeilDiv<uint32_t>(uN, STRMM_ARCH35_BASE_N));
+    t.usedAicCoreNum = std::max<uint32_t>(std::min<uint64_t>(tileCount, aicCoreNum), 1);
+    t.usedAivCoreNumScale = std::max<uint32_t>(std::min<uint32_t>(uM, aivCoreNum), 1);
+
+    t.mirror = CalMirrorTilingData(
+        t.usedAivCoreNum, uM, uN, uLda,
+        static_cast<uint32_t>(side), static_cast<uint32_t>(uplo),
+        static_cast<uint32_t>(trans), static_cast<uint32_t>(diag));
+    // Column-major adaptation: GEMM kernel internally works in row-major. To compute the
+    // column-major result C(m×n), the GEMM kernel computes C^T (row-major n×m) by swapping
+    // m↔n and flipping side. This leverages two properties:
+    //   1. Column-major A in memory == row-major A^T: the mirror-filled workspaceA is
+    //      stored column-major, so the row-major GEMM kernel reads it as A^T (trans=N) or
+    //      (A^T)^T = A (trans=T).
+    //   2. Column-major B(m×n) in memory == row-major B^T(n×m): the row-major GEMM kernel
+    //      reads B as B^T, which is exactly what C^T = ... * B^T needs.
+    // After the swap, side=LEFT (A on the left) becomes side=RIGHT (A on the right)
+    // in the kernel's view, and vice versa. lda/ldb are NOT swapped: the GEMM kernel always
+    // accesses aGlobal (workspaceA) with tiling.lda and bGlobal (B) with tiling.ldb,
+    // regardless of which side each matrix is on. Since aGlobal always holds workspaceA and
+    // bGlobal always holds B, passing the original uLda/uLdb directly gives each matrix its
+    // correct leading dimension.
+    uint32_t gemmSide = (side == ACLBLAS_SIDE_LEFT) ? ACLBLAS_SIDE_RIGHT : ACLBLAS_SIDE_LEFT;
+    t.gemm = CalGemmTilingData(
+        t.usedAicCoreNum, uN, uM, gemmSide, uLda, uLdb);
+    t.scale = CalScaleTilingData(
+        t.usedAivCoreNumScale, uM, uN, uLdc, t.gemm.tempRowStride, alphaVal, alphaIsDevice);
+
+    OP_LOGD("aclblasStrmm",
+        "mirror tiling: side=%u uplo=%u trans=%u diag=%u aivCores=%u rowsPerCore=%u lda=%u dimA=%u",
+        t.mirror.sideMode, t.mirror.uploMode,
+        t.mirror.transMode, t.mirror.diagMode,
+        t.mirror.usedAivCoreNum, t.mirror.mirrorRowsPerCore, t.mirror.lda, t.mirror.dimA);
+    OP_LOGD("aclblasStrmm",
+        "gemm tiling: m=%u n=%u side=%u aicCores=%u singleCoreM=%u singleCoreN=%u "
+        "tileM=%u tileN=%u tileKChunk=%u lda=%u ldb=%u tempRowStride=%u",
+        t.gemm.m, t.gemm.n, t.gemm.sideMode, t.gemm.usedAicCoreNum,
+        t.gemm.singleCoreM, t.gemm.singleCoreN,
+        t.gemm.tileM, t.gemm.tileN, t.gemm.tileKChunk,
+        t.gemm.lda, t.gemm.ldb, t.gemm.tempRowStride);
+    OP_LOGD("aclblasStrmm",
+        "scale tiling: m=%u n=%u ldc=%u tempRowStride=%u aivCores=%u rowsPerCore=%u "
+        "alphaIsDevice=%u",
+        t.scale.m, t.scale.n, t.scale.ldc, t.scale.tempRowStride,
+        t.scale.usedAivCoreNum, t.scale.scaleRowsPerCore,
+        t.scale.alphaIsDevice);
+    return t;
 }
 
 static aclblasStatus_t ExecuteStrmmKernels(
     _aclblas_handle* h, aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
     aclblasDiagType_t diag,
     uint32_t uM, uint32_t uN, uint32_t uLda, uint32_t uLdb, uint32_t uLdc,
-    const float* A, const float* B, const float* alpha, float* C)
+    const float* A, const float* B, float alphaVal, float* C,
+    const float* alphaPtr, uint32_t alphaIsDevice)
 {
-    uint32_t dimA = (side == ACLBLAS_SIDE_LEFT) ? uM : uN;
-
     uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
         OP_LOGE("aclblasStrmm", "vector core count is 0");
@@ -217,44 +306,18 @@ static aclblasStatus_t ExecuteStrmmKernels(
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    uint32_t usedAivCoreNum = std::max<uint32_t>(std::min<uint32_t>(dimA, aivCoreNum), 1);
-    uint64_t tileCount = static_cast<uint64_t>(CeilDiv<uint32_t>(uM, STRMM_ARCH35_BASE_M))
-                       * static_cast<uint64_t>(CeilDiv<uint32_t>(uN, STRMM_ARCH35_BASE_N));
-    uint32_t usedAicCoreNum = std::max<uint32_t>(std::min<uint64_t>(tileCount, aicCoreNum), 1);
-    uint32_t usedAivCoreNumScale = std::max<uint32_t>(std::min<uint32_t>(uM, aivCoreNum), 1);
+    StrmmTilings t = CalStrmmTilings(aivCoreNum, aicCoreNum, side, uplo, trans, diag,
+        uM, uN, uLda, uLdb, uLdc, alphaVal, alphaIsDevice);
 
-    StrmmMirrorTilingData mirrorTiling = CalMirrorTilingData(
-        usedAivCoreNum, uM, uN, uLda,
-        static_cast<uint32_t>(side), static_cast<uint32_t>(uplo),
-        static_cast<uint32_t>(trans), static_cast<uint32_t>(diag));
-    StrmmGemmTilingData gemmTiling = CalGemmTilingData(
-        usedAicCoreNum, uM, uN, static_cast<uint32_t>(side), uLda, uLdb);
-    StrmmScaleTilingData scaleTiling = CalScaleTilingData(
-        usedAivCoreNumScale, uM, uN, uLdc, gemmTiling.tempRowStride);
+    OP_LOGI("aclblasStrmm", "launching mirror kernel: aivCores=%u", t.usedAivCoreNum);
+    OP_LOGI("aclblasStrmm", "launching gemm kernel: aicCores=%u", t.usedAicCoreNum);
+    OP_LOGI("aclblasStrmm", "launching scale kernel: aivCores=%u alphaIsDevice=%u",
+        t.usedAivCoreNumScale, alphaIsDevice);
 
-    OP_LOGD("aclblasStrmm",
-        "mirror tiling: side=%u uplo=%u trans=%u diag=%u aivCores=%u rowsPerCore=%u lda=%u dimA=%u",
-        mirrorTiling.sideMode, mirrorTiling.uploMode,
-        mirrorTiling.transMode, mirrorTiling.diagMode,
-        mirrorTiling.usedAivCoreNum, mirrorTiling.mirrorRowsPerCore, mirrorTiling.lda, mirrorTiling.dimA);
-    OP_LOGD("aclblasStrmm",
-        "gemm tiling: m=%u n=%u side=%u aicCores=%u singleCoreM=%u singleCoreN=%u "
-        "tileM=%u tileN=%u tileKChunk=%u lda=%u ldb=%u tempRowStride=%u",
-        gemmTiling.m, gemmTiling.n, gemmTiling.sideMode, gemmTiling.usedAicCoreNum,
-        gemmTiling.singleCoreM, gemmTiling.singleCoreN,
-        gemmTiling.tileM, gemmTiling.tileN, gemmTiling.tileKChunk,
-        gemmTiling.lda, gemmTiling.ldb, gemmTiling.tempRowStride);
-    OP_LOGD("aclblasStrmm",
-        "scale tiling: m=%u n=%u ldc=%u tempRowStride=%u aivCores=%u rowsPerCore=%u",
-        scaleTiling.m, scaleTiling.n, scaleTiling.ldc, scaleTiling.tempRowStride,
-        scaleTiling.usedAivCoreNum, scaleTiling.scaleRowsPerCore);
-    OP_LOGI("aclblasStrmm", "launching mirror kernel: aivCores=%u", usedAivCoreNum);
-    OP_LOGI("aclblasStrmm", "launching gemm kernel: aicCores=%u", usedAicCoreNum);
-    OP_LOGI("aclblasStrmm", "launching scale kernel: aivCores=%u", usedAivCoreNumScale);
-
-    return LaunchStrmmPipeline(h, A, B, alpha, C, dimA, uM,
-        mirrorTiling, usedAivCoreNum, gemmTiling, usedAicCoreNum,
-        scaleTiling, usedAivCoreNumScale, uLda);
+    uint32_t dimA = (side == ACLBLAS_SIDE_LEFT) ? uM : uN;
+    return LaunchStrmmPipeline(h, A, B, C, dimA, uM, uN,
+        t.mirror, t.usedAivCoreNum, t.gemm, t.usedAicCoreNum,
+        t.scale, t.usedAivCoreNumScale, uLda, alphaPtr);
 }
 
 aclblasStatus_t aclblasStrmm(
@@ -273,32 +336,69 @@ aclblasStatus_t aclblasStrmm(
     float* C,
     int ldc)
 {
+    // Correct validation order — handle, enums, m/n before quick return.
+    // This ensures invalid handle/enums are caught even when m==0 or n==0.
+    CHECK_RET(
+        handle != nullptr, OP_LOGE("aclblasStrmm", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(
+        side == ACLBLAS_SIDE_LEFT || side == ACLBLAS_SIDE_RIGHT,
+        OP_LOGE("aclblasStrmm", "side must be LEFT or RIGHT, got %d", static_cast<int>(side));
+        return ACLBLAS_STATUS_INVALID_ENUM);
+    CHECK_RET(
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasStrmm", "uplo must be UPPER or LOWER, got %d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_ENUM);
+    CHECK_RET(
+        trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_T || trans == ACLBLAS_OP_C,
+        OP_LOGE("aclblasStrmm", "trans must be N, T or C, got %d", static_cast<int>(trans));
+        return ACLBLAS_STATUS_INVALID_ENUM);
+    CHECK_RET(
+        diag == ACLBLAS_UNIT || diag == ACLBLAS_NON_UNIT,
+        OP_LOGE("aclblasStrmm", "diag must be UNIT or NON_UNIT, got %d", static_cast<int>(diag));
+        return ACLBLAS_STATUS_INVALID_ENUM);
     CHECK_RET(m >= 0, OP_LOGE("aclblasStrmm", "m must be >= 0, got %d", m); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(n >= 0, OP_LOGE("aclblasStrmm", "n must be >= 0, got %d", n); return ACLBLAS_STATUS_INVALID_VALUE);
+
+    // Quick return: m==0 or n==0 — no pointer/ld validation needed (BLAS standard).
     if (m == 0 || n == 0) {
         return ACLBLAS_STATUS_SUCCESS;
     }
-    CHECK_RET(
-        handle != nullptr, OP_LOGE("aclblasStrmm", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
-    aclblasStatus_t st = ValidateStrmmParams(side, uplo, trans, diag, m, n, lda, ldb, ldc, alpha, A, B, C);
+
+    // Validate ld and alpha (side/uplo/trans/diag already checked above).
+    // A/B/C pointers are validated after alpha resolution below.
+    aclblasStatus_t st = ValidateStrmmParams(side, m, n, lda, ldb, ldc, alpha);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
     }
 
-    auto* h = static_cast<_aclblas_handle*>(handle);
-
-    if (*alpha == 0.0f) {
-        size_t cBytes = static_cast<size_t>(m) * static_cast<size_t>(ldc) * sizeof(float);
-        aclError aclRet = aclrtMemsetAsync(C, cBytes, 0, cBytes, h->stream);
-        if (aclRet != ACL_SUCCESS) {
-            OP_LOGE("aclblasStrmm", "aclrtMemsetAsync failed for alpha=0, ret=%d", aclRet);
-            return ACLBLAS_STATUS_INTERNAL_ERROR;
-        }
-        return ACLBLAS_STATUS_SUCCESS;
+    // Resolve alpha scalar before alpha==0 check: if alpha is a device pointer
+    // the host cannot dereference it.
+    float alphaVal;
+    bool alphaIsDevice;
+    aclblasStatus_t scalarSt = ResolveStrmmScalars(alpha, &alphaVal, &alphaIsDevice);
+    if (scalarSt != ACLBLAS_STATUS_SUCCESS) {
+        return scalarSt;
     }
 
-    return ExecuteStrmmKernels(h, side, uplo, trans, diag,
+    CHECK_RET(C != nullptr, OP_LOGE("aclblasStrmm", "C must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+
+    // BLAS: if alpha == 0 then A and B need not be set.
+    // Host alpha==0: memset C and return (fast path).
+    // Device alpha with null A/B: the only valid BLAS scenario is alpha==0
+    // (alpha!=0 with null A/B is a contract violation). Since host can't read
+    // device alpha, assume alpha==0 and memset C.
+    if ((!alphaIsDevice && alphaVal == 0.0f) || (alphaIsDevice && (A == nullptr || B == nullptr))) {
+        return HandleStrmmAlphaZero(handle, static_cast<uint32_t>(m), static_cast<uint32_t>(n),
+            static_cast<uint32_t>(ldc), C);
+    }
+
+    CHECK_RET(A != nullptr, OP_LOGE("aclblasStrmm", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(B != nullptr, OP_LOGE("aclblasStrmm", "B must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
+
+    const float* alphaFwd = alphaIsDevice ? alpha : nullptr;
+
+    return ExecuteStrmmKernels(handle, side, uplo, trans, diag,
         static_cast<uint32_t>(m), static_cast<uint32_t>(n),
         static_cast<uint32_t>(lda), static_cast<uint32_t>(ldb), static_cast<uint32_t>(ldc),
-        A, B, alpha, C);
+        A, B, alphaVal, C, alphaFwd, alphaIsDevice ? 1U : 0U);
 }

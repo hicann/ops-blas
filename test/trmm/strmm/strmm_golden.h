@@ -30,23 +30,37 @@ inline aclblasStatus_t aclblasStrmm_cpu(
 {
     if (m == 0 || n == 0) return ACLBLAS_STATUS_SUCCESS;
     if (handle == nullptr) return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
-    if (alpha == nullptr || A == nullptr || B == nullptr || C == nullptr)
+    if (alpha == nullptr || C == nullptr)
         return ACLBLAS_STATUS_INVALID_VALUE;
 
-    size_t cBytes = static_cast<size_t>(m) * static_cast<size_t>(ldc) * sizeof(float);
-    size_t rowBytes = static_cast<size_t>(n) * sizeof(float);
+    // alpha==0 fast path: C = 0 regardless of A/B. Allows null A/B when alpha==0
+    // and zeros padding to match the NPU fast path (bit-reproducible).
+    if (*alpha == 0.0f) {
+        size_t cBytes = static_cast<size_t>(ldc) * static_cast<size_t>(n) * sizeof(float);
+        if (memset_s(C, cBytes, 0, cBytes) != EOK) return ACLBLAS_STATUS_INTERNAL_ERROR;
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    if (A == nullptr || B == nullptr)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+
+    // Column-major: C is ldc×n (ldc = column stride, n columns, m rows).
+    // B→C copy is column-by-column; when ldb==ldc the whole ldb*n block can be
+    // copied in one shot.
+    size_t cBytes = static_cast<size_t>(ldc) * static_cast<size_t>(n) * sizeof(float);
+    size_t colBytes = static_cast<size_t>(m) * sizeof(float);
     if (ldc == ldb) {
         if (memcpy_s(C, cBytes, B, cBytes) != EOK) return ACLBLAS_STATUS_INTERNAL_ERROR;
     } else {
-        for (int i = 0; i < m; ++i) {
-            size_t dstOffset = static_cast<size_t>(i) * static_cast<size_t>(ldc);
+        for (int j = 0; j < n; ++j) {
+            size_t dstOffset = static_cast<size_t>(j) * static_cast<size_t>(ldc);
             size_t dstRemain = cBytes - dstOffset * sizeof(float);
-            if (memcpy_s(C + dstOffset, dstRemain, B + static_cast<size_t>(i) * ldb, rowBytes) != EOK) {
+            if (memcpy_s(C + dstOffset, dstRemain, B + static_cast<size_t>(j) * ldb, colBytes) != EOK) {
                 return ACLBLAS_STATUS_INTERNAL_ERROR;
             }
         }
     }
-    cblas_strmm(CblasRowMajor, ToCblasSide(side), ToCblasUplo(uplo),
+    cblas_strmm(CblasColMajor, ToCblasSide(side), ToCblasUplo(uplo),
         ToCblasOp(trans), ToCblasDiag(diag),
         m, n, *alpha, A, lda, C, ldc);
     return ACLBLAS_STATUS_SUCCESS;

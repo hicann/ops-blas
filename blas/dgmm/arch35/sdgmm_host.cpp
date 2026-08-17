@@ -44,10 +44,6 @@ static aclblasStatus_t ValidateSdgmmParams(
         OP_LOGE("aclblasSdgmm", "n must be >= 0, got %d", n);
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (incx == 0) {
-        OP_LOGE("aclblasSdgmm", "incx must not be zero");
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    }
     if (lda < std::max(1, m)) {
         OP_LOGE("aclblasSdgmm", "lda must be >= max(1, m), got lda=%d, m=%d", lda, m);
         return ACLBLAS_STATUS_INVALID_VALUE;
@@ -157,8 +153,8 @@ static aclblasStatus_t LaunchSdgmmKernel(
     // pointer without pre-offsetting. This avoids tensor negative-index access
     // and the -incx overflow risk that the pre-offset approach had.
 
-    sdgmm_kernel_do(reinterpret_cast<GM_ADDR>(const_cast<float*>(x)),
-                    reinterpret_cast<GM_ADDR>(const_cast<float*>(A)),
+    sdgmm_kernel_do(reinterpret_cast<const GM_ADDR>(x),
+                    reinterpret_cast<const GM_ADDR>(A),
                     reinterpret_cast<GM_ADDR>(C),
                     tiling, numBlocks, stream);
     return ACLBLAS_STATUS_SUCCESS;
@@ -189,6 +185,6 @@ extern "C" aclblasStatus_t aclblasSdgmm(
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    auto* h = handle;
+    auto* h = static_cast<_aclblas_handle*>(handle);
     return LaunchSdgmmKernel(mode, m, n, A, lda, x, incx, C, ldc, aivCoreNum, h->stream);
 }
