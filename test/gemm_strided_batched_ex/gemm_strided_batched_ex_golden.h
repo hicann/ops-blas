@@ -36,8 +36,8 @@ inline void GemmStridedBatchedExGolden(const GemmStridedBatchedExParam& p, const
             for (int col = 0; col < p.n; ++col) {
                 for (int row = 0; row < p.m; ++row) {
                     const size_t offset = static_cast<size_t>(col) * p.ldc + row;
-                    cBatch[offset] =
-                        ApplyBatchedAlphaBetaAndQuantize(0.0, cBatch[offset], 1.0f, 0.0f, p.Atype, p.Btype, p.Ctype);
+                    cBatch[offset] = ApplyBatchedAlphaBetaAndQuantize(
+                        static_cast<double>(cBatch[offset]), 0.0f, 1.0f, 0.0f, p.Atype, p.Btype, p.Ctype);
                 }
             }
         }

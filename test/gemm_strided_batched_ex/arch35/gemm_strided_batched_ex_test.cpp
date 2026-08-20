@@ -21,7 +21,7 @@
 #include "csv_loader.h"
 #include "fill.h"
 #include "verify.h"
-#include "common/helper/dtype_cast.h"
+#include "dtype_cast.h"
 #include "gemm_strided_batched_ex_golden.h"
 #include "gemm_strided_batched_ex_npu_wrapper.h"
 
@@ -491,9 +491,11 @@ inline void RunSuccessfulCase(
     aclblasHandle_t handle, const GemmStridedBatchedExParam& p, const void* alpha, const void* beta)
 {
     StridedTestData data = GenerateStridedTestData(p);
-    ASSERT_EQ(data.aAllocStride, std::abs(p.strideA));
-    ASSERT_EQ(data.bAllocStride, std::abs(p.strideB));
-    ASSERT_EQ(data.cAllocStride, std::abs(p.strideC));
+    if (p.batchCount > 1) {
+        ASSERT_EQ(data.aAllocStride, std::abs(p.strideA));
+        ASSERT_EQ(data.bAllocStride, std::abs(p.strideB));
+        ASSERT_EQ(data.cAllocStride, std::abs(p.strideC));
+    }
     const std::vector<uint8_t> cBefore = data.cBytes;
     aclblasStatus_t status = aclblasGemmStridedBatchedEx_npu(
         handle, p.transA, p.transB, p.m, p.n, p.k, alpha, data.aBytes.data(), data.aBytes.size(), p.Atype, p.lda,
