@@ -23,6 +23,13 @@ constexpr uint32_t SINGLE_CORE_N_THRESHOLD = 1;
 constexpr uint32_t AUX_MIN_ELEMS_PER_BLOCK = 1024;
 constexpr uint32_t BLOCKED_THRESHOLD = 128;
 constexpr uint32_t SIMT_BLOCKED_N_THRESHOLD = 256;
+constexpr uint32_t GEMM_L1_SIZE_BYTES = 512 * 1024;
+constexpr uint32_t GEMM_L1_BUF_NUM = 2;
+constexpr uint32_t GEMM_FRACTAL = 16;
+constexpr uint32_t GEMM_FP32_C0 = 8;
+// Reserve 10% L1 headroom for NDExtLayout padding and other non-accounted overhead.
+constexpr uint32_t GEMM_L1_SAFE_HEADROOM_PERCENT = 10;
+constexpr uint32_t GEMM_L1_FULL_PERCENT = 100;
 
 static uint32_t CalcAuxNumBlocks(uint64_t totalElems, uint32_t aivCoreNum)
 {
@@ -96,18 +103,40 @@ static uint32_t ChooseTileK(uint32_t k)
     return 128;
 }
 
+// Max tileK in {128,64,32,16,8} that fits L1 double-buffer for given (tileM, tileN).
+// Returns 0 if even tileK=8 overflows (candidate is invalid).
+static uint32_t MaxTileKByL1(uint32_t tileM, uint32_t tileN)
+{
+    const uint32_t candidates[] = {128, 64, 32, 16, 8};
+    constexpr uint32_t numCandidates = sizeof(candidates) / sizeof(candidates[0]);
+    for (uint32_t i = 0; i < numCandidates; i++) {
+        uint32_t tk = candidates[i];
+        uint32_t aSide = CeilAlign<uint32_t>(tileM, GEMM_FRACTAL)
+            * CeilAlign<uint32_t>(tk, GEMM_FP32_C0) * sizeof(float);
+        uint32_t bSide = CeilAlign<uint32_t>(tk, GEMM_FP32_C0)
+            * CeilAlign<uint32_t>(tileN, GEMM_FRACTAL) * sizeof(float);
+        if (GEMM_L1_BUF_NUM * (aSide + bSide) <=
+            GEMM_L1_SIZE_BYTES * (GEMM_L1_FULL_PERCENT - GEMM_L1_SAFE_HEADROOM_PERCENT) / GEMM_L1_FULL_PERCENT) {
+            return tk;
+        }
+    }
+    return 0;
+}
+
 static void ChooseGemmTileMN(uint32_t gemmM, uint32_t gemmN, uint32_t aicCoreNum,
     uint32_t& tileM, uint32_t& tileN)
 {
-    const uint32_t candidates[4] = {128, 64, 32, 16};
+    const uint32_t candidates[] = {256, 128, 64, 32, 16};
+    constexpr uint32_t numCandidates = sizeof(candidates) / sizeof(candidates[0]);
     uint32_t bestM = 16;
     uint32_t bestN = 16;
     uint64_t bestTiles = 0;
     bool found = false;
-    for (uint32_t i = 0; i < 4; i++) {
-        for (uint32_t j = 0; j < 4; j++) {
+    for (uint32_t i = 0; i < numCandidates; i++) {
+        for (uint32_t j = 0; j < numCandidates; j++) {
             uint32_t tm = candidates[i];
             uint32_t tn = candidates[j];
+            if (MaxTileKByL1(tm, tn) == 0) continue;
             uint64_t tiles = CeilDiv<uint64_t>(gemmM, tm) * CeilDiv<uint64_t>(gemmN, tn);
             if (tiles >= aicCoreNum) {
                 if (!found || static_cast<uint64_t>(tm) * tn > static_cast<uint64_t>(bestM) * bestN) {
@@ -139,7 +168,8 @@ static StrsmGemmTilingData CalcGemmTiling(uint32_t gemmM, uint32_t gemmN, uint32
     t.aOffset = aOffset;
     t.bOffset = bOffset;
     ChooseGemmTileMN(gemmM, gemmN, aicCoreNum, t.tileM, t.tileN);
-    t.tileKChunk = ChooseTileK(bs);
+    uint32_t maxKByL1 = MaxTileKByL1(t.tileM, t.tileN);
+    t.tileKChunk = ChooseTileK(std::min<uint32_t>(maxKByL1, bs));
     t.tempRowStride = tempRowStride;
     return t;
 }
@@ -437,25 +467,10 @@ static aclblasStatus_t StrsmLeftDispatch(
 {
 #if ASC_DEVKIT_GE_9_1
     uint32_t mU32 = static_cast<uint32_t>(m);
-    uint32_t panelBs = ChoosePanelSize(mU32);
-    if (panelBs == 0) {
-        OP_LOGE("aclblasStrsm", "invalid panelBs=0");
-        return ACLBLAS_STATUS_INTERNAL_ERROR;
-    }
-    bool bsTailMisalign = (mU32 % panelBs) % 8u != 0;
-    bool strideMisalign = (static_cast<uint32_t>(lda) % 8u) || (static_cast<uint32_t>(ldb) % 8u);
-    bool isTrans = (trans != ACLBLAS_OP_N);
-    bool blockedGemmUnsafe = bsTailMisalign || (!isTrans && strideMisalign);
-
-    if (mU32 <= BLOCKED_THRESHOLD) {
-        if (static_cast<uint32_t>(n) >= SIMT_BLOCKED_N_THRESHOLD && !blockedGemmUnsafe) {
-            return StrsmLeftBlockedPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
-        }
-        return StrsmLeftSimtPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
-    }
-    if (blockedGemmUnsafe) {
-        OP_LOGI("aclblasStrsm", "fallback to SIMT path due to GEMM alignment: m=%d, n=%d, lda=%d, ldb=%d, trans=%d",
-            m, n, lda, ldb, static_cast<int>(trans));
+    uint32_t nU32 = static_cast<uint32_t>(n);
+    bool useBlockedPath = (mU32 > BLOCKED_THRESHOLD) ||
+                          (mU32 <= BLOCKED_THRESHOLD && nU32 >= SIMT_BLOCKED_N_THRESHOLD);
+    if (!useBlockedPath) {
         return StrsmLeftSimtPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
     }
     return StrsmLeftBlockedPath(h, uplo, trans, diag, m, n, lda, ldb, alpha, A, B, aivCoreNum);
