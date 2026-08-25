@@ -196,7 +196,7 @@ aclblasStatus_t aclblasLtMatmulDescSetAttribute(
 aclblasStatus_t aclblasLtMatmulDescGetAttribute(
     aclblasLtMatmulDesc_t desc, aclblasLtMatmulDescAttribute_t attr, void* buf, size_t sizeInBytes, size_t* sizeWritten)
 {
-    if (desc == nullptr || buf == nullptr) {
+    if (desc == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 

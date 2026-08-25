@@ -127,7 +127,7 @@ aclblasStatus_t aclblasLtMatmulPreferenceGetAttribute(
     aclblasLtMatmulPreference_t pref, aclblasLtMatmulPreferenceAttribute_t attr, void* buf, size_t sizeInBytes,
     size_t* sizeWritten)
 {
-    if (pref == nullptr || buf == nullptr) {
+    if (pref == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 

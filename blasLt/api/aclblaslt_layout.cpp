@@ -53,7 +53,12 @@ inline aclblasStatus_t StoreLayoutFieldOut(void* buf, size_t sizeInBytes, const 
     if (sizeWritten != nullptr) {
         *sizeWritten = requiredSize;
     }
-    if (sizeInBytes < requiredSize) {
+    // Probe mode: sizeInBytes == 0, user queries required buffer size.
+    if (sizeInBytes == 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    // Error: buf is null with nonzero size, or buffer too small.
+    if (buf == nullptr || sizeInBytes < requiredSize) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     *reinterpret_cast<T*>(buf) = field;
@@ -182,7 +187,7 @@ aclblasStatus_t aclblasLtMatrixLayoutGetAttribute(
     const aclblasLtMatrixLayout_t layout, aclblasLtMatrixLayoutAttribute_t attr, void* buf, size_t sizeInBytes,
     size_t* sizeWritten)
 {
-    if (layout == nullptr || buf == nullptr) {
+    if (layout == nullptr) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 

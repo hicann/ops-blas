@@ -64,20 +64,18 @@ inline aclblasStatus_t PackImplIntoCapsule(void* capsule, size_t capsuleBytes, c
 inline aclblasStatus_t CopyAttributeOut(
     void* buf, size_t sizeInBytes, const void* src, size_t requiredSize, size_t* sizeWritten)
 {
-    if (sizeInBytes < requiredSize) {
-        if (sizeWritten != nullptr) {
-            *sizeWritten = requiredSize;
-        }
-        return ACLBLAS_STATUS_INVALID_VALUE;
-    }
-    aclblasStatus_t copyStatus = CheckedMemcpyS(buf, sizeInBytes, src, requiredSize);
-    if (copyStatus != ACLBLAS_STATUS_SUCCESS) {
-        return copyStatus;
-    }
     if (sizeWritten != nullptr) {
         *sizeWritten = requiredSize;
     }
-    return ACLBLAS_STATUS_SUCCESS;
+    // Probe mode: sizeInBytes == 0, user queries required buffer size.
+    if (sizeInBytes == 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    // Error: buf is null with nonzero size, or buffer too small.
+    if (buf == nullptr || sizeInBytes < requiredSize) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    return CheckedMemcpyS(buf, sizeInBytes, src, requiredSize);
 }
 
 template <typename T>
