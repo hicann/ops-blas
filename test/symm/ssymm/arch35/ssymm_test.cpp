@@ -86,6 +86,62 @@ TEST_F(SsymmArch35Test, NullCBetaZero)
     EXPECT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
 }
 
+// BLAS: alpha==0 allows A to be NULL (A does not need to be a valid input).
+// With beta==1, C = beta*C = C (unchanged). Verify C is bit-exact unchanged.
+TEST_F(SsymmArch35Test, AlphaZeroNullA)
+{
+    float alpha = 0.0f;
+    float beta  = 1.0f;
+    const int m = 4;
+    const int n = 4;
+    const int lda = 4;
+    const int ldb = 4;
+    const int ldc = 4;
+    std::vector<float> bHost = makeBlasMatrix(m, n, ldb, "VALUE_DIAG_1", 0);
+    std::vector<float> cHost = makeBlasMatrix(m, n, ldc, "RANDOM_NORM_5_5", 44);
+    std::vector<float> cResult = cHost;
+
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, m, n,
+        &alpha, nullptr, lda, bHost.data(), ldb, &beta, cResult.data(), ldc);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
+
+    const size_t cCount = static_cast<size_t>(ldc) * static_cast<size_t>(n);
+    VerifyConfig cfg;
+    cfg.mode = PrecisionMode::EXACT;
+    EXPECT_TRUE(Verifier::verifyVector(cResult.data(), cHost.data(), cCount, 1, cfg,
+        "AlphaZeroNullA"))
+        << "AlphaZeroNullA: C should be unchanged when alpha==0 and beta==1";
+}
+
+// BLAS: alpha==0 allows B to be NULL (B does not need to be a valid input).
+// With beta==1, C = beta*C = C (unchanged). Verify C is bit-exact unchanged.
+TEST_F(SsymmArch35Test, AlphaZeroNullB)
+{
+    float alpha = 0.0f;
+    float beta  = 1.0f;
+    const int m = 4;
+    const int n = 4;
+    const int lda = 4;
+    const int ldb = 4;
+    const int ldc = 4;
+    std::vector<float> aHost = makeBlasMatrix(m, m, lda, "RANDOM_NORM_5_5", 42);
+    std::vector<float> cHost = makeBlasMatrix(m, n, ldc, "RANDOM_NORM_5_5", 44);
+    std::vector<float> cResult = cHost;
+
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, m, n,
+        &alpha, aHost.data(), lda, nullptr, ldb, &beta, cResult.data(), ldc);
+    EXPECT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
+
+    const size_t cCount = static_cast<size_t>(ldc) * static_cast<size_t>(n);
+    VerifyConfig cfg;
+    cfg.mode = PrecisionMode::EXACT;
+    EXPECT_TRUE(Verifier::verifyVector(cResult.data(), cHost.data(), cCount, 1, cfg,
+        "AlphaZeroNullB"))
+        << "AlphaZeroNullB: C should be unchanged when alpha==0 and beta==1";
+}
+
 // Exposes Problem 2 fix: handle checked before m==0||n==0 quick return.
 TEST_F(SsymmArch35Test, QuickReturnNullHandle)
 {
@@ -126,18 +182,18 @@ TEST_F(SsymmArch35Test, QuickReturnInvalidUplo)
 }
 
 // ---------------------------------------------------------------------------
-// L0 TEST_F cases — device alpha/beta pointer mode (cuBLAS host-or-device)
+// L0 TEST_F cases — device alpha/beta pointer mode
 //   Exercises the aclrtPointerGetAttributes detection path: alpha/beta scalars
-//   are copied to device memory and passed as device pointers. The host must
-//   NOT dereference them; the scale kernel reads them from GM. Combinations
-//   cover both-device, alpha-device/beta-host, alpha-host/beta-device, and the
-//   alpha==0 device case (fast path must be skipped → full pipeline gives beta*C).
+//   are copied to device memory and passed as device pointers. The host reads
+//   them back via D2H memcpy. Cases cover both-device (SUCCESS), mixed mode
+//   alpha-device/beta-host and alpha-host/beta-device (INVALID_VALUE, BLAS
+//   unified pointer mode), and the alpha==0 device case (fast path via D2H).
 // ---------------------------------------------------------------------------
 
-// Shared driver for the device-scale TEST_F cases: builds column-major matrices,
-// runs the NPU op with the requested pointer modes, and verifies against the
-// CPU golden (which always dereferences host &alpha/&&beta). alpha==0 → EXACT
-// (C = beta*C is bit-reproducible); otherwise mixed tolerance.
+// Shared driver for the both-device TEST_F cases: builds column-major matrices,
+// runs the NPU op with alpha/beta as device pointers, and verifies against the
+// CPU golden. alpha==0 → EXACT (host reads alpha=0 via D2H, fast path skips
+// GEMM, result is bit-exact beta*C); otherwise mixed tolerance.
 static void RunSsymmDeviceScaleCase(aclblasHandle handle,
     aclblasSideMode_t side, aclblasFillMode_t uplo, int m, int n,
     float alpha, float beta, bool alphaOnDevice, bool betaOnDevice,
@@ -187,25 +243,38 @@ TEST_F(SsymmArch35Test, DeviceAlphaDeviceBeta)
         "DeviceAlphaDeviceBeta");
 }
 
+// Mixed pointer mode (alpha device + beta host) must be rejected.
 TEST_F(SsymmArch35Test, DeviceAlphaHostBeta)
 {
-    RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,
-        ACLBLAS_SIDE_RIGHT, ACLBLAS_LOWER, 8, 8,
-        1.5f, 1.0f, /*alphaOnDevice=*/true, /*betaOnDevice=*/false,
-        "DeviceAlphaHostBeta");
+    float alpha = 1.5f;
+    float beta = 1.0f;
+    std::vector<float> a(64, 0.0f);
+    std::vector<float> b(64, 0.0f);
+    std::vector<float> c(64, 0.0f);
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_RIGHT, ACLBLAS_LOWER, 8, 8,
+        &alpha, a.data(), 8, b.data(), 8, &beta, c.data(), 8,
+        /*alphaOnDevice=*/true, /*betaOnDevice=*/false);
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
 }
 
+// Mixed pointer mode (alpha host + beta device) must be rejected.
 TEST_F(SsymmArch35Test, HostAlphaDeviceBeta)
 {
-    RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,
-        ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, 8, 8,
-        1.0f, 0.0f, /*alphaOnDevice=*/false, /*betaOnDevice=*/true,
-        "HostAlphaDeviceBeta");
+    float alpha = 1.0f;
+    float beta = 0.5f;
+    std::vector<float> a(64, 0.0f);
+    std::vector<float> b(64, 0.0f);
+    std::vector<float> c(64, 0.0f);
+    aclblasStatus_t ret = aclblasSsymm_npu(
+        SsymmArch35Test::handle_, ACLBLAS_SIDE_LEFT, ACLBLAS_LOWER, 8, 8,
+        &alpha, a.data(), 8, b.data(), 8, &beta, c.data(), 8,
+        /*alphaOnDevice=*/false, /*betaOnDevice=*/true);
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
 }
 
-// alpha==0 on device: the host cannot evaluate alpha==0 (device pointer), so the
-// alpha==0 fast path MUST be skipped and the full pipeline runs. The scale kernel
-// reads alpha=0 from GM and produces beta*C. beta==1 → C unchanged (EXACT).
+// alpha==0 on device: host reads alpha=0 via D2H, fast path skips GEMM.
+// beta==1 → C unchanged (EXACT).
 TEST_F(SsymmArch35Test, DeviceAlphaZeroBetaOne)
 {
     RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,
@@ -214,7 +283,7 @@ TEST_F(SsymmArch35Test, DeviceAlphaZeroBetaOne)
         "DeviceAlphaZeroBetaOne");
 }
 
-// alpha==0 + beta==0.5, both device: full pipeline, C = 0.5*C (EXACT).
+// alpha==0 + beta==0.5, both device: host reads alpha=0 via D2H, fast path skips GEMM, C = 0.5*C (EXACT).
 TEST_F(SsymmArch35Test, DeviceAlphaZeroBetaScale)
 {
     RunSsymmDeviceScaleCase(SsymmArch35Test::handle_,

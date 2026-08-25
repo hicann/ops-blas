@@ -51,7 +51,7 @@ constexpr uint64_t HALF_L0_SIZE = L0A_SIZE / DB_COUNT / sizeof(float);
 
 template <bool UPLO_IS_UPPER>
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsymmMirrorCompute(
-    uint32_t dimA, uint32_t lda, __gm__ float* aGm, __gm__ float* workspaceGm,
+    uint32_t dimA, uint32_t lda, const __gm__ float* aGm, __gm__ float* workspaceGm,
     uint32_t rowStart, uint32_t rowEnd)
 {
     int64_t lda64 = static_cast<int64_t>(lda);
@@ -87,33 +87,25 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsymmMirror
 }
 
 __global__ __aicore__ void ssymm_mirror_kernel(
-    GM_ADDR gmA, GM_ADDR gmWorkspaceA, const SsymmMirrorTilingData tiling)
+    const __gm__ uint8_t* gmA, __gm__ uint8_t* gmWorkspaceA, const SsymmMirrorTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-
-    auto* aGm = reinterpret_cast<__gm__ float* __restrict>(gmA);
-    auto* workspaceGm = reinterpret_cast<__gm__ float* __restrict>(gmWorkspaceA);
-    uint32_t dimA = tiling.dimA;
-    uint32_t lda = tiling.lda;
-
-    int32_t blkIdx = AscendC::GetBlockIdx();
-    uint32_t rowStart = static_cast<uint32_t>(blkIdx) * tiling.mirrorRowsPerCore;
-    uint32_t rowEnd = Min<uint32_t>(rowStart + tiling.mirrorRowsPerCore, dimA);
-    if (rowStart >= rowEnd) {
+    auto ctx = InitMirrorKernelCtx(gmA, gmWorkspaceA, tiling.dimA, tiling.lda, tiling.mirrorRowsPerCore);
+    if (ctx.rowStart >= ctx.rowEnd) {
         return;
     }
 
     if (tiling.uploMode == ACLBLAS_UPPER) {
         asc_vf_call<SsymmMirrorCompute<true>>(
-            dim3{tiling.nthreads, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+            dim3{tiling.nthreads, 1, 1}, ctx.dimA, ctx.lda, ctx.aGm, ctx.workspaceGm, ctx.rowStart, ctx.rowEnd);
     } else {
         asc_vf_call<SsymmMirrorCompute<false>>(
-            dim3{tiling.nthreads, 1, 1}, dimA, lda, aGm, workspaceGm, rowStart, rowEnd);
+            dim3{tiling.nthreads, 1, 1}, ctx.dimA, ctx.lda, ctx.aGm, ctx.workspaceGm, ctx.rowStart, ctx.rowEnd);
     }
 }
 
 void ssymm_mirror_kernel_do(
-    GM_ADDR gmA, GM_ADDR gmWorkspaceA, const SsymmMirrorTilingData& tiling,
+    const uint8_t* gmA, uint8_t* gmWorkspaceA, const SsymmMirrorTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {
     ssymm_mirror_kernel<<<numBlocks, nullptr, stream>>>(gmA, gmWorkspaceA, tiling);
@@ -293,7 +285,7 @@ __aicore__ inline void ProcessKChunkDB(
 }
 
 __global__ __aicore__ void ssymm_gemm_kernel(
-    GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmTemp,
+    __gm__ uint8_t* gmA, const __gm__ uint8_t* gmB, __gm__ uint8_t* gmTemp,
     const SsymmGemmTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
@@ -302,7 +294,10 @@ __global__ __aicore__ void ssymm_gemm_kernel(
 
     AscendC::GlobalTensor<float> aGlobal, bGlobal, tempGlobal;
     aGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(gmA));
-    bGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(gmB));
+    // gmB is const __gm__ uint8_t* (read-only input B). const_cast is required because
+    // SetGlobalBuffer accepts only non-const __gm__ float*. The cast is safe:
+    // bGlobal is only read (GM→L1 copy), never written.
+    bGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(const_cast<__gm__ uint8_t*>(gmB)));
     tempGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ float*>(gmTemp));
 
     AscendC::LocalTensor<float> al0Local{AscendC::TPosition::A2, 0, L0A_SIZE};
@@ -376,7 +371,7 @@ __global__ __aicore__ void ssymm_gemm_kernel(
     AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(ZERO_FLAG);
 }
 void ssymm_gemm_kernel_do(
-    GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmTemp,
+    uint8_t* gmA, const uint8_t* gmB, uint8_t* gmTemp,
     const SsymmGemmTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {
@@ -387,12 +382,8 @@ void ssymm_gemm_kernel_do(
 // Phase 3: Scale Kernel (AIV-only, SIMT)
 // C = alpha * temp + beta * C  (skipTemp == 0)
 // C = beta * C                 (skipTemp == 1, alpha==0 fast path — temp not read)
-// alpha/beta follow BLAS host-or-device semantics:
-//   alphaIsDevice==0 → alphaVal carried in tiling (host dereferenced on host)
-//   alphaIsDevice==1 → alpha read from device GM (alphaGm[0]); alphaVal is a placeholder
-// beta likewise. The two pointers are independent (alpha on host + beta on device
-// is legal). The scalar is resolved once per block from GM before the SIMT compute
-// call, so the per-element loop below is unchanged.
+// alpha/beta values are always carried in tiling (host resolves device scalars via
+// ReadAlphaBetaFromDevice before launching the pipeline).
 // temp stores C^T in row-major (n rows × tempRowStride, tempRowStride = CeilAlign(m)).
 //   Reading temp[col*tempRowStride + row] gives C^T[col][row] = C[row][col].
 // C is column-major (ldc is column stride, ldc >= m).
@@ -441,7 +432,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void SsymmScaleC
 }
 
 __global__ __aicore__ void ssymm_scale_kernel(
-    GM_ADDR gmTemp, GM_ADDR gmC, const GM_ADDR gmAlpha, const GM_ADDR gmBeta,
+    __gm__ uint8_t* gmTemp, __gm__ uint8_t* gmC,
     const SsymmScaleTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
@@ -453,9 +444,8 @@ __global__ __aicore__ void ssymm_scale_kernel(
     uint32_t n = tiling.n;
     uint32_t ldc = tiling.ldc;
     uint32_t tempRowStride = tiling.tempRowStride;
-    // Resolve alpha/beta once per block: device pointer → read GM[0], host scalar → tiling.
-    float alphaVal = tiling.alphaIsDevice ? *reinterpret_cast<const __gm__ float*>(gmAlpha) : tiling.alphaVal;
-    float betaVal = tiling.betaIsDevice ? *reinterpret_cast<const __gm__ float*>(gmBeta) : tiling.betaVal;
+    float alphaVal = tiling.alphaVal;
+    float betaVal = tiling.betaVal;
     uint32_t skipTemp = tiling.skipTemp;
 
     int32_t blkIdx = AscendC::GetBlockIdx();
@@ -472,9 +462,9 @@ __global__ __aicore__ void ssymm_scale_kernel(
 }
 
 void ssymm_scale_kernel_do(
-    GM_ADDR gmTemp, GM_ADDR gmC, const GM_ADDR gmAlpha, const GM_ADDR gmBeta,
+    uint8_t* gmTemp, uint8_t* gmC,
     const SsymmScaleTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {
-    ssymm_scale_kernel<<<numBlocks, nullptr, stream>>>(gmTemp, gmC, gmAlpha, gmBeta, tiling);
+    ssymm_scale_kernel<<<numBlocks, nullptr, stream>>>(gmTemp, gmC, tiling);
 }

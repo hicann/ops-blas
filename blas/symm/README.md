@@ -42,12 +42,12 @@ aclblasStatus_t aclblasSsymm(aclblasHandle_t handle, aclblasSideMode_t side, acl
 | uplo | 输入 | aclblasFillMode_t | A 矩阵存储模式：ACLBLAS_LOWER（下三角）或 ACLBLAS_UPPER（上三角），Host 内存 |
 | m | 输入 | int | 矩阵 C 的行数，m >= 0，Host 内存 |
 | n | 输入 | int | 矩阵 C 的列数，n >= 0，Host 内存 |
-| alpha | 输入 | const float*（FP32） | 标量 alpha，不可为 nullptr，Host 或 Device 内存 |
+| alpha | 输入 | const float*（FP32） | 标量 alpha，不可为 nullptr，Host 或 Device 内存（alpha 与 beta 必须同为 Host 或同为 Device） |
 | A | 输入 | const float*（FP32） | 对称矩阵，side=LEFT 时 m×m，side=RIGHT 时 n×n，Device 内存 |
 | lda | 输入 | int | 矩阵 A 的主维，Host 内存（详见约束说明） |
 | B | 输入 | const float*（FP32） | m×n 普通矩阵，Device 内存 |
 | ldb | 输入 | int | 矩阵 B 的主维，Host 内存（详见约束说明） |
-| beta | 输入 | const float*（FP32） | 标量 beta，不可为 nullptr，Host 或 Device 内存 |
+| beta | 输入 | const float*（FP32） | 标量 beta，不可为 nullptr，Host 或 Device 内存（alpha 与 beta 必须同为 Host 或同为 Device） |
 | C | 输入/输出 | float*（FP32） | m×n 矩阵，输入旧值，输出新值，beta!=0 时不可为 nullptr，beta==0 时可为 nullptr，Device 内存 |
 | ldc | 输入 | int | 矩阵 C 的主维，Host 内存（详见约束说明） |
 
@@ -55,24 +55,31 @@ aclblasStatus_t aclblasSsymm(aclblasHandle_t handle, aclblasSideMode_t side, acl
 
 **通用约束：**
 
-- m >= 0, n >= 0
+- handle 不可为 nullptr，否则返回 ACLBLAS_STATUS_HANDLE_IS_NULLPTR
+- side 必须为 ACLBLAS_SIDE_LEFT 或 ACLBLAS_SIDE_RIGHT，uplo 必须为 ACLBLAS_UPPER 或 ACLBLAS_LOWER，非法值返回 ACLBLAS_STATUS_INVALID_ENUM
+- m==0 或 n==0 时直接返回 ACLBLAS_STATUS_SUCCESS，不访问任何指针、不校验 ld 参数（BLAS 标准）
+- m >= 0, n >= 0，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - side=LEFT 时：lda >= max(1, m)
 - side=RIGHT 时：lda >= max(1, n)
-- alpha、beta 不可为 nullptr
-- A、B 不可为 nullptr（m>0 且 n>0 时）
-- beta==0 时 C 可为 nullptr（BLAS 标准：beta==0 时 C 不需要是有效输入）
+- m>0 且 n>0 时，alpha、beta 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 
-**arch35（Ascend 950PR / 950DT / Atlas A3）约束：**
+**arch35（Ascend 950PR / Ascend 950DT）约束：**
 
 - 矩阵 A、B、C 均按列主序存储（column-major），元素 (row, col) 存储于 col*ld + row 位置
 - ldb >= max(1, m)
 - ldc >= max(1, m)
+- m>0 且 n>0 时，alpha 与 beta 必须同为 Host 指针或同为 Device 指针（统一指针模式，禁止混合），否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- m>0 且 n>0 且 alpha!=0 时，A、B 不可为 nullptr；alpha==0 时 A、B 可为 nullptr（BLAS 标准）
+- beta==0 时 C 可为 nullptr（BLAS 标准：beta==0 时 C 不需要是有效输入；Device beta 通过 ReadAlphaBetaFromDevice 读回值，Host beta 直接解引用，两种模式下 beta 值均在校验前完成解析，统一判断 beta==0）
+- alpha==0 时跳过矩阵乘法，仅执行 C = beta * C（快速路径）
 
-**arch22（Atlas A2）约束：**
+**arch22（Atlas A2 / Atlas A3）约束：**
 
 - 矩阵 A、B、C 均按行主序存储（row-major），元素 (row, col) 存储于 row*ld + col 位置
 - ldb >= n
 - ldc >= n
+- m>0 且 n>0 时，A、B、C 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- alpha、beta 仅支持 Host 指针，不支持 Device 指针
 
 #### 调用示例
 
@@ -86,7 +93,7 @@ aclblasStatus_t aclblasSsymm(aclblasHandle_t handle, aclblasSideMode_t side, acl
 // 1. 初始化
 aclInit(nullptr);
 aclblasHandle_t handle;
-aclblasCreateHandle(&handle);
+aclblasCreate(&handle);
 
 // 2. 准备 Host 数据（列主序存储）
 int m = 4, n = 4;
@@ -145,6 +152,6 @@ aclrtMemcpy(hC.data(), cBytes, dC, cBytes, ACL_MEMCPY_DEVICE_TO_HOST);
 aclrtFree(dA);
 aclrtFree(dB);
 aclrtFree(dC);
-aclblasDestroyHandle(handle);
+aclblasDestroy(handle);
 aclFinalize();
 ```

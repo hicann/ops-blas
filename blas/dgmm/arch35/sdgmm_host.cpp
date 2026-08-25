@@ -34,7 +34,7 @@ static aclblasStatus_t ValidateSdgmmParams(
     if (mode != ACLBLAS_SIDE_LEFT && mode != ACLBLAS_SIDE_RIGHT) {
         OP_LOGE("aclblasSdgmm", "mode must be SIDE_LEFT(141) or SIDE_RIGHT(142), got %d",
                 static_cast<int>(mode));
-        return ACLBLAS_STATUS_INVALID_VALUE;
+        return ACLBLAS_STATUS_INVALID_ENUM;
     }
     if (m < 0) {
         OP_LOGE("aclblasSdgmm", "m must be >= 0, got %d", m);
@@ -54,6 +54,10 @@ static aclblasStatus_t ValidateSdgmmParams(
     }
     if (m > 0 && n > 0 && (x == nullptr || A == nullptr || C == nullptr)) {
         OP_LOGE("aclblasSdgmm", "A/x/C must not be nullptr when m>0 and n>0");
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    if (A == C && lda != ldc) {
+        OP_LOGE("aclblasSdgmm", "in-place execution (A==C) requires lda==ldc, got lda=%d, ldc=%d", lda, ldc);
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     return ACLBLAS_STATUS_SUCCESS;
@@ -170,13 +174,14 @@ extern "C" aclblasStatus_t aclblasSdgmm(
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     }
 
+    // Quick return: m==0 or n==0 — no computation, skip all further checks.
+    if (m == 0 || n == 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
     aclblasStatus_t st = ValidateSdgmmParams(mode, m, n, A, lda, x, incx, C, ldc);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
-    }
-
-    if (m == 0 || n == 0) {
-        return ACLBLAS_STATUS_SUCCESS;
     }
 
     uint32_t aivCoreNum = GetAivCoreCount();

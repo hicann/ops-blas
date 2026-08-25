@@ -54,13 +54,15 @@ aclblasStatus_t aclblasSdgmm(aclblasHandle_t handle, aclblasSideMode_t mode, int
 #### 约束说明
 
 - handle 不能为 nullptr，否则返回 ACLBLAS_STATUS_HANDLE_IS_NULLPTR
-- mode 必须为 ACLBLAS_SIDE_LEFT 或 ACLBLAS_SIDE_RIGHT，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- mode 必须为 ACLBLAS_SIDE_LEFT 或 ACLBLAS_SIDE_RIGHT，否则返回 ACLBLAS_STATUS_INVALID_ENUM
 - m >= 0, n >= 0，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- m == 0 或 n == 0 时为 no-op，直接返回 ACLBLAS_STATUS_SUCCESS（跳过以下所有校验）
+- 以下约束仅在 m > 0 且 n > 0 时生效：
 - incx 可为任意整数（包括 0，incx==0 时等价于标量乘法 C = x[0] * A），可为负数表示反向访问 x
 - lda >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - ldc >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
-- 当 m > 0 且 n > 0 时，A、x、C 不能为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
-- m == 0 或 n == 0 时为 no-op，直接返回 ACLBLAS_STATUS_SUCCESS
+- A、x、C 不能为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- 原地执行（A==C）要求 lda == ldc，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 
 #### 调用示例
 

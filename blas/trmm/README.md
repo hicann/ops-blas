@@ -58,15 +58,19 @@ aclblasStatus_t aclblasStrmm(aclblasHandle_t handle, aclblasSideMode_t side, acl
 
 #### 约束说明
 
-- m >= 0, n >= 0
-- side=LEFT 时：lda >= max(1, m)
-- side=RIGHT 时：lda >= max(1, n)
-- ldb >= max(1, m)
-- ldc >= max(1, m)
-- alpha 不可为 nullptr
-- alpha == 0 时，A 和 B 不需要是有效的输入指针（可为 nullptr），结果 C 全为 0
-- alpha != 0 时，A、B 不可为 nullptr
-- C 不可为 nullptr
+- handle 不可为 nullptr，否则返回 ACLBLAS_STATUS_HANDLE_IS_NULLPTR
+- side 必须为 ACLBLAS_SIDE_LEFT 或 ACLBLAS_SIDE_RIGHT，uplo 必须为 ACLBLAS_UPPER 或 ACLBLAS_LOWER，trans 必须为 ACLBLAS_OP_N、ACLBLAS_OP_T 或 ACLBLAS_OP_C，diag 必须为 ACLBLAS_UNIT 或 ACLBLAS_NON_UNIT，非法值返回 ACLBLAS_STATUS_INVALID_ENUM
+- m >= 0, n >= 0，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- m==0 或 n==0 时直接返回 ACLBLAS_STATUS_SUCCESS，不访问任何指针、不校验 ld 参数（BLAS 标准）
+- 以下约束仅在 m>0 且 n>0 时生效：
+- side=LEFT 时：lda >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- side=RIGHT 时：lda >= max(1, n)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- ldb >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- ldc >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- alpha 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- C 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- alpha == 0 时，A 和 B 不需要是有效的输入指针（可为 nullptr），结果 C 的 m×n 区域全为 0
+- alpha != 0 时，A、B 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 
 #### 调用示例
 

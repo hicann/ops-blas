@@ -58,6 +58,5 @@ struct StrmmScaleTilingData {
     uint32_t usedAivCoreNum;
     uint32_t scaleRowsPerCore;
     float alphaVal;
-    uint32_t alphaIsDevice;
     uint32_t nthreads;
 };

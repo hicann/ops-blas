@@ -352,3 +352,29 @@ __aicore__ __inline__ void matrix_ubuf2gm(
 } // namespace fp32
 
 #endif // KERNEL_UTILS_LITE
+
+// ========== Mirror kernel shared prologue ==========
+
+struct MirrorKernelCtx {
+    const __gm__ float* aGm;
+    __gm__ float* workspaceGm;
+    uint32_t dimA;
+    uint32_t lda;
+    uint32_t rowStart;
+    uint32_t rowEnd;
+};
+
+__force_inline__ __aicore__ MirrorKernelCtx InitMirrorKernelCtx(
+    const __gm__ uint8_t* gmA, __gm__ uint8_t* gmWorkspaceA,
+    uint32_t dimA, uint32_t lda, uint32_t mirrorRowsPerCore)
+{
+    MirrorKernelCtx ctx;
+    ctx.aGm = reinterpret_cast<const __gm__ float*>(gmA);
+    ctx.workspaceGm = reinterpret_cast<__gm__ float*>(gmWorkspaceA);
+    ctx.dimA = dimA;
+    ctx.lda = lda;
+    int32_t blkIdx = AscendC::GetBlockIdx();
+    ctx.rowStart = static_cast<uint32_t>(blkIdx) * mirrorRowsPerCore;
+    ctx.rowEnd = Min<uint32_t>(ctx.rowStart + mirrorRowsPerCore, dimA);
+    return ctx;
+}

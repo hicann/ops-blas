@@ -59,11 +59,5 @@ struct SsymmScaleTilingData {
     float alphaVal;
     float betaVal;
     uint32_t skipTemp;
-    // Pointer-mode flags (BLAS host-or-device semantics).
-    // 0 = scalar carried in alphaVal/betaVal (host pointer, dereferenced on host).
-    // 1 = scalar lives in device GM; kernel reads alphaGm[0]/betaGm[0] and
-    //     alphaVal/betaVal are unused placeholders (0.0f).
-    uint32_t alphaIsDevice;
-    uint32_t betaIsDevice;
     uint32_t nthreads;
 };

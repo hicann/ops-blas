@@ -139,19 +139,11 @@ __aicore__ inline void DispatchMirrorTrans(
 }
 
 __global__ __aicore__ void strmm_mirror_kernel(
-    const GM_ADDR gmA, GM_ADDR gmWorkspaceA, const StrmmMirrorTilingData tiling)
+    const __gm__ uint8_t* gmA, __gm__ uint8_t* gmWorkspaceA, const StrmmMirrorTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-
-    auto* aGm = reinterpret_cast<const __gm__ float* __restrict>(gmA);
-    auto* workspaceGm = reinterpret_cast<__gm__ float* __restrict>(gmWorkspaceA);
-    uint32_t dimA = tiling.dimA;
-    uint32_t lda = tiling.lda;
-
-    int32_t blkIdx = AscendC::GetBlockIdx();
-    uint32_t rowStart = static_cast<uint32_t>(blkIdx) * tiling.mirrorRowsPerCore;
-    uint32_t rowEnd = Min<uint32_t>(rowStart + tiling.mirrorRowsPerCore, dimA);
-    if (rowStart >= rowEnd) {
+    auto ctx = InitMirrorKernelCtx(gmA, gmWorkspaceA, tiling.dimA, tiling.lda, tiling.mirrorRowsPerCore);
+    if (ctx.rowStart >= ctx.rowEnd) {
         return;
     }
 
@@ -160,9 +152,9 @@ __global__ __aicore__ void strmm_mirror_kernel(
     bool diagUnit = (tiling.diagMode == ACLBLAS_UNIT);
 
     if (uploUpper) {
-        DispatchMirrorTrans<true>(transT, diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd, tiling.nthreads);
+        DispatchMirrorTrans<true>(transT, diagUnit, ctx.dimA, ctx.lda, ctx.aGm, ctx.workspaceGm, ctx.rowStart, ctx.rowEnd, tiling.nthreads);
     } else {
-        DispatchMirrorTrans<false>(transT, diagUnit, dimA, lda, aGm, workspaceGm, rowStart, rowEnd, tiling.nthreads);
+        DispatchMirrorTrans<false>(transT, diagUnit, ctx.dimA, ctx.lda, ctx.aGm, ctx.workspaceGm, ctx.rowStart, ctx.rowEnd, tiling.nthreads);
     }
 }
 
@@ -335,26 +327,26 @@ __aicore__ inline void StrmmProcessTile(
 }
 
 __global__ __aicore__ void strmm_gemm_kernel(
-    GM_ADDR gmA, const GM_ADDR gmB, GM_ADDR gmTemp,
+    __gm__ uint8_t* gmA, const __gm__ uint8_t* gmB, __gm__ uint8_t* gmTemp,
     const StrmmGemmTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
     uint32_t K = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? tiling.m : tiling.n;
-    // gmB is const GM_ADDR (read-only input B). gmLeft/gmRight are kept const to
+    // gmB is const __gm__ uint8_t* (read-only input B). gmLeft/gmRight are kept const to
     // preserve const safety. The const_cast at te::MakeTensor is required because
     // the Blaze tensor API (te::MakeMemPtr<te::Location::GM>) accepts only non-const
     // __gm__ float*. The cast is safe: tensors are only read (GM→L1 copy), never written.
-    const GM_ADDR gmLeft = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? gmA : gmB;
-    const GM_ADDR gmRight = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? gmB : gmA;
+    const __gm__ uint8_t* gmLeft = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? gmA : gmB;
+    const __gm__ uint8_t* gmRight = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? gmB : gmA;
     uint64_t leftLd = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? tiling.lda : tiling.ldb;
     uint64_t leftRows = tiling.m;
     uint64_t rightLd = (tiling.sideMode == ACLBLAS_SIDE_LEFT) ? tiling.ldb : tiling.lda;
     uint64_t rightRows = K;
     auto gmLeftTensor = te::MakeTensor(
-        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(const_cast<GM_ADDR>(gmLeft))),
+        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(const_cast<__gm__ uint8_t*>(gmLeft))),
         te::MakeFrameLayout<te::NDExtLayoutPtn>(leftRows, leftLd));
     auto gmRightTensor = te::MakeTensor(
-        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(const_cast<GM_ADDR>(gmRight))),
+        te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(const_cast<__gm__ uint8_t*>(gmRight))),
         te::MakeFrameLayout<te::NDExtLayoutPtn>(rightRows, rightLd));
     auto gmTempTensor = te::MakeTensor(
         te::MakeMemPtr<te::Location::GM>(reinterpret_cast<__gm__ float*>(gmTemp)),
@@ -400,9 +392,8 @@ void strmm_gemm_kernel_do(
 // ================================================================================
 // Phase 3: Scale Kernel (AIV-only, SIMT)
 // C = alpha * temp
-// alpha follows BLAS host-or-device semantics:
-//   alphaIsDevice==0 → alphaVal carried in tiling (host dereferenced on host)
-//   alphaIsDevice==1 → alpha read from device GM (alphaGm[0]); alphaVal is a placeholder
+// alpha value is always carried in tiling (host resolves device scalar via
+// ResolveStrmmScalars before launching the pipeline).
 // temp stores C^T in row-major (n rows × tempRowStride, tempRowStride = CeilAlign(m)).
 //   Reading temp[j*tempRowStride + i] gives C^T[j][i] = C[i][j].
 // C is column-major (ldc is column stride, ldc >= m).
@@ -429,7 +420,7 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void StrmmScaleC
 }
 
 __global__ __aicore__ void strmm_scale_kernel(
-    const GM_ADDR gmTemp, GM_ADDR gmC, const GM_ADDR gmAlpha,
+    const __gm__ uint8_t* gmTemp, __gm__ uint8_t* gmC,
     const StrmmScaleTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
@@ -441,7 +432,7 @@ __global__ __aicore__ void strmm_scale_kernel(
     uint32_t n = tiling.n;
     uint32_t ldc = tiling.ldc;
     uint32_t tempRowStride = tiling.tempRowStride;
-    float alphaVal = tiling.alphaIsDevice ? *reinterpret_cast<const __gm__ float*>(gmAlpha) : tiling.alphaVal;
+    float alphaVal = tiling.alphaVal;
 
     int32_t blkIdx = AscendC::GetBlockIdx();
     uint32_t rowStart = static_cast<uint32_t>(blkIdx) * tiling.scaleRowsPerCore;
@@ -457,9 +448,9 @@ __global__ __aicore__ void strmm_scale_kernel(
 }
 
 void strmm_scale_kernel_do(
-    const uint8_t* gmTemp, uint8_t* gmC, const uint8_t* gmAlpha,
+    const uint8_t* gmTemp, uint8_t* gmC,
     const StrmmScaleTilingData& tiling,
     uint32_t numBlocks, void* stream)
 {
-    strmm_scale_kernel<<<numBlocks, nullptr, stream>>>(gmTemp, gmC, gmAlpha, tiling);
+    strmm_scale_kernel<<<numBlocks, nullptr, stream>>>(gmTemp, gmC, tiling);
 }

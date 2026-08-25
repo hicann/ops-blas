@@ -22,21 +22,40 @@
 #include "common/helper/kernel_constant.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "ssymm_tiling_data.h"
+#include "common/helper/syrk_host_utils.h"
 
 struct SsymmMirrorTilingData;
-void ssymm_mirror_kernel_do(uint8_t* gmA, uint8_t* gmWorkspaceA, const SsymmMirrorTilingData &tiling,
+void ssymm_mirror_kernel_do(const uint8_t* gmA, uint8_t* gmWorkspaceA, const SsymmMirrorTilingData &tiling,
                              uint32_t numBlocks, void *stream);
 struct SsymmGemmTilingData;
-void ssymm_gemm_kernel_do(uint8_t* gmA, uint8_t* gmB, uint8_t* gmTemp,
+void ssymm_gemm_kernel_do(uint8_t* gmA, const uint8_t* gmB, uint8_t* gmTemp,
                            const SsymmGemmTilingData &tiling, uint32_t numBlocks, void *stream);
 struct SsymmScaleTilingData;
-void ssymm_scale_kernel_do(uint8_t* gmTemp, uint8_t* gmC, const uint8_t* gmAlpha, const uint8_t* gmBeta,
-                               const SsymmScaleTilingData &tiling, uint32_t numBlocks, void *stream);
+void ssymm_scale_kernel_do(uint8_t* gmTemp, uint8_t* gmC,
+                                 const SsymmScaleTilingData &tiling, uint32_t numBlocks, void *stream);
+
+static aclblasStatus_t CheckSsymmEarlyParams(
+    aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo,
+    int m, int n)
+{
+    CHECK_RET(
+        handle != nullptr, OP_LOGE("aclblasSsymm", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
+    CHECK_RET(
+        side == ACLBLAS_SIDE_LEFT || side == ACLBLAS_SIDE_RIGHT,
+        OP_LOGE("aclblasSsymm", "side must be LEFT or RIGHT, got %d", static_cast<int>(side));
+        return ACLBLAS_STATUS_INVALID_ENUM);
+    CHECK_RET(
+        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
+        OP_LOGE("aclblasSsymm", "uplo must be UPPER or LOWER, got %d", static_cast<int>(uplo));
+        return ACLBLAS_STATUS_INVALID_ENUM);
+    CHECK_RET(m >= 0, OP_LOGE("aclblasSsymm", "m must be >= 0, got %d", m); return ACLBLAS_STATUS_INVALID_VALUE);
+    CHECK_RET(n >= 0, OP_LOGE("aclblasSsymm", "n must be >= 0, got %d", n); return ACLBLAS_STATUS_INVALID_VALUE);
+    return ACLBLAS_STATUS_SUCCESS;
+}
 
 static aclblasStatus_t ValidateSsymmParams(
     aclblasSideMode_t side, int m, int n,
-    int lda, int ldb, int ldc, const float* alpha, const float* beta,
-    const float* A, const float* B)
+    int lda, int ldb, int ldc, const float* alpha, const float* beta)
 {
     int dimA = (side == ACLBLAS_SIDE_LEFT) ? m : n;
     int minLda = std::max(1, dimA);
@@ -58,8 +77,6 @@ static aclblasStatus_t ValidateSsymmParams(
         alpha != nullptr, OP_LOGE("aclblasSsymm", "alpha must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(
         beta != nullptr, OP_LOGE("aclblasSsymm", "beta must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(A != nullptr, OP_LOGE("aclblasSsymm", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(B != nullptr, OP_LOGE("aclblasSsymm", "B must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -132,8 +149,7 @@ static SsymmGemmTilingData CalGemmTilingData(
 
 static SsymmScaleTilingData CalScaleTilingData(
     uint32_t usedAivCoreNum, uint32_t m, uint32_t n, uint32_t ldc,
-    uint32_t tempRowStride, float alphaVal, float betaVal, uint32_t skipTemp,
-    uint32_t alphaIsDevice, uint32_t betaIsDevice)
+    uint32_t tempRowStride, float alphaVal, float betaVal, uint32_t skipTemp)
 {
     SsymmScaleTilingData tiling{};
     tiling.m = m;
@@ -145,8 +161,6 @@ static SsymmScaleTilingData CalScaleTilingData(
     tiling.alphaVal = alphaVal;
     tiling.betaVal = betaVal;
     tiling.skipTemp = skipTemp;
-    tiling.alphaIsDevice = alphaIsDevice;
-    tiling.betaIsDevice = betaIsDevice;
     uint32_t scaleWork = tiling.scaleRowsPerCore * n;
     tiling.nthreads = std::min(CeilAlign<uint32_t>(scaleWork, SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
     return tiling;
@@ -156,8 +170,9 @@ static SsymmScaleTilingData CalScaleTilingData(
 // Pointer location query: determine whether an alpha/beta scalar pointer lives
 // on the host or on the device (NPU HBM). Mirrors the aclrtPointerGetAttributes
 // usage in axpy_ex/scalex/srot. On query failure the call is rejected
-// (consistent with the benchmarks). The two pointers are independent: alpha on
-// host + beta on device (or any mix) is legal per BLAS host-or-device semantics.
+// (consistent with the benchmarks). The two pointers must conform to the same
+// mode (both host or both device), unified pointer mode
+// semantics. Mixed mode is rejected in aclblasSsymm.
 // ==========================================================================
 static aclblasStatus_t SsymmCheckPtrLocation(const void* ptr, bool* isDevice)
 {
@@ -172,8 +187,10 @@ static aclblasStatus_t SsymmCheckPtrLocation(const void* ptr, bool* isDevice)
 }
 
 static aclblasStatus_t ResolveSsymmScalars(const float* alpha, const float* beta,
-    float* alphaVal, float* betaVal, bool* alphaIsDevice, bool* betaIsDevice)
+    float* alphaVal, float* betaVal, bool* alphaIsDevice, bool* betaIsDevice,
+    aclrtStream stream)
 {
+    // 1. Detect pointer locations (no dereference yet).
     aclblasStatus_t alphaLocSt = SsymmCheckPtrLocation(alpha, alphaIsDevice);
     if (alphaLocSt != ACLBLAS_STATUS_SUCCESS) {
         return alphaLocSt;
@@ -182,19 +199,33 @@ static aclblasStatus_t ResolveSsymmScalars(const float* alpha, const float* beta
     if (betaLocSt != ACLBLAS_STATUS_SUCCESS) {
         return betaLocSt;
     }
-    *alphaVal = *alphaIsDevice ? 0.0f : (*alpha);
-    *betaVal = *betaIsDevice ? 0.0f : (*beta);
+
+    // 2. Reject mixed mode BEFORE dereference (avoid device ptr segfault).
+    if (*alphaIsDevice != *betaIsDevice) {
+        OP_LOGE("aclblasSsymm", "alpha and beta must be both host or both device pointers");
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+
+    // 3. Unified value resolution (modes are now guaranteed identical).
+    if (*alphaIsDevice) {
+        aclblasStatus_t readRet = ReadAlphaBetaFromDevice(
+            alpha, beta, *alphaVal, *betaVal, stream, "aclblasSsymm");
+        if (readRet != ACLBLAS_STATUS_SUCCESS) {
+            return readRet;
+        }
+    } else {
+        *alphaVal = *alpha;
+        *betaVal = *beta;
+    }
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 // ==========================================================================
-// HandleSsymmAlphaZero — C = beta * C when alpha == 0 (host-only fast path).
-//   Requires BOTH alpha and beta to be host pointers so their values are
-//   readable on the host. When alpha (or beta) is a device pointer the host
-//   cannot evaluate alpha==0 / beta==0, so this fast path is skipped by the
-//   caller and the full mirror+gemm+scale pipeline runs instead — the scale
-//   kernel reads alpha/beta from GM and produces the correct beta*C result.
-//   beta == 0 → memset C to zero
+// HandleSsymmAlphaZero — C = beta * C when alpha == 0 (fast path).
+//   Host mode: alpha/beta values carried in tiling (host dereferenced).
+//   Device mode: values read via ReadAlphaBetaFromDevice (D2H + sync) before
+//   entering this path, so alphaVal/betaVal are available on the host.
+//   beta == 0 → memset C to zero (async, does not block host)
 //   beta == 1 → C unchanged, return immediately
 //   otherwise → launch scale kernel with skipTemp=1 (beta*C only, temp not read)
 // ==========================================================================
@@ -206,15 +237,10 @@ static aclblasStatus_t HandleSsymmAlphaZero(
     }
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     if (betaVal == 0.0f) {
-        aclError syncRet = aclrtSynchronizeStream(h->stream);
-        if (syncRet != ACL_SUCCESS) {
-            OP_LOGE("aclblasSsymm", "aclrtSynchronizeStream failed, ret=%d", syncRet);
-            return ACLBLAS_STATUS_EXECUTION_FAILED;
-        }
         size_t cBytes = static_cast<size_t>(ldc) * static_cast<size_t>(n) * SSYMM_ARCH35_FP32_SIZE;
-        aclError ret = aclrtMemset(C, cBytes, 0, cBytes);
+        aclError ret = aclrtMemsetAsync(C, cBytes, 0, cBytes, h->stream);
         if (ret != ACL_SUCCESS) {
-            OP_LOGE("aclblasSsymm", "aclrtMemset failed, ret=%d", ret);
+            OP_LOGE("aclblasSsymm", "aclrtMemsetAsync failed, ret=%d", ret);
             return ACLBLAS_STATUS_EXECUTION_FAILED;
         }
         return ACLBLAS_STATUS_SUCCESS;
@@ -230,11 +256,10 @@ static aclblasStatus_t HandleSsymmAlphaZero(
     uint32_t usedAivCoreNum = std::max<uint32_t>(std::min<uint32_t>(m, aivCoreNum), 1);
     // Host-only fast path: alpha/beta scalars carried in tiling, no GM pointer.
     SsymmScaleTilingData scaleTiling = CalScaleTilingData(
-        usedAivCoreNum, m, n, ldc, ldc, 0.0f, betaVal, 1U, 0U, 0U);
+        usedAivCoreNum, m, n, ldc, ldc, 0.0f, betaVal, 1U);
     OP_LOGI("aclblasSsymm", "alpha==0 fast path: launching beta-scale kernel, aivCores=%u", usedAivCoreNum);
     ssymm_scale_kernel_do(
         reinterpret_cast<uint8_t*>(C), reinterpret_cast<uint8_t*>(C),
-        nullptr, nullptr,
         scaleTiling, usedAivCoreNum, h->stream);
     return ACLBLAS_STATUS_SUCCESS;
 }
@@ -245,7 +270,7 @@ static aclblasStatus_t LaunchSsymmPipeline(
     const SsymmMirrorTilingData& mirrorTiling, uint32_t usedAivCoreNum,
     const SsymmGemmTilingData& gemmTiling, uint32_t usedAicCoreNum,
     const SsymmScaleTilingData& scaleTiling, uint32_t usedAivCoreNumScale,
-    uint32_t uLda, const float* alphaPtr, const float* betaPtr)
+    uint32_t uLda)
 {
     size_t workspaceASize = static_cast<size_t>(uLda) * static_cast<size_t>(dimA) * SSYMM_ARCH35_FP32_SIZE;
     size_t tempSize = static_cast<size_t>(uN) * static_cast<size_t>(gemmTiling.tempRowStride) * SSYMM_ARCH35_FP32_SIZE;
@@ -261,16 +286,12 @@ static aclblasStatus_t LaunchSsymmPipeline(
     uint8_t* tempDevice = wsBase + workspaceASize;
 
     ssymm_mirror_kernel_do(
-        (uint8_t*)A, workspaceADevice, mirrorTiling, usedAivCoreNum, h->stream);
+        reinterpret_cast<const uint8_t*>(A), workspaceADevice, mirrorTiling, usedAivCoreNum, h->stream);
     ssymm_gemm_kernel_do(
-        workspaceADevice, (uint8_t*)B, tempDevice,
+        workspaceADevice, reinterpret_cast<const uint8_t*>(B), tempDevice,
         gemmTiling, usedAicCoreNum, h->stream);
-    // Forward device alpha/beta pointers verbatim; host-mode forwards nullptr
-    // (kernel reads the tiling scalar instead). See SsymmScaleTilingData flags.
     ssymm_scale_kernel_do(
-        tempDevice, (uint8_t*)C,
-        reinterpret_cast<const uint8_t*>(alphaPtr),
-        reinterpret_cast<const uint8_t*>(betaPtr),
+        tempDevice, reinterpret_cast<uint8_t*>(C),
         scaleTiling, usedAivCoreNumScale, h->stream);
 
     return ACLBLAS_STATUS_SUCCESS;
@@ -279,9 +300,7 @@ static aclblasStatus_t LaunchSsymmPipeline(
 static aclblasStatus_t ExecuteSsymmKernels(
     _aclblas_handle* h, aclblasSideMode_t side, aclblasFillMode_t uplo,
     uint32_t uM, uint32_t uN, uint32_t uLda, uint32_t uLdb, uint32_t uLdc,
-    const float* A, const float* B, float alphaVal, float betaVal, float* C,
-    const float* alphaPtr, const float* betaPtr,
-    uint32_t alphaIsDevice, uint32_t betaIsDevice)
+    const float* A, const float* B, float alphaVal, float betaVal, float* C)
 {
     uint32_t dimA = (side == ACLBLAS_SIDE_LEFT) ? uM : uN;
 
@@ -320,8 +339,7 @@ static aclblasStatus_t ExecuteSsymmKernels(
     SsymmGemmTilingData gemmTiling = CalGemmTilingData(
         usedAicCoreNum, uN, uM, gemmSide, uLda, uLdb, uLdc);
     SsymmScaleTilingData scaleTiling = CalScaleTilingData(
-        usedAivCoreNumScale, uM, uN, uLdc, gemmTiling.tempRowStride, alphaVal, betaVal, 0U,
-        alphaIsDevice, betaIsDevice);
+        usedAivCoreNumScale, uM, uN, uLdc, gemmTiling.tempRowStride, alphaVal, betaVal, 0U);
 
     OP_LOGD("aclblasSsymm",
         "mirror tiling: side=%u uplo=%u aivCores=%u rowsPerCore=%u lda=%u dimA=%u",
@@ -335,19 +353,16 @@ static aclblasStatus_t ExecuteSsymmKernels(
         gemmTiling.tileM, gemmTiling.tileN, gemmTiling.tileKChunk,
         gemmTiling.lda, gemmTiling.ldb, gemmTiling.ldc, gemmTiling.tempRowStride);
     OP_LOGD("aclblasSsymm",
-        "scale tiling: m=%u n=%u ldc=%u tempRowStride=%u aivCores=%u rowsPerCore=%u "
-        "alphaIsDevice=%u betaIsDevice=%u",
+        "scale tiling: m=%u n=%u ldc=%u tempRowStride=%u aivCores=%u rowsPerCore=%u",
         scaleTiling.m, scaleTiling.n, scaleTiling.ldc, scaleTiling.tempRowStride,
-        scaleTiling.usedAivCoreNum, scaleTiling.scaleRowsPerCore,
-        scaleTiling.alphaIsDevice, scaleTiling.betaIsDevice);
+        scaleTiling.usedAivCoreNum, scaleTiling.scaleRowsPerCore);
     OP_LOGI("aclblasSsymm", "launching mirror kernel: aivCores=%u", usedAivCoreNum);
     OP_LOGI("aclblasSsymm", "launching gemm kernel: aicCores=%u", usedAicCoreNum);
-    OP_LOGI("aclblasSsymm", "launching scale kernel: aivCores=%u alphaIsDevice=%u betaIsDevice=%u",
-        usedAivCoreNumScale, alphaIsDevice, betaIsDevice);
+    OP_LOGI("aclblasSsymm", "launching scale kernel: aivCores=%u", usedAivCoreNumScale);
 
     return LaunchSsymmPipeline(h, A, B, C, dimA, uM, uN,
         mirrorTiling, usedAivCoreNum, gemmTiling, usedAicCoreNum,
-        scaleTiling, usedAivCoreNumScale, uLda, alphaPtr, betaPtr);
+        scaleTiling, usedAivCoreNumScale, uLda);
 }
 
 aclblasStatus_t aclblasSsymm(
@@ -355,20 +370,10 @@ aclblasStatus_t aclblasSsymm(
     int m, int n, const float* alpha, const float* A, int lda,
     const float* B, int ldb, const float* beta, float* C, int ldc)
 {
-    // Problem 2: correct validation order — handle, enums, m/n before quick return.
-    // This ensures invalid handle/enums are caught even when m==0 or n==0.
-    CHECK_RET(
-        handle != nullptr, OP_LOGE("aclblasSsymm", "handle is nullptr"); return ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
-    CHECK_RET(
-        side == ACLBLAS_SIDE_LEFT || side == ACLBLAS_SIDE_RIGHT,
-        OP_LOGE("aclblasSsymm", "side must be LEFT or RIGHT, got %d", static_cast<int>(side));
-        return ACLBLAS_STATUS_INVALID_ENUM);
-    CHECK_RET(
-        uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER,
-        OP_LOGE("aclblasSsymm", "uplo must be UPPER or LOWER, got %d", static_cast<int>(uplo));
-        return ACLBLAS_STATUS_INVALID_ENUM);
-    CHECK_RET(m >= 0, OP_LOGE("aclblasSsymm", "m must be >= 0, got %d", m); return ACLBLAS_STATUS_INVALID_VALUE);
-    CHECK_RET(n >= 0, OP_LOGE("aclblasSsymm", "n must be >= 0, got %d", n); return ACLBLAS_STATUS_INVALID_VALUE);
+    aclblasStatus_t earlySt = CheckSsymmEarlyParams(handle, side, uplo, m, n);
+    if (earlySt != ACLBLAS_STATUS_SUCCESS) {
+        return earlySt;
+    }
 
     // Quick return: m==0 or n==0 — no pointer/ld validation needed (BLAS standard).
     if (m == 0 || n == 0) {
@@ -376,53 +381,57 @@ aclblasStatus_t aclblasSsymm(
     }
 
     // Validate ld and non-C pointers (side/uplo already checked above).
-    // C is validated later based on beta value (BLAS: C may be NULL when beta==0).
+    // C is validated after scalar resolution based on beta value (BLAS: beta==0 allows C=null).
     // int is 32-bit signed; non-negative int never exceeds UINT32_MAX, so no overflow check needed.
     aclblasStatus_t st = ValidateSsymmParams(side, m, n, lda, ldb, ldc,
-        alpha, beta, A, B);
+        alpha, beta);
     if (st != ACLBLAS_STATUS_SUCCESS) {
         return st;
     }
 
-    // Resolve alpha/beta scalars before checking C: if beta is a host pointer
-    // and beta==0, C is not required to be a valid pointer (BLAS standard).
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     float alphaVal, betaVal;
     bool alphaIsDevice, betaIsDevice;
     aclblasStatus_t scalarSt = ResolveSsymmScalars(alpha, beta,
-        &alphaVal, &betaVal, &alphaIsDevice, &betaIsDevice);
+        &alphaVal, &betaVal, &alphaIsDevice, &betaIsDevice, h->stream);
     if (scalarSt != ACLBLAS_STATUS_SUCCESS) {
         return scalarSt;
     }
 
+    // BLAS: if alpha == 0 then A and B need not be a valid input.
+    if (alphaVal != 0.0f) {
+        CHECK_RET(A != nullptr, OP_LOGE("aclblasSsymm", "A must not be nullptr when alpha != 0");
+            return ACLBLAS_STATUS_INVALID_VALUE);
+        CHECK_RET(B != nullptr, OP_LOGE("aclblasSsymm", "B must not be nullptr when alpha != 0");
+            return ACLBLAS_STATUS_INVALID_VALUE);
+    }
+
     // BLAS: if beta == 0 then C does not have to be a valid input.
-    // Device beta cannot be evaluated on host — require C != nullptr and let
-    // the scale kernel handle beta==0 (skip reading C).
-    if (!(!betaIsDevice && betaVal == 0.0f)) {
+    // Both host and device beta values are available (device read via
+    // ReadAlphaBetaFromDevice), so this check is unified for both modes.
+    if (betaVal != 0.0f) {
         CHECK_RET(C != nullptr, OP_LOGE("aclblasSsymm", "C must not be nullptr when beta != 0");
             return ACLBLAS_STATUS_INVALID_VALUE);
     }
 
-    // alpha==0 fast path: C = beta * C, skip mirror+gemm. This optimization needs BOTH
-    // alpha and beta readable on the host (the fast path branches on betaVal==0/1 and
-    // may memset/scale C directly on the host side). When alpha is a device pointer the
-    // host cannot know alpha==0; when beta is a device pointer the host cannot branch on
-    // beta. In either case, skip the fast path and run the full mirror+gemm+scale pipeline
-    // — the scale kernel resolves alpha/beta from GM and produces the correct result
-    // (including the alpha==0 → beta*C case, just without the skip-mirror+gemm optimization).
-    if (!alphaIsDevice && !betaIsDevice && alphaVal == 0.0f) {
+    // beta == 0 and C == nullptr: no output destination, nothing to compute.
+    // Returning here avoids launching kernels that would write to a null GM
+    // address, which would poison the stream for subsequent synchronizations.
+    if (C == nullptr) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    // alpha==0 fast path: C = beta * C, skip mirror+gemm.
+    // Host mode: alpha/beta values already in alphaVal/betaVal.
+    // Device mode: values read via ReadAlphaBetaFromDevice (D2H memcpy + sync).
+    // In both cases, host can branch on alphaVal==0 and betaVal to skip the full pipeline.
+    if (alphaVal == 0.0f) {
         return HandleSsymmAlphaZero(handle, static_cast<uint32_t>(m), static_cast<uint32_t>(n),
             static_cast<uint32_t>(ldc), betaVal, C);
     }
 
-    // Forward device pointers verbatim to the kernel; host mode forwards nullptr so the
-    // kernel reads the tiling scalar instead (alphaIsDevice/betaIsDevice gate the read).
-    const float* alphaFwd = alphaIsDevice ? alpha : nullptr;
-    const float* betaFwd = betaIsDevice ? beta : nullptr;
-
     return ExecuteSsymmKernels(handle, side, uplo,
         static_cast<uint32_t>(m), static_cast<uint32_t>(n),
         static_cast<uint32_t>(lda), static_cast<uint32_t>(ldb), static_cast<uint32_t>(ldc),
-        A, B, alphaVal, betaVal, C,
-        alphaFwd, betaFwd,
-        alphaIsDevice ? 1U : 0U, betaIsDevice ? 1U : 0U);
+        A, B, alphaVal, betaVal, C);
 }

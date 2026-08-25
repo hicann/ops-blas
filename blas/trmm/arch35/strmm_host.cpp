@@ -22,6 +22,7 @@
 #include "common/helper/kernel_constant.h"
 #include "common/helper/aclblas_handle_internal.h"
 #include "strmm_tiling_data.h"
+#include "common/helper/syrk_host_utils.h"
 
 struct StrmmMirrorTilingData;
 void strmm_mirror_kernel_do(const uint8_t* gmA, uint8_t* gmWorkspaceA, const StrmmMirrorTilingData &tiling,
@@ -30,7 +31,7 @@ struct StrmmGemmTilingData;
 void strmm_gemm_kernel_do(uint8_t* gmA, const uint8_t* gmB, uint8_t* gmTemp,
                             const StrmmGemmTilingData &tiling, uint32_t numBlocks, void *stream);
 struct StrmmScaleTilingData;
-void strmm_scale_kernel_do(const uint8_t* gmTemp, uint8_t* gmC, const uint8_t* gmAlpha,
+void strmm_scale_kernel_do(const uint8_t* gmTemp, uint8_t* gmC,
                             const StrmmScaleTilingData &tiling, uint32_t numBlocks, void *stream);
 
 static aclblasStatus_t ValidateStrmmParams(
@@ -130,7 +131,7 @@ static StrmmGemmTilingData CalGemmTilingData(
 
 static StrmmScaleTilingData CalScaleTilingData(
     uint32_t usedAivCoreNum, uint32_t m, uint32_t n, uint32_t ldc,
-    uint32_t tempRowStride, float alphaVal, uint32_t alphaIsDevice)
+    uint32_t tempRowStride, float alphaVal)
 {
     StrmmScaleTilingData tiling{};
     tiling.m = m;
@@ -140,37 +141,73 @@ static StrmmScaleTilingData CalScaleTilingData(
     tiling.usedAivCoreNum = usedAivCoreNum;
     tiling.scaleRowsPerCore = CeilDiv<uint32_t>(m, usedAivCoreNum);
     tiling.alphaVal = alphaVal;
-    tiling.alphaIsDevice = alphaIsDevice;
     tiling.nthreads = std::min(CeilAlign<uint32_t>(tiling.scaleRowsPerCore, SIMT_MIN_THREAD_NUM), SIMT_MAX_THREAD_NUM);
     return tiling;
 }
 
 static aclblasStatus_t ResolveStrmmScalars(const float* alpha,
-    float* alphaVal, bool* alphaIsDevice)
+    float* alphaVal, bool* alphaIsDevice, aclrtStream stream)
 {
     aclblasStatus_t alphaLocSt = CheckPtrLocation(alpha, alphaIsDevice);
     if (alphaLocSt != ACLBLAS_STATUS_SUCCESS) {
         return alphaLocSt;
     }
-    *alphaVal = *alphaIsDevice ? 0.0f : (*alpha);
+    if (*alphaIsDevice) {
+        // D2H read 4 bytes (alpha only, strmm has no beta).
+        *alphaVal = 0.0f;
+        aclError aclRet = aclrtMemcpyAsync(alphaVal, sizeof(float), alpha, sizeof(float),
+            ACL_MEMCPY_DEVICE_TO_HOST, stream);
+        if (aclRet != ACL_SUCCESS) {
+            OP_LOGE("aclblasStrmm", "aclrtMemcpyAsync alpha D2H failed, ret=%d", aclRet);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+        aclRet = aclrtSynchronizeStream(stream);
+        if (aclRet != ACL_SUCCESS) {
+            OP_LOGE("aclblasStrmm", "aclrtSynchronizeStream for alpha D2H failed, ret=%d", aclRet);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+    } else {
+        *alphaVal = *alpha;
+    }
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 // ==========================================================================
-// HandleStrmmAlphaZero — C = 0 when alpha == 0.
-// Called when host alpha==0 (fast path) or device alpha with null A/B
-// (assume alpha==0, the only valid BLAS scenario).
-// Uses aclrtMemsetAsync to zero the entire ldc×n C block asynchronously.
+// HandleStrmmAlphaZero — C = 0 when alpha == 0 (fast path).
+//   Host mode: alpha value directly available.
+//   Device mode: value read via D2H memcpy + sync before entering this path.
+//   BLAS: if alpha==0 then A and B need not be set.
+// Two cases are handled to stay consistent with the normal scale kernel, which
+// only writes the m active rows of each column (C[j*ldc+i], i<m, j<n) and
+// leaves the padding rows (m..ldc-1) untouched:
+//   - ldc == m (no padding): a single contiguous memset of the m×n block.
+//   - ldc >  m (padding): per-column memset of m elements, preserving padding.
+// All operations are asynchronous on h->stream; no host-side sync is introduced.
 // ==========================================================================
 static aclblasStatus_t HandleStrmmAlphaZero(
     aclblasHandle_t handle, uint32_t m, uint32_t n, uint32_t ldc, float* C)
 {
     auto* h = static_cast<_aclblas_handle*>(handle);
-    size_t cBytes = static_cast<size_t>(ldc) * static_cast<size_t>(n) * STRMM_ARCH35_FP32_SIZE;
-    aclError ret = aclrtMemsetAsync(C, cBytes, 0, cBytes, h->stream);
-    if (ret != ACL_SUCCESS) {
-        OP_LOGE("aclblasStrmm", "aclrtMemsetAsync failed, ret=%d", ret);
-        return ACLBLAS_STATUS_EXECUTION_FAILED;
+    size_t colBytes = static_cast<size_t>(m) * STRMM_ARCH35_FP32_SIZE;
+    size_t colStride = static_cast<size_t>(ldc) * STRMM_ARCH35_FP32_SIZE;
+    if (ldc == m) {
+        // No padding — single contiguous memset.
+        size_t cBytes = colStride * static_cast<size_t>(n);
+        aclError ret = aclrtMemsetAsync(C, cBytes, 0, cBytes, h->stream);
+        if (ret != ACL_SUCCESS) {
+            OP_LOGE("aclblasStrmm", "aclrtMemsetAsync failed, ret=%d", ret);
+            return ACLBLAS_STATUS_EXECUTION_FAILED;
+        }
+    } else {
+        // Padding rows exist — zero each column individually.
+        for (uint32_t j = 0; j < n; ++j) {
+            float* colPtr = C + static_cast<size_t>(j) * ldc;
+            aclError ret = aclrtMemsetAsync(colPtr, colBytes, 0, colBytes, h->stream);
+            if (ret != ACL_SUCCESS) {
+                OP_LOGE("aclblasStrmm", "aclrtMemsetAsync failed, col=%u, ret=%d", j, ret);
+                return ACLBLAS_STATUS_EXECUTION_FAILED;
+            }
+        }
     }
     return ACLBLAS_STATUS_SUCCESS;
 }
@@ -181,7 +218,7 @@ static aclblasStatus_t LaunchStrmmPipeline(
     const StrmmMirrorTilingData& mirrorTiling, uint32_t usedAivCoreNum,
     const StrmmGemmTilingData& gemmTiling, uint32_t usedAicCoreNum,
     const StrmmScaleTilingData& scaleTiling, uint32_t usedAivCoreNumScale,
-    uint32_t uLda, const float* alphaPtr)
+    uint32_t uLda)
 {
     size_t workspaceASize = static_cast<size_t>(uLda) * static_cast<size_t>(dimA) * STRMM_ARCH35_FP32_SIZE;
     constexpr size_t GM_ALIGN = 32;
@@ -209,11 +246,8 @@ static aclblasStatus_t LaunchStrmmPipeline(
     strmm_gemm_kernel_do(
         workspaceADevice, reinterpret_cast<const uint8_t*>(B), tempDevice,
         gemmTiling, usedAicCoreNum, h->stream);
-    // Forward device alpha pointer verbatim; host-mode forwards nullptr
-    // (kernel reads the tiling scalar instead). See StrmmScaleTilingData flags.
     strmm_scale_kernel_do(
         tempDevice, reinterpret_cast<uint8_t*>(C),
-        reinterpret_cast<const uint8_t*>(alphaPtr),
         scaleTiling, usedAivCoreNumScale, h->stream);
 
     return ACLBLAS_STATUS_SUCCESS;
@@ -233,7 +267,7 @@ static StrmmTilings CalStrmmTilings(
     aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
     aclblasDiagType_t diag,
     uint32_t uM, uint32_t uN, uint32_t uLda, uint32_t uLdb, uint32_t uLdc,
-    float alphaVal, uint32_t alphaIsDevice)
+    float alphaVal)
 {
     StrmmTilings t;
     uint32_t dimA = (side == ACLBLAS_SIDE_LEFT) ? uM : uN;
@@ -265,7 +299,7 @@ static StrmmTilings CalStrmmTilings(
     t.gemm = CalGemmTilingData(
         t.usedAicCoreNum, uN, uM, gemmSide, uLda, uLdb);
     t.scale = CalScaleTilingData(
-        t.usedAivCoreNumScale, uM, uN, uLdc, t.gemm.tempRowStride, alphaVal, alphaIsDevice);
+        t.usedAivCoreNumScale, uM, uN, uLdc, t.gemm.tempRowStride, alphaVal);
 
     OP_LOGD("aclblasStrmm",
         "mirror tiling: side=%u uplo=%u trans=%u diag=%u aivCores=%u rowsPerCore=%u lda=%u dimA=%u",
@@ -280,11 +314,9 @@ static StrmmTilings CalStrmmTilings(
         t.gemm.tileM, t.gemm.tileN, t.gemm.tileKChunk,
         t.gemm.lda, t.gemm.ldb, t.gemm.tempRowStride);
     OP_LOGD("aclblasStrmm",
-        "scale tiling: m=%u n=%u ldc=%u tempRowStride=%u aivCores=%u rowsPerCore=%u "
-        "alphaIsDevice=%u",
+        "scale tiling: m=%u n=%u ldc=%u tempRowStride=%u aivCores=%u rowsPerCore=%u",
         t.scale.m, t.scale.n, t.scale.ldc, t.scale.tempRowStride,
-        t.scale.usedAivCoreNum, t.scale.scaleRowsPerCore,
-        t.scale.alphaIsDevice);
+        t.scale.usedAivCoreNum, t.scale.scaleRowsPerCore);
     return t;
 }
 
@@ -292,8 +324,7 @@ static aclblasStatus_t ExecuteStrmmKernels(
     _aclblas_handle* h, aclblasSideMode_t side, aclblasFillMode_t uplo, aclblasOperation_t trans,
     aclblasDiagType_t diag,
     uint32_t uM, uint32_t uN, uint32_t uLda, uint32_t uLdb, uint32_t uLdc,
-    const float* A, const float* B, float alphaVal, float* C,
-    const float* alphaPtr, uint32_t alphaIsDevice)
+    const float* A, const float* B, float alphaVal, float* C)
 {
     uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
@@ -307,17 +338,16 @@ static aclblasStatus_t ExecuteStrmmKernels(
     }
 
     StrmmTilings t = CalStrmmTilings(aivCoreNum, aicCoreNum, side, uplo, trans, diag,
-        uM, uN, uLda, uLdb, uLdc, alphaVal, alphaIsDevice);
+        uM, uN, uLda, uLdb, uLdc, alphaVal);
 
     OP_LOGI("aclblasStrmm", "launching mirror kernel: aivCores=%u", t.usedAivCoreNum);
     OP_LOGI("aclblasStrmm", "launching gemm kernel: aicCores=%u", t.usedAicCoreNum);
-    OP_LOGI("aclblasStrmm", "launching scale kernel: aivCores=%u alphaIsDevice=%u",
-        t.usedAivCoreNumScale, alphaIsDevice);
+    OP_LOGI("aclblasStrmm", "launching scale kernel: aivCores=%u", t.usedAivCoreNumScale);
 
     uint32_t dimA = (side == ACLBLAS_SIDE_LEFT) ? uM : uN;
     return LaunchStrmmPipeline(h, A, B, C, dimA, uM, uN,
         t.mirror, t.usedAivCoreNum, t.gemm, t.usedAicCoreNum,
-        t.scale, t.usedAivCoreNumScale, uLda, alphaPtr);
+        t.scale, t.usedAivCoreNumScale, uLda);
 }
 
 aclblasStatus_t aclblasStrmm(
@@ -372,22 +402,22 @@ aclblasStatus_t aclblasStrmm(
     }
 
     // Resolve alpha scalar before alpha==0 check: if alpha is a device pointer
-    // the host cannot dereference it.
+    // the host cannot dereference it. Device alpha is read back via D2H memcpy.
+    auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     float alphaVal;
     bool alphaIsDevice;
-    aclblasStatus_t scalarSt = ResolveStrmmScalars(alpha, &alphaVal, &alphaIsDevice);
+    aclblasStatus_t scalarSt = ResolveStrmmScalars(alpha, &alphaVal, &alphaIsDevice, h->stream);
     if (scalarSt != ACLBLAS_STATUS_SUCCESS) {
         return scalarSt;
     }
 
     CHECK_RET(C != nullptr, OP_LOGE("aclblasStrmm", "C must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
 
-    // BLAS: if alpha == 0 then A and B need not be set.
-    // Host alpha==0: memset C and return (fast path).
-    // Device alpha with null A/B: the only valid BLAS scenario is alpha==0
-    // (alpha!=0 with null A/B is a contract violation). Since host can't read
-    // device alpha, assume alpha==0 and memset C.
-    if ((!alphaIsDevice && alphaVal == 0.0f) || (alphaIsDevice && (A == nullptr || B == nullptr))) {
+    // alpha==0 fast path: C = 0, skip mirror+gemm.
+    // BLAS: if alpha==0 then A and B need not be set.
+    // Host mode: alpha value directly available.
+    // Device mode: value read via D2H memcpy + sync.
+    if (alphaVal == 0.0f) {
         return HandleStrmmAlphaZero(handle, static_cast<uint32_t>(m), static_cast<uint32_t>(n),
             static_cast<uint32_t>(ldc), C);
     }
@@ -395,10 +425,8 @@ aclblasStatus_t aclblasStrmm(
     CHECK_RET(A != nullptr, OP_LOGE("aclblasStrmm", "A must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
     CHECK_RET(B != nullptr, OP_LOGE("aclblasStrmm", "B must not be nullptr"); return ACLBLAS_STATUS_INVALID_VALUE);
 
-    const float* alphaFwd = alphaIsDevice ? alpha : nullptr;
-
     return ExecuteStrmmKernels(handle, side, uplo, trans, diag,
         static_cast<uint32_t>(m), static_cast<uint32_t>(n),
         static_cast<uint32_t>(lda), static_cast<uint32_t>(ldb), static_cast<uint32_t>(ldc),
-        A, B, alphaVal, C, alphaFwd, alphaIsDevice ? 1U : 0U);
+        A, B, alphaVal, C);
 }

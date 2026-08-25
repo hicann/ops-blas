@@ -30,6 +30,116 @@ TEST_F(SdgmmArch35Test, NullHandle) {
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_HANDLE_IS_NULLPTR));
 }
 
+// ── Helper: shared dX/dAC malloc + memcpy for in-place tests ──────────────────
+static bool SdgmmInPlaceSetup(void** dX, void** dAC,
+    const std::vector<float>& xHost, const std::vector<float>& aHost,
+    size_t xBytes, size_t acBytes, size_t aCopyBytes)
+{
+    aclError ret = aclrtMalloc(dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    EXPECT_EQ(ret, ACL_SUCCESS) << "aclrtMalloc dX failed";
+    if (ret != ACL_SUCCESS) return false;
+
+    ret = aclrtMalloc(dAC, acBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    EXPECT_EQ(ret, ACL_SUCCESS) << "aclrtMalloc dAC failed";
+    if (ret != ACL_SUCCESS) { aclrtFree(*dX); return false; }
+
+    ret = aclrtMemcpy(*dX, xBytes, xHost.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    EXPECT_EQ(ret, ACL_SUCCESS) << "aclrtMemcpy H2D failed for dX";
+    if (ret != ACL_SUCCESS) { aclrtFree(*dX); aclrtFree(*dAC); return false; }
+
+    ret = aclrtMemcpy(*dAC, acBytes, aHost.data(), aCopyBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    EXPECT_EQ(ret, ACL_SUCCESS) << "aclrtMemcpy H2D failed for dAC";
+    if (ret != ACL_SUCCESS) { aclrtFree(*dX); aclrtFree(*dAC); return false; }
+
+    return true;
+}
+
+// ── TEST_F: in-place A==C, lda != ldc → INVALID_VALUE ─────────────────────────
+// The wrapper allocates separate device buffers for A and C, so the host-side
+// A==C overlap check (sdgmm_host.cpp:63-66) can never trigger through it.
+// This test bypasses the wrapper and calls aclblasSdgmm directly, passing the
+// same device pointer for A and C to verify the overlap rejection.
+TEST_F(SdgmmArch35Test, InPlaceLdaNeLdc) {
+    constexpr int m = 4, n = 4, lda = 4, ldc = 5, incx = 1;
+    const int maxLd = std::max(lda, ldc);
+    const size_t acElems = static_cast<size_t>(maxLd) * static_cast<size_t>(n);
+    const size_t acBytes = acElems * sizeof(float);
+    const size_t xBytes = static_cast<size_t>(m) * sizeof(float);
+    const size_t aBytes = static_cast<size_t>(lda) * static_cast<size_t>(n) * sizeof(float);
+
+    std::vector<float> xHost = makeBlasStrided(m, incx, "RANDOM_NORM_5_5", 42);
+    std::vector<float> aHost = makeBlasMatrix(m, n, lda, "RANDOM_NORM_5_5", 42);
+
+    void* dX = nullptr;
+    void* dAC = nullptr;
+    // Only lda*n elements of A are valid; the rest of dAC is padding for ldc.
+    if (!SdgmmInPlaceSetup(&dX, &dAC, xHost, aHost, xBytes, acBytes, aBytes)) return;
+
+    // A and C point to the same device buffer; lda != ldc must be rejected.
+    aclblasStatus_t dgmmRet = aclblasSdgmm(
+        SdgmmArch35Test::handle_, ACLBLAS_SIDE_LEFT, m, n,
+        static_cast<const float*>(dAC), lda,
+        static_cast<const float*>(dX), incx,
+        static_cast<float*>(dAC), ldc);
+    EXPECT_EQ(static_cast<int>(dgmmRet), static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+
+    aclrtFree(dX);
+    aclrtFree(dAC);
+}
+
+// ── TEST_F: in-place A==C, lda == ldc → SUCCESS ───────────────────────────────
+// Verifies that in-place execution (A==C, lda==ldc) succeeds and produces
+// correct results. Bypasses the wrapper to pass the same device pointer.
+TEST_F(SdgmmArch35Test, InPlaceLdaEqLdc) {
+    constexpr int m = 4, n = 4, lda = 4, ldc = 4, incx = 1;
+    const size_t acElems = static_cast<size_t>(lda) * static_cast<size_t>(n);
+    const size_t acBytes = acElems * sizeof(float);
+    const size_t xBytes = static_cast<size_t>(m) * sizeof(float);
+
+    // aHost is preserved for golden computation (NPU overwrites device copy only).
+    std::vector<float> xHost = makeBlasStrided(m, incx, "RANDOM_NORM_5_5", 42);
+    std::vector<float> aHost = makeBlasMatrix(m, n, lda, "RANDOM_NORM_5_5", 42);
+
+    void* dX = nullptr;
+    void* dAC = nullptr;
+    if (!SdgmmInPlaceSetup(&dX, &dAC, xHost, aHost, xBytes, acBytes, acBytes)) return;
+
+    // A and C point to the same device buffer; lda == ldc allows in-place execution.
+    aclblasStatus_t dgmmRet = aclblasSdgmm(
+        SdgmmArch35Test::handle_, ACLBLAS_SIDE_LEFT, m, n,
+        static_cast<const float*>(dAC), lda,
+        static_cast<const float*>(dX), incx,
+        static_cast<float*>(dAC), ldc);
+    EXPECT_EQ(static_cast<int>(dgmmRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
+
+    if (dgmmRet != ACLBLAS_STATUS_SUCCESS) {
+        aclrtFree(dX);
+        aclrtFree(dAC);
+        return;
+    }
+
+    // Sync and copy in-place result back to host.
+    EXPECT_EQ(aclrtSynchronizeStream(SdgmmArch35Test::stream_), ACL_SUCCESS);
+    std::vector<float> cHost(acElems, kBlasSentinel);
+    EXPECT_EQ(aclrtMemcpy(cHost.data(), acBytes, dAC, acBytes, ACL_MEMCPY_DEVICE_TO_HOST), ACL_SUCCESS);
+
+    // Golden computed from original aHost (not modified by NPU).
+    std::vector<float> goldenC(acElems, kBlasSentinel);
+    aclblasStatus_t cpuRet = aclblasSdgmm_cpu(
+        SdgmmArch35Test::handle_, ACLBLAS_SIDE_LEFT, m, n,
+        aHost.data(), lda, xHost.data(), incx, goldenC.data(), ldc);
+    EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
+
+    // Precision verification — mixed tolerance (ops-precision-standard).
+    VerifyConfig cfg;
+    applyMixedTolerance(cfg, ACL_FLOAT, goldenC.data(), goldenC.size());
+    EXPECT_TRUE(Verifier::verifyVector(
+        cHost.data(), goldenC.data(), cHost.size(), 1, cfg, "InPlaceLdaEqLdc"));
+
+    aclrtFree(dX);
+    aclrtFree(dAC);
+}
+
 // ── CSV parameterised test suite ─────────────────────────────────────────────
 INSTANTIATE_TEST_SUITE_P(
     Sdgmm, SdgmmArch35Test,

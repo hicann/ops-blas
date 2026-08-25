@@ -76,6 +76,91 @@ TEST_F(StrmmArch35Test, NullHandle)
     EXPECT_EQ(ret, ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
 }
 
+static bool MallocDev(void** dPtr, size_t bytes)
+{
+    aclError ret = aclrtMalloc(dPtr, bytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    EXPECT_EQ(static_cast<int>(ret), ACL_SUCCESS) << "aclrtMalloc failed for dC";
+    return ret == ACL_SUCCESS;
+}
+
+static std::vector<float> MakeUpperTriangular(int lda, int m)
+{
+    std::vector<float> a(static_cast<size_t>(lda) * m, 0.0f);
+    for (int col = 0; col < m; ++col) {
+        for (int row = 0; row <= col; ++row) {
+            a[static_cast<size_t>(col) * lda + row] = 1.0f;
+        }
+    }
+    return a;
+}
+
+static void VerifyAlphaZeroPadding(const std::vector<float>& cHost, int m, int n, int ldc, float sentinel)
+{
+    for (int j = 0; j < n; ++j) {
+        for (int i = 0; i < m; ++i) {
+            EXPECT_FLOAT_EQ(cHost[static_cast<size_t>(j) * ldc + i], 0.0f)
+                << "active row " << i << " col " << j << " should be zeroed";
+        }
+        for (int i = m; i < ldc; ++i) {
+            EXPECT_FLOAT_EQ(cHost[static_cast<size_t>(j) * ldc + i], sentinel)
+                << "padding row " << i << " col " << j << " should be preserved";
+        }
+    }
+}
+
+// alpha==0 fast path with ldc > m: HandleStrmmAlphaZero zeros the m active rows
+// of each column via per-column memset, while padding rows (m..ldc-1) are
+// preserved. Device C is pre-filled with a non-zero sentinel to verify that
+// only the active rows are cleared and padding rows remain untouched.
+TEST_F(StrmmArch35Test, AlphaZeroLdcPadding)
+{
+    const int m = 4;
+    const int n = 4;
+    const int lda = 4;
+    const int ldb = 4;
+    const int ldc = 8;  // ldc > m — padding rows exist (rows 4..7)
+    const float alpha = 0.0f;
+    const float sentinel = 42.0f;
+
+    // Valid A (4x4 upper triangular) and B (4x4). When alpha==0 the host
+    // fast path skips A/B entirely, but valid pointers exercise the full
+    // parameter validation path before the alpha==0 early return.
+    std::vector<float> aHost = MakeUpperTriangular(lda, m);
+    std::vector<float> bHost(static_cast<size_t>(ldb) * n, 1.0f);
+
+    // Pre-fill device C with a non-zero sentinel.
+    const size_t cCount = static_cast<size_t>(ldc) * static_cast<size_t>(n);
+    const size_t cBytes = cCount * sizeof(float);
+    std::vector<float> cHost(cCount, sentinel);
+
+    void* dC = nullptr;
+    if (!MallocDev(&dC, cBytes)) return;
+    aclError aclRet = aclrtMemcpy(dC, cBytes, cHost.data(), cBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    if (aclRet != ACL_SUCCESS) {
+        EXPECT_EQ(static_cast<int>(aclRet), ACL_SUCCESS) << "aclrtMemcpy H2D failed for dC";
+        FreeDev(dC);
+        return;
+    }
+
+    aclblasStatus_t ret = aclblasStrmm(
+        StrmmArch35Test::handle_,
+        ACLBLAS_SIDE_LEFT, ACLBLAS_UPPER, ACLBLAS_OP_N, ACLBLAS_NON_UNIT,
+        m, n, &alpha, aHost.data(), lda, bHost.data(), ldb,
+        static_cast<float*>(dC), ldc);
+
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
+
+    if (ret == ACLBLAS_STATUS_SUCCESS) {
+        ret = StrmmSyncAndCopyD2H(StrmmArch35Test::handle_, dC, cHost.data(), cBytes);
+        EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
+    }
+    FreeDev(dC);
+
+    if (ret == ACLBLAS_STATUS_SUCCESS) {
+        VerifyAlphaZeroPadding(cHost, m, n, ldc, sentinel);
+    }
+}
+
 INSTANTIATE_TEST_SUITE_P(
     Strmm, StrmmArch35Test,
     ::testing::ValuesIn(GetCasesFromCsv<StrmmParam>(ReplaceFileExtension2Csv(__FILE__))),
@@ -112,11 +197,7 @@ static void HandleAlphaZeroNullAB(const StrmmParam& p, aclblasHandle_t handle,
     const size_t cCount = static_cast<size_t>(p.ldc) * static_cast<size_t>(p.n);
     const size_t cBytes = cCount * sizeof(float);
     void* dC = nullptr;
-    aclError aclRet = aclrtMalloc(&dC, cBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-    if (aclRet != ACL_SUCCESS) {
-        EXPECT_EQ(static_cast<int>(aclRet), ACL_SUCCESS) << "aclrtMalloc failed for dC";
-        return;
-    }
+    if (!MallocDev(&dC, cBytes)) return;
     void* dAlpha = nullptr;
     const float* alphaArg = alphaPtr;
     if (alphaOnDevice && alphaPtr != nullptr) {
@@ -140,7 +221,7 @@ static void HandleAlphaZeroNullAB(const StrmmParam& p, aclblasHandle_t handle,
         p.side, p.uplo, p.trans, p.diag, p.m, p.n,
         alphaArg, aPtr, p.lda, bPtr, p.ldb,
         static_cast<float*>(dC), p.ldc);
-    if (ret == ACLBLAS_STATUS_SUCCESS) {
+    if (ret == ACLBLAS_STATUS_SUCCESS && cPtr != nullptr) {
         ret = StrmmSyncAndCopyD2H(handle, dC, cPtr, cBytes);
     }
     FreeDev(dAlpha);
