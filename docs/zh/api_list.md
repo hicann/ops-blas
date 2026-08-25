@@ -510,7 +510,7 @@ aclblasStatus_t aclblasLtMatmulPreferenceSetAttribute(aclblasLtMatmulPreference_
                                                       size_t sizeInBytes);
 ```
 
-设置算法搜索偏好属性，如 `ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES`（允许的最大 workspace 字节数，默认 0 表示不允许 workspace）。
+设置算法搜索偏好属性，如 `ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES`（允许的最大 workspace 字节数，默认 32MB）。
 
 | 返回值 | 含义 |
 |---|---|
@@ -1058,7 +1058,7 @@ aclBLASLt 日志掩码位标志枚举，按位组合控制各类消息的输出�
 | 取值 | 含义 | 数据类型 | 默认值 |
 |---|---|---|---|
 | `ACLBLASLT_MATMUL_PREF_SEARCH_MODE` (0) | 搜索模式：0=启发式，1=穷举，2=快速。 | `uint32_t` | 0 |
-| `ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES` (1) | 允许的最大 workspace 字节数。 | `uint64_t` | 0 |
+| `ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES` (1) | 允许的最大 workspace 字节数。 | `uint64_t` | 32MB（`32*1024*1024`） |
 
 ### aclblasLtMatmulTile_t
 
@@ -1101,8 +1101,8 @@ SplitK 归约方案枚举。映射到 `PackedAlgo.flags` 低 2 位。用于 `ACL
 | 取值 | 含义 | 数据类型 | 默认值 |
 |---|---|---|---|
 | `ACLBLASLT_ALGO_CONFIG_ID` (0) | 只读。算法索引，由 AlgoInit / ConfigSet 维护。 | `int32_t` | `0x00808201` |
-| `ACLBLASLT_ALGO_CONFIG_TILE_ID` (1) | L1 Tile M×N 形状，见 `aclblasLtMatmulTile_t`。 | `uint32_t` | `UNDEFINED` |
-| `ACLBLASLT_ALGO_CONFIG_STAGES_ID` (2) | 流水级数，见 `aclblasLtMatmulStages_t`。 | `uint32_t` | `UNDEFINED` |
+| `ACLBLASLT_ALGO_CONFIG_TILE_ID` (1) | L1 Tile M×N 形状，见 `aclblasLtMatmulTile_t`。 | `uint32_t` | `TILE_128x128` |
+| `ACLBLASLT_ALGO_CONFIG_STAGES_ID` (2) | 流水级数，见 `aclblasLtMatmulStages_t`。 | `uint32_t` | `STAGES_1` |
 | `ACLBLASLT_ALGO_CONFIG_SPLITK_NUM` (3) | K 维切分数，范围 [1, 255]。 | `uint32_t` | 1 |
 | `ACLBLASLT_ALGO_CONFIG_REDUCTION_SCHEME` (4) | SplitK 归约方案，见 `aclblasLtReductionScheme_t`。 | `uint32_t` | `NONE` |
 | `ACLBLASLT_ALGO_CONFIG_CUSTOM_OPTION` (5) | dispatch policy（0=sync, 1=pingpong, 2=multi_stage）。 | `uint32_t` | 0 |

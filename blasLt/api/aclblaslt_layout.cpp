@@ -46,6 +46,20 @@ inline aclblasStatus_t StoreLayoutField(void* buf, size_t sizeInBytes, const T& 
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+template <typename T>
+inline aclblasStatus_t StoreLayoutFieldOut(void* buf, size_t sizeInBytes, const T& field, size_t* sizeWritten)
+{
+    const size_t requiredSize = sizeof(T);
+    if (sizeWritten != nullptr) {
+        *sizeWritten = requiredSize;
+    }
+    if (sizeInBytes < requiredSize) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    *reinterpret_cast<T*>(buf) = field;
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
 aclblasStatus_t ApplyLayoutSetAttr(
     aclblasLtMatrixLayoutImpl& impl, aclblasLtMatrixLayoutAttribute_t attr, const void* buf, size_t sizeInBytes)
 {
@@ -71,23 +85,23 @@ aclblasStatus_t ApplyLayoutSetAttr(
 
 aclblasStatus_t ReadLayoutGetAttr(
     const aclblasLtMatrixLayoutImpl& impl, aclblasLtMatrixLayoutAttribute_t attr, void* buf, size_t sizeInBytes,
-    size_t& actualSize)
+    size_t* sizeWritten)
 {
     switch (attr) {
         case ACLBLASLT_MATRIX_LAYOUT_TYPE:
-            return StoreLayoutField(buf, sizeInBytes, impl.type, actualSize);
+            return StoreLayoutFieldOut(buf, sizeInBytes, impl.type, sizeWritten);
         case ACLBLASLT_MATRIX_LAYOUT_ROWS:
-            return StoreLayoutField(buf, sizeInBytes, impl.rows, actualSize);
+            return StoreLayoutFieldOut(buf, sizeInBytes, impl.rows, sizeWritten);
         case ACLBLASLT_MATRIX_LAYOUT_COLS:
-            return StoreLayoutField(buf, sizeInBytes, impl.cols, actualSize);
+            return StoreLayoutFieldOut(buf, sizeInBytes, impl.cols, sizeWritten);
         case ACLBLASLT_MATRIX_LAYOUT_LD:
-            return StoreLayoutField(buf, sizeInBytes, impl.ld, actualSize);
+            return StoreLayoutFieldOut(buf, sizeInBytes, impl.ld, sizeWritten);
         case ACLBLASLT_MATRIX_LAYOUT_ORDER:
-            return StoreLayoutField(buf, sizeInBytes, impl.order, actualSize);
+            return StoreLayoutFieldOut(buf, sizeInBytes, impl.order, sizeWritten);
         case ACLBLASLT_MATRIX_LAYOUT_BATCH_COUNT:
-            return StoreLayoutField(buf, sizeInBytes, impl.batchCount, actualSize);
+            return StoreLayoutFieldOut(buf, sizeInBytes, impl.batchCount, sizeWritten);
         case ACLBLASLT_MATRIX_LAYOUT_STRIDED_BATCH_OFFSET:
-            return StoreLayoutField(buf, sizeInBytes, impl.stridedBatchOffset, actualSize);
+            return StoreLayoutFieldOut(buf, sizeInBytes, impl.stridedBatchOffset, sizeWritten);
         default:
             return ACLBLAS_STATUS_INVALID_VALUE;
     }
@@ -179,17 +193,7 @@ aclblasStatus_t aclblasLtMatrixLayoutGetAttribute(
         return copyStatus;
     }
 
-    size_t actualSize = 0;
-    const aclblasStatus_t getStatus = ReadLayoutGetAttr(impl, attr, buf, sizeInBytes, actualSize);
-    if (getStatus != ACLBLAS_STATUS_SUCCESS) {
-        return getStatus;
-    }
-
-    if (sizeWritten != nullptr) {
-        *sizeWritten = actualSize;
-    }
-
-    return ACLBLAS_STATUS_SUCCESS;
+    return ReadLayoutGetAttr(impl, attr, buf, sizeInBytes, sizeWritten);
 }
 
 } // extern "C"

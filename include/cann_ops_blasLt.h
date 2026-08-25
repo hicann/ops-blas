@@ -199,7 +199,7 @@ typedef enum aclblasLtMatrixTransformDescAttribute {
  */
 typedef enum aclblasLtMatmulPreferenceAttribute {
   ACLBLASLT_MATMUL_PREF_SEARCH_MODE = 0,          /**<Search mode. Data type: ``uint32_t``. */
-  ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES = 1,  /**<Maximum allowed workspace memory. Default is 0 (no workspace memory allowed). Data type: ``uint64_t``. */
+  ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES = 1,  /**<Maximum allowed workspace memory. Default is 32MB (32*1024*1024 bytes). Data type: ``uint64_t``. */
   ACLBLASLT_MATMUL_PREF_MAX = 2
 } aclblasLtMatmulPreferenceAttribute_t;
 

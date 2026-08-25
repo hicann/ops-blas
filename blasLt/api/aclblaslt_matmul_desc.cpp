@@ -115,6 +115,8 @@ aclblasStatus_t ApplyMatmulDescSetAttr(
             return SetDescScalePointer(impl.scaleA, buf, sizeInBytes);
         case ACLBLASLT_MATMUL_DESC_B_SCALE_POINTER:
             return SetDescScalePointer(impl.scaleB, buf, sizeInBytes);
+        case ACLBLASLT_MATMUL_DESC_POINTER_MODE:
+            return SetDescEnumFromI32(impl.pointerMode, buf, sizeInBytes);
         case ACLBLASLT_MATMUL_DESC_A_SCALE_MODE:
         case ACLBLASLT_MATMUL_DESC_B_SCALE_MODE:
             return ACLBLAS_STATUS_SUCCESS;
@@ -241,6 +243,11 @@ aclblasStatus_t aclblasLtMatmulDescGetAttribute(
         case ACLBLASLT_MATMUL_DESC_B_SCALE_POINTER:
             requiredSize = sizeof(impl.scaleB);
             srcPtr = &impl.scaleB;
+            break;
+
+        case ACLBLASLT_MATMUL_DESC_POINTER_MODE:
+            requiredSize = sizeof(impl.pointerMode);
+            srcPtr = &impl.pointerMode;
             break;
 
         default:
