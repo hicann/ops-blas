@@ -226,8 +226,11 @@ function(_ops_blas_ensure_refblas_found)
                   ${HOMEBREW_PREFIX}/lib
             PATH_SUFFIXES lapack)
         if(NOT REFBLAS_INCLUDE_DIR OR NOT REFBLAS_LIB)
-            message(FATAL_ERROR "Reference BLAS (cblas.h / libblas) not found. "
-                "Install via: apt-get install libblas-dev")
+            message(FATAL_ERROR "Reference BLAS (cblas.h / libblas) not found. Install via:\n"
+                "  Debian/Ubuntu:         apt-get install libblas-dev\n"
+                "  RHEL/CentOS/openEuler: dnf install blas-devel (or yum install blas-devel)\n"
+                "  macOS:                 brew install openblas\n"
+                "Or run ./install_deps.sh to install dependencies automatically.")
         endif()
         if(NOT REFLAPACK_LIB)
             message(WARNING "Reference LAPACK (liblapack) not found. "
