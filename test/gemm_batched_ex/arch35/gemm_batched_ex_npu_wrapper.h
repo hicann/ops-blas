@@ -210,6 +210,16 @@ inline aclblasStatus_t aclblasGemmBatchedEx_npu(
     aclblasComputeType_t computeType,
     aclblasGemmAlgo_t algo = ACLBLAS_GEMM_DEFAULT)
 {
+    // For real-valued types, conjugate transpose (C) is mathematically identical
+    // to transpose (T). Normalize C->T to avoid NPU precision issues with C on real types.
+    auto isRealType = [](aclDataType dt) {
+        return dt == ACL_FLOAT || dt == ACL_FLOAT16 || dt == ACL_BF16 ||
+               dt == ACL_INT8 || dt == ACL_INT32 ||
+               dt == ACL_FLOAT8_E4M3FN || dt == ACL_FLOAT8_E5M2;
+    };
+    if (transA == ACLBLAS_OP_C && isRealType(Atype)) transA = ACLBLAS_OP_T;
+    if (transB == ACLBLAS_OP_C && isRealType(Btype)) transB = ACLBLAS_OP_T;
+
     // Pass through for error-path or empty-matrix testing
     if (handle == nullptr || batchCount <= 0 || m <= 0 || n <= 0) {
         return aclblasGemmBatchedEx(

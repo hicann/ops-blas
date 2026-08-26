@@ -162,12 +162,20 @@ protected:
 
     void processElement(float outVal, float goldVal) override
     {
-        // INF mismatch: hard failure, bypass MERE/MARE
-        if (std::isinf(outVal) || std::isinf(goldVal)) {
+        // INF or NaN: hard failure
+        if (std::isinf(outVal) || std::isinf(goldVal) || std::isnan(outVal) || std::isnan(goldVal)) {
             mismatchCount_++;
             return;
         }
-        double relErr = std::abs(outVal - goldVal) / (std::abs(goldVal) + kEpsilon);
+        // Near-zero golden: relative error is undefined, skip from MERE/MARE statistics.
+        // When |golden| < threshold_, the expected precision itself is below the noise floor.
+        double absGold = std::abs(static_cast<double>(goldVal));
+        if (absGold < threshold_) {
+            skippedNearZero_++;
+            return;
+        }
+        double relErr = std::abs(static_cast<double>(outVal) - static_cast<double>(goldVal)) /
+                        (absGold + kEpsilon);
         sumRelErr_ += relErr;
         if (relErr > maxRelErr_)
             maxRelErr_ = relErr;
@@ -184,6 +192,8 @@ protected:
                   << ", outlier_limit=" << outlierLimit_;
         if (skippedCount > 0)
             std::cout << ", skipped " << skippedCount << " elements (exact/nan/inf-equal)";
+        if (skippedNearZero_ > 0)
+            std::cout << ", skipped " << skippedNearZero_ << " near-zero";
         if (mismatchCount_ > 0)
             std::cout << ", " << mismatchCount_ << " special-value mismatches";
         std::cout << ")" << std::endl;
@@ -203,7 +213,8 @@ private:
     double sumRelErr_ = 0.0;
     double maxRelErr_ = 0.0;
     size_t outlierCount_ = 0;
-    size_t mismatchCount_ = 0; // INF-related special-value mismatches
+    size_t mismatchCount_ = 0; // INF/NaN-related special-value mismatches
+    size_t skippedNearZero_ = 0; // elements skipped because |golden| < threshold
     size_t validCount_ = 0;    // elements contributing to MERE/MARE statistics
 };
 

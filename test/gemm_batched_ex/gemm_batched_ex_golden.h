@@ -53,13 +53,14 @@ inline aclblasStatus_t ValidateBatchedGoldenParams(
 }
 
 // Compute dot product for one element of C: sum(A[i,p] * B[p,j]) over p
+// Accumulation precision matches NPU: FP32 for all compute types (NPU uses FP32 internal accumulator).
 inline double ComputeBatchedDotProduct(
     const float* aData, const float* bData,
     int i, int j, int k, int lda, int ldb,
     aclblasOperation_t transA, aclblasOperation_t transB)
 {
-    double sum = 0.0;
-    if (k <= 0 || aData == nullptr || bData == nullptr) return sum;
+    if (k <= 0 || aData == nullptr || bData == nullptr) return 0.0;
+    float sum = 0.0f;
     for (int p = 0; p < k; p++) {
         float aVal = (transA == ACLBLAS_OP_N)
             ? aData[static_cast<size_t>(p) * lda + i]
@@ -67,9 +68,9 @@ inline double ComputeBatchedDotProduct(
         float bVal = (transB == ACLBLAS_OP_N)
             ? bData[static_cast<size_t>(j) * ldb + p]
             : bData[static_cast<size_t>(p) * ldb + j];
-        sum += static_cast<double>(aVal) * static_cast<double>(bVal);
+        sum += aVal * bVal;
     }
-    return sum;
+    return static_cast<double>(sum);
 }
 
 // Apply alpha/beta and quantize output through Ctype

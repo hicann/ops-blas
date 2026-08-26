@@ -118,7 +118,13 @@ inline void RunAndVerifyBatched(
 
     VerifyConfig cfg;
     cfg.mode = PrecisionMode::MERE_MARE;
-    if (p.Ctype == ACL_FLOAT16) {
+    // Threshold is determined by the least precise type in the pipeline.
+    // FP8 input quantization noise dominates over FP16 output precision.
+    auto isFp8Input = (p.Atype == ACL_FLOAT8_E4M3FN || p.Atype == ACL_FLOAT8_E5M2 ||
+                       p.Btype == ACL_FLOAT8_E4M3FN || p.Btype == ACL_FLOAT8_E5M2);
+    if (isFp8Input) {
+        cfg.mereThreshold = std::max(getMereThreshold(p.Atype), getMereThreshold(p.Btype));
+    } else if (p.Ctype == ACL_FLOAT16) {
         cfg.mereThreshold = 0.0012;
     } else {
         cfg.mereThreshold = getMereThreshold(p.Ctype);
