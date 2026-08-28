@@ -117,19 +117,25 @@ inline void RunAndVerifyBatched(
     if (p.m <= 0 || p.n <= 0 || safeBatch == 0 || cPtrArrPtr == nullptr) return;
 
     VerifyConfig cfg;
-    cfg.mode = PrecisionMode::MERE_MARE;
-    // Threshold is determined by the least precise type in the pipeline.
-    // FP8 input quantization noise dominates over FP16 output precision.
+    // Precision standard: docs/zh/ops_precision_standard/experimental_standard.md
+    // (mixed tolerance: |actual - golden| <= atol + rtol * |golden|, matched_ratio >= 0.99,
+    //  max_abs_error <= max(fixed_limit, 32 * ULP)).
+    // FP8 input quantization noise dominates precision: use the FP8 input's thresholds.
     auto isFp8Input = (p.Atype == ACL_FLOAT8_E4M3FN || p.Atype == ACL_FLOAT8_E5M2 ||
                        p.Btype == ACL_FLOAT8_E4M3FN || p.Btype == ACL_FLOAT8_E5M2);
+    auto applyStdThreshold = [&cfg](aclDataType dtype) {
+        auto d = getMixedToleranceDefaults(dtype);
+        applyMixedToleranceInternal(cfg, d);
+        cfg.mixedMaxAbsErrorLimit = d.maxAbsErrorLimitFixed;
+    };
     if (isFp8Input) {
-        cfg.mereThreshold = std::max(getMereThreshold(p.Atype), getMereThreshold(p.Btype));
-    } else if (p.Ctype == ACL_FLOAT16) {
-        cfg.mereThreshold = 0.0012;
+        // Use the looser of the two FP8 input types (E5M2 rtol 0.5 > E4M3 rtol 0.25).
+        auto aTol = getMixedToleranceDefaults(p.Atype);
+        auto bTol = getMixedToleranceDefaults(p.Btype);
+        applyStdThreshold((bTol.rtol > aTol.rtol) ? p.Btype : p.Atype);
     } else {
-        cfg.mereThreshold = getMereThreshold(p.Ctype);
+        applyStdThreshold(p.Ctype);
     }
-    cfg.mareMultiplier = getMareMultiplier(p.Ctype, p.k, p.computeType);
 
     int safeLdc = std::max(1, p.ldc);
     size_t cCount = static_cast<size_t>(safeLdc) * p.n;
