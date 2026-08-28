@@ -123,6 +123,37 @@ static uint32_t MaxTileKByL1(uint32_t tileM, uint32_t tileN)
     return 0;
 }
 
+static void RelaxTileForOverfill(uint32_t gemmM, uint32_t gemmN, uint32_t aicCoreNum,
+    uint32_t& bestM, uint32_t& bestN)
+{
+    const uint32_t candidates[] = {256, 128, 64, 32, 16};
+    constexpr uint32_t numCandidates = sizeof(candidates) / sizeof(candidates[0]);
+    uint64_t curTiles = CeilDiv<uint64_t>(gemmM, bestM) * CeilDiv<uint64_t>(gemmN, bestN);
+    if (curTiles <= aicCoreNum) {
+        return;
+    }
+    uint32_t halfThresh = aicCoreNum / 2;
+    uint64_t curProduct = static_cast<uint64_t>(bestM) * bestN;
+    for (uint32_t i = 0; i < numCandidates; i++) {
+        for (uint32_t j = 0; j < numCandidates; j++) {
+            uint32_t tm = candidates[i];
+            uint32_t tn = candidates[j];
+            if (MaxTileKByL1(tm, tn) == 0) {
+                continue;
+            }
+            uint64_t tiles = CeilDiv<uint64_t>(gemmM, tm) * CeilDiv<uint64_t>(gemmN, tn);
+            if (tiles >= halfThresh && tiles <= aicCoreNum) {
+                uint64_t product = static_cast<uint64_t>(tm) * tn;
+                if (product > curProduct) {
+                    bestM = tm;
+                    bestN = tn;
+                    curProduct = product;
+                }
+            }
+        }
+    }
+}
+
 static void ChooseGemmTileMN(uint32_t gemmM, uint32_t gemmN, uint32_t aicCoreNum,
     uint32_t& tileM, uint32_t& tileN)
 {
@@ -136,7 +167,9 @@ static void ChooseGemmTileMN(uint32_t gemmM, uint32_t gemmN, uint32_t aicCoreNum
         for (uint32_t j = 0; j < numCandidates; j++) {
             uint32_t tm = candidates[i];
             uint32_t tn = candidates[j];
-            if (MaxTileKByL1(tm, tn) == 0) continue;
+            if (MaxTileKByL1(tm, tn) == 0) {
+                continue;
+            }
             uint64_t tiles = CeilDiv<uint64_t>(gemmM, tm) * CeilDiv<uint64_t>(gemmN, tn);
             if (tiles >= aicCoreNum) {
                 if (!found || static_cast<uint64_t>(tm) * tn > static_cast<uint64_t>(bestM) * bestN) {
@@ -151,6 +184,11 @@ static void ChooseGemmTileMN(uint32_t gemmM, uint32_t gemmN, uint32_t aicCoreNum
             }
         }
     }
+
+    if (found) {
+        RelaxTileForOverfill(gemmM, gemmN, aicCoreNum, bestM, bestN);
+    }
+
     tileM = bestM;
     tileN = bestN;
 }
@@ -187,39 +225,72 @@ static aclblasStatus_t StrsmAlphaZeroPath(_aclblas_handle* h, int m, int n, int 
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+static size_t CalcRightBlockedWorkspace(uint32_t mU32, uint32_t nU32, uint32_t panelBs, bool isTransAfter)
+{
+    uint32_t noTransTempStride = CeilAlign<uint32_t>(nU32, 8u);
+    uint32_t transTempStride = CeilAlign<uint32_t>(mU32, 8u);
+    size_t blockedTempWs = isTransAfter ? static_cast<size_t>(nU32) * transTempStride * sizeof(float) :
+                                          static_cast<size_t>(mU32) * noTransTempStride * sizeof(float);
+    size_t aWs = static_cast<size_t>(nU32) * panelBs * sizeof(float);
+    uint32_t mAligned = CeilAlign<uint32_t>(mU32, 8u);
+    size_t bWs = static_cast<size_t>(panelBs) * mAligned * sizeof(float);
+    return isTransAfter ? (blockedTempWs + aWs + bWs) : blockedTempWs;
+}
+
+static aclblasStatus_t StrsmLeftDispatch(
+    _aclblas_handle* h, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int m, int n, int lda,
+    int ldb, float alpha, const float* A, float* B, uint32_t aivCoreNum);
+
 static aclblasStatus_t StrsmRightDevicePath(
     _aclblas_handle* h, aclblasFillMode_t uplo, aclblasOperation_t trans, aclblasDiagType_t diag, int m, int n, int lda,
     int ldb, float alpha, const float* A, float* B, uint32_t aivCoreNum)
 {
+    uint32_t mU32 = static_cast<uint32_t>(m);
+    uint32_t nU32 = static_cast<uint32_t>(n);
     int newLdb = std::max(1, n);
     size_t btBytes = static_cast<size_t>(newLdb) * static_cast<size_t>(m) * sizeof(float);
-    if (btBytes > GetEffectiveWorkspaceSize(h)) {
-        aclblasStatus_t wsRet = EnsureDefaultWorkspace(h, btBytes);
+    bool isTransAfter = (trans == ACLBLAS_OP_N);
+    size_t blockedWsMax = CalcRightBlockedWorkspace(mU32, nU32, 128u, isTransAfter);
+    size_t totalWsMax = blockedWsMax + btBytes;
+    if (totalWsMax > GetEffectiveWorkspaceSize(h)) {
+        aclblasStatus_t wsRet = EnsureDefaultWorkspace(h, totalWsMax);
         if (wsRet != ACLBLAS_STATUS_SUCCESS) {
             return wsRet;
         }
     }
-    uint8_t* btDev = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
+    uint8_t* wsBase = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
+    uint8_t* btDev = wsBase + blockedWsMax;
 
-    uint32_t transBlocks = std::min(aivCoreNum, static_cast<uint32_t>(m));
-    if (transBlocks == 0) transBlocks = 1;
+    uint32_t transBlocks = std::min(aivCoreNum, mU32);
+    if (transBlocks == 0) {
+        transBlocks = 1;
+    }
     OP_LOGI("aclblasStrsm", "launching transpose kernel (B->Bt): m=%d, n=%d, blocks=%u", m, n, transBlocks);
-    strsm_transpose_kernel_do(reinterpret_cast<uint8_t*>(B), btDev,
-        static_cast<uint32_t>(m), static_cast<uint32_t>(n), static_cast<int32_t>(ldb), static_cast<int32_t>(newLdb),
-        transBlocks, h->stream);
+    strsm_transpose_kernel_do(reinterpret_cast<uint8_t*>(B), btDev, mU32, nU32, static_cast<int32_t>(ldb),
+        static_cast<int32_t>(newLdb), transBlocks, h->stream);
 
     aclblasOperation_t fTrans = (trans == ACLBLAS_OP_N) ? ACLBLAS_OP_T : ACLBLAS_OP_N;
-    StrsmTilingData tiling = CalcTiling(uplo, fTrans, diag, n, m, lda, newLdb, alpha, aivCoreNum);
-    OP_LOGI("aclblasStrsm", "launching kernel(right): blocks=%u, cores=%u", tiling.coreNum, aivCoreNum);
-    strsm_kernel_do(
-        reinterpret_cast<uint8_t*>(const_cast<float*>(A)), btDev, nullptr, tiling, tiling.coreNum, h->stream);
+    if (mU32 >= SIMT_BLOCKED_N_THRESHOLD) {
+        OP_LOGI("aclblasStrsm", "right path: routing to left blocked dispatch (m=%d, n=%d)", m, n);
+        aclblasStatus_t solveRet = StrsmLeftDispatch(h, uplo, fTrans, diag, n, m, lda, newLdb, alpha, A,
+            reinterpret_cast<float*>(btDev), aivCoreNum);
+        if (solveRet != ACLBLAS_STATUS_SUCCESS) {
+            return solveRet;
+        }
+    } else {
+        StrsmTilingData tiling = CalcTiling(uplo, fTrans, diag, n, m, lda, newLdb, alpha, aivCoreNum);
+        OP_LOGI("aclblasStrsm", "launching kernel(right): blocks=%u, cores=%u", tiling.coreNum, aivCoreNum);
+        strsm_kernel_do(reinterpret_cast<uint8_t*>(const_cast<float*>(A)), btDev, nullptr, tiling, tiling.coreNum,
+            h->stream);
+    }
 
-    uint32_t transBackBlocks = std::min(aivCoreNum, static_cast<uint32_t>(n));
-    if (transBackBlocks == 0) transBackBlocks = 1;
+    uint32_t transBackBlocks = std::min(aivCoreNum, nU32);
+    if (transBackBlocks == 0) {
+        transBackBlocks = 1;
+    }
     OP_LOGI("aclblasStrsm", "launching transpose kernel (Bt->B): n=%d, m=%d, blocks=%u", n, m, transBackBlocks);
-    strsm_transpose_kernel_do(btDev, reinterpret_cast<uint8_t*>(B),
-        static_cast<uint32_t>(n), static_cast<uint32_t>(m), static_cast<int32_t>(newLdb), static_cast<int32_t>(ldb),
-        transBackBlocks, h->stream);
+    strsm_transpose_kernel_do(btDev, reinterpret_cast<uint8_t*>(B), nU32, mU32, static_cast<int32_t>(newLdb),
+        static_cast<int32_t>(ldb), transBackBlocks, h->stream);
 
     return ACLBLAS_STATUS_SUCCESS;
 }

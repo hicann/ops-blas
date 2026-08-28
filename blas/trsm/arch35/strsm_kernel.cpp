@@ -272,7 +272,7 @@ __aicore__ inline void DispatchKernel(const StrsmTilingData& tiling, __gm__ GmT*
 {
     uint32_t mEff = tiling.m;
     uint32_t nEff = tiling.n;
-    uint32_t coreId = blockIdx.x;
+    uint32_t coreId = GetBlockIdx();
     uint32_t colStart = coreId * tiling.perCoreN + (coreId < tiling.coreRemainder ? coreId : tiling.coreRemainder);
     uint32_t colEnd = colStart + tiling.perCoreN + (coreId < tiling.coreRemainder ? 1 : 0);
     if (colStart >= nEff) {
@@ -408,8 +408,8 @@ __global__ __aicore__ void strsm_right_kernel(GM_ADDR a, GM_ADDR b, GM_ADDR work
 __global__ __aicore__ void strsm_zero_kernel(GM_ADDR b, uint32_t m, uint32_t n, int32_t ldb)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-    uint32_t colsPerBlock = (n + gridDim.x - 1) / gridDim.x;
-    uint32_t colStart = blockIdx.x * colsPerBlock;
+    uint32_t colsPerBlock = (n + GetBlockNum() - 1) / GetBlockNum();
+    uint32_t colStart = GetBlockIdx() * colsPerBlock;
     if (colStart >= n) return;
     uint32_t colEnd = colStart + colsPerBlock;
     if (colEnd > n) colEnd = n;
@@ -422,8 +422,8 @@ __global__ __aicore__ void strsm_transpose_kernel(
     GM_ADDR in, GM_ADDR out, uint32_t rows, uint32_t cols, int32_t ldIn, int32_t ldOut)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
-    uint32_t rowsPerBlock = (rows + gridDim.x - 1) / gridDim.x;
-    uint32_t rowStart = blockIdx.x * rowsPerBlock;
+    uint32_t rowsPerBlock = (rows + GetBlockNum() - 1) / GetBlockNum();
+    uint32_t rowStart = GetBlockIdx() * rowsPerBlock;
     if (rowStart >= rows) return;
     uint32_t rowEnd = rowStart + rowsPerBlock;
     if (rowEnd > rows) rowEnd = rows;
@@ -455,8 +455,8 @@ __global__ __aicore__ void strsm_panel_kernel(GM_ADDR a, GM_ADDR b, const StrsmP
     auto* bGm = reinterpret_cast<__gm__ float*>(b);
 
     uint32_t n = tiling.n;
-    uint32_t colsPerCore = (n + gridDim.x - 1) / gridDim.x;
-    uint32_t colStart = blockIdx.x * colsPerCore;
+    uint32_t colsPerCore = (n + GetBlockNum() - 1) / GetBlockNum();
+    uint32_t colStart = GetBlockIdx() * colsPerCore;
     if (colStart >= n) return;
     uint32_t colEnd = colStart + colsPerCore;
     if (colEnd > n) colEnd = n;

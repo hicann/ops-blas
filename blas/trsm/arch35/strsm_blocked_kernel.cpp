@@ -73,8 +73,8 @@ __global__ __aicore__ void strsm_extract_a_kernel(
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     uint32_t totalElements = mC * bs;
-    uint32_t elementsPerBlock = (totalElements + gridDim.x - 1) / gridDim.x;
-    uint32_t startIdx = blockIdx.x * elementsPerBlock;
+    uint32_t elementsPerBlock = (totalElements + AscendC::GetBlockNum() - 1) / AscendC::GetBlockNum();
+    uint32_t startIdx = AscendC::GetBlockIdx() * elementsPerBlock;
     if (startIdx >= totalElements) return;
     uint32_t endIdx = startIdx + elementsPerBlock;
     if (endIdx > totalElements) endIdx = totalElements;
@@ -89,8 +89,8 @@ __global__ __aicore__ void strsm_extract_b_kernel(
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     uint32_t totalElements = bs * n;
-    uint32_t elementsPerBlock = (totalElements + gridDim.x - 1) / gridDim.x;
-    uint32_t startIdx = blockIdx.x * elementsPerBlock;
+    uint32_t elementsPerBlock = (totalElements + AscendC::GetBlockNum() - 1) / AscendC::GetBlockNum();
+    uint32_t startIdx = AscendC::GetBlockIdx() * elementsPerBlock;
     if (startIdx >= totalElements) return;
     uint32_t endIdx = startIdx + elementsPerBlock;
     if (endIdx > totalElements) endIdx = totalElements;
@@ -144,8 +144,8 @@ __global__ __aicore__ void strsm_axpy_kernel(GM_ADDR b, GM_ADDR temp, const Strs
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     uint64_t totalElements = static_cast<uint64_t>(tiling.m) * tiling.n;
-    uint64_t elementsPerBlock = (totalElements + gridDim.x - 1) / gridDim.x;
-    uint64_t startIdx = static_cast<uint64_t>(blockIdx.x) * elementsPerBlock;
+    uint64_t elementsPerBlock = (totalElements + AscendC::GetBlockNum() - 1) / AscendC::GetBlockNum();
+    uint64_t startIdx = static_cast<uint64_t>(AscendC::GetBlockIdx()) * elementsPerBlock;
     if (startIdx >= totalElements) return;
     uint64_t endIdx = startIdx + elementsPerBlock;
     if (endIdx > totalElements) endIdx = totalElements;
@@ -178,8 +178,8 @@ __global__ __aicore__ void strsm_scale_kernel(GM_ADDR b, float alpha, uint32_t m
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     uint32_t totalCols = n;
-    uint32_t colsPerBlock = (totalCols + gridDim.x - 1) / gridDim.x;
-    uint32_t colStart = blockIdx.x * colsPerBlock;
+    uint32_t colsPerBlock = (totalCols + AscendC::GetBlockNum() - 1) / AscendC::GetBlockNum();
+    uint32_t colStart = AscendC::GetBlockIdx() * colsPerBlock;
     if (colStart >= totalCols) return;
     uint32_t colEnd = colStart + colsPerBlock;
     if (colEnd > totalCols) colEnd = totalCols;
@@ -196,8 +196,8 @@ __global__ __aicore__ void strsm_axpy_trans_kernel(GM_ADDR b, GM_ADDR temp, cons
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     uint64_t totalElements = static_cast<uint64_t>(tiling.m) * tiling.n;
-    uint64_t elementsPerBlock = (totalElements + gridDim.x - 1) / gridDim.x;
-    uint64_t startIdx = static_cast<uint64_t>(blockIdx.x) * elementsPerBlock;
+    uint64_t elementsPerBlock = (totalElements + AscendC::GetBlockNum() - 1) / AscendC::GetBlockNum();
+    uint64_t startIdx = static_cast<uint64_t>(AscendC::GetBlockIdx()) * elementsPerBlock;
     if (startIdx >= totalElements) return;
     uint64_t endIdx = startIdx + elementsPerBlock;
     if (endIdx > totalElements) endIdx = totalElements;

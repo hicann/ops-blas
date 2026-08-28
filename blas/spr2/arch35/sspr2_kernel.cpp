@@ -171,7 +171,7 @@ __global__ __aicore__ void sspr2_kernel(GM_ADDR x, GM_ADDR y, GM_ADDR ap, const 
     }
 
     int32_t blkIdx = AscendC::GetBlockIdx();
-    uint32_t colsPerBlk = (tiling.n + gridDim.x - 1) / gridDim.x;
+    uint32_t colsPerBlk = (tiling.n + AscendC::GetBlockNum() - 1) / AscendC::GetBlockNum();
     uint32_t colStart = static_cast<uint32_t>(blkIdx) * colsPerBlk;
     uint32_t colEnd = (colStart + colsPerBlk < tiling.n) ? (colStart + colsPerBlk) : tiling.n;
     if (colStart >= colEnd) {
