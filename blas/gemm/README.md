@@ -89,6 +89,17 @@ aclblasStatus_t aclblasSgemm(aclblasHandle_t handle, aclblasOperation_t transa, 
 |----------|------|------|----------------------|-------------------|
 | FLOAT32 | 2^-10 (9.77e-4) | 2^-16 (1.53e-5) | 0.99 | 1e-2 或 32·ULP |
 
+其中，ULP（Unit in the Last Place，末位单位）表示给定浮点数与相邻可表示值之间的间距。
+`max_abs_error_limit` 按输出元素逐个计算：第`i`个元素的误差上限为
+`max(1e-2, 32 * ULP(abs(golden[i])))`。精度验证需同时满足以下条件：
+
+- 至少 99% 的输出元素满足 `abs(actual[i] - golden[i]) <= atol + rtol * abs(golden[i])`。
+- 所有输出元素均满足 `abs(actual[i] - golden[i]) <= max_abs_error_limit[i]`。
+
+因此，即使 `required_matched_ratio` 已达到 0.99 或 1.0，只要任一元素超过对应的
+`max_abs_error_limit`，用例仍会校验失败。当 `golden[i]` 接近 0 时，固定上限`1e-2`
+起主要作用；设计大倍率`alpha`或`beta`的测试用例时，需同时考虑绝对误差的放大效应。
+
 alpha == 0（且 alpha 非空）时使用 `EXACT` 位精确校验（C = beta * C 结果应位精确）。
 
 #### 调用示例
@@ -337,6 +348,17 @@ aclblasStatus_t aclblasCgemm(aclblasHandle_t handle, aclblasOperation_t transa, 
 | 数据类型 | rtol | atol | required_matched_ratio | max_abs_error_limit |
 |----------|------|------|----------------------|-------------------|
 | FLOAT32 | 2^-10 (9.77e-4) | 2^-16 (1.53e-5) | 0.99 | 1e-2 或 32·ULP |
+
+其中，ULP（Unit in the Last Place，末位单位）表示给定浮点数与相邻可表示值之间的间距。
+`max_abs_error_limit` 按输出元素逐个计算：第`i`个元素的误差上限为
+`max(1e-2, 32 * ULP(abs(golden[i])))`。精度验证需同时满足以下条件：
+
+- 至少 99% 的输出元素满足 `abs(actual[i] - golden[i]) <= atol + rtol * abs(golden[i])`。
+- 所有输出元素均满足 `abs(actual[i] - golden[i]) <= max_abs_error_limit[i]`。
+
+因此，即使 `required_matched_ratio` 已达到 0.99 或 1.0，只要任一元素超过对应的
+`max_abs_error_limit`，用例仍会校验失败。当 `golden[i]` 接近 0 时，固定上限`1e-2`
+起主要作用；设计大倍率`alpha`或`beta`的测试用例时，需同时考虑绝对误差的放大效应。
 
 alpha == 0（且 alpha 非空）时使用 `EXACT` 位精确校验（C = beta * C 结果应位精确）。
 
