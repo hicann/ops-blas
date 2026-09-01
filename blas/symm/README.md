@@ -81,6 +81,16 @@ aclblasStatus_t aclblasSsymm(aclblasHandle_t handle, aclblasSideMode_t side, acl
 - m>0 且 n>0 时，A、B、C 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - alpha、beta 仅支持 Host 指针，不支持 Device 指针
 
+#### 精度验证
+
+采用 `MIXED_TOLERANCE` 混合容差策略（对齐[生态算子开源精度标准](https://gitcode.com/cann/opbase/blob/master/docs/zh/ops_precision_standard/experimental_standard.md) §2.1）：
+
+| 数据类型 | rtol | atol | required_matched_ratio | max_abs_error_limit |
+|----------|------|------|----------------------|-------------------|
+| FLOAT32 | 2^-10 (9.77e-4) | 2^-16 (1.53e-5) | 0.99 | 1e-2 或 32·ULP |
+
+alpha == 0（且 alpha 非空）时使用 `EXACT` 位精确校验（C = beta * C 结果应位精确）。
+
 #### 调用示例
 
 ```cpp

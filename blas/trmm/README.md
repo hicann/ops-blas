@@ -68,9 +68,19 @@ aclblasStatus_t aclblasStrmm(aclblasHandle_t handle, aclblasSideMode_t side, acl
 - ldb >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - ldc >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - alpha 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
-- C 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- C 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE（C 为纯输出矩阵，无 beta*C 项，必须提供有效写入目标，alpha==0 时也不例外；与 symm 不同，symm 在 beta==0 时 C 可为 nullptr）
 - alpha == 0 时，A 和 B 不需要是有效的输入指针（可为 nullptr），结果 C 的 m×n 区域全为 0
 - alpha != 0 时，A、B 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+
+#### 精度验证
+
+采用 `MIXED_TOLERANCE` 混合容差策略（对齐[生态算子开源精度标准](https://gitcode.com/cann/opbase/blob/master/docs/zh/ops_precision_standard/experimental_standard.md) §2.1）：
+
+| 数据类型 | rtol | atol | required_matched_ratio | max_abs_error_limit |
+|----------|------|------|----------------------|-------------------|
+| FLOAT32 | 2^-10 (9.77e-4) | 2^-16 (1.53e-5) | 0.99 | 1e-2 或 32·ULP |
+
+alpha == 0（且 alpha 非空）时使用 `EXACT` 位精确校验（结果 C 的 m×n 区域应为全零，位精确）。
 
 #### 调用示例
 

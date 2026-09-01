@@ -18,6 +18,18 @@ RIGHT 模式： C = A * diag(x)，  C[i,j] = A[i,j] * x[j]    （x 长度为 n�
 | aclblasSdgmm | 单精度实数对角矩阵乘法 |
 | aclblasCdgmm | 单精度复数对角矩阵乘法，当前仅支持 LEFT 模式，RIGHT 模式暂未实现 |
 
+### sdgmm 与 cdgmm 差异
+
+两个接口均为对角矩阵乘法，但存在以下行为差异，使用时需注意：
+
+| 差异项 | aclblasSdgmm | aclblasCdgmm |
+|--------|--------------|--------------|
+| 数据类型 | FP32 实数 | Complex32 复数 |
+| 支持模式 | LEFT / RIGHT | 仅 LEFT（RIGHT 返回 ACLBLAS_STATUS_NOT_SUPPORTED） |
+| incx == 0 | 允许，等价于标量乘法 C = x[0] * A | 拒绝，返回 ACLBLAS_STATUS_INVALID_VALUE |
+| 存储布局 | 列主序（column-major） | 行主序（row-major），与 cuBLAS cublasCdgmm 的列主序语义存在差异 |
+| 产品支持 | Ascend 950PR / Ascend 950DT | Atlas A2 / Atlas A3 系列 |
+
 ## 算子执行接口
 
 ### aclblasSdgmm
@@ -63,6 +75,14 @@ aclblasStatus_t aclblasSdgmm(aclblasHandle_t handle, aclblasSideMode_t mode, int
 - ldc >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - A、x、C 不能为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - 原地执行（A==C）要求 lda == ldc，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+
+#### 精度验证
+
+采用 `MIXED_TOLERANCE` 混合容差策略（对齐[生态算子开源精度标准](https://gitcode.com/cann/opbase/blob/master/docs/zh/ops_precision_standard/experimental_standard.md) §2.1）：
+
+| 数据类型 | rtol | atol | required_matched_ratio | max_abs_error_limit |
+|----------|------|------|----------------------|-------------------|
+| FLOAT32 | 2^-10 (9.77e-4) | 2^-16 (1.53e-5) | 0.99 | 1e-2 或 32·ULP |
 
 #### 调用示例
 
