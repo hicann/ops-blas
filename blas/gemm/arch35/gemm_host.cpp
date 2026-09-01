@@ -36,7 +36,8 @@ static void CalcMultiCorePartition(GemmTilingData& tiling, uint32_t cubeCoreNum,
     int32_t bestUtilization = 0;
     for (int32_t mb = 1; mb <= mTiles && mb <= maxCores; mb++) {
         int32_t nb = std::min(nTiles, maxCores / mb);
-        if (nb < 1) nb = 1;
+        if (nb < 1)
+            nb = 1;
         int32_t utilization = mb * nb;
         if (utilization > bestUtilization && utilization <= maxCores) {
             bestUtilization = utilization;
@@ -54,8 +55,7 @@ static void CalcMultiCorePartition(GemmTilingData& tiling, uint32_t cubeCoreNum,
 }
 
 static GemmTilingData CalGemmTilingData(
-    int m, int n, int k, int lda, int ldb, int ldc,
-    aclblasOperation_t transa, aclblasOperation_t transb,
+    int m, int n, int k, int lda, int ldb, int ldc, aclblasOperation_t transa, aclblasOperation_t transb,
     float alphaReal, float alphaImag, float betaReal, float betaImag)
 {
     GemmTilingData tiling{};
@@ -98,8 +98,8 @@ static void PrepareCubeTiling(GemmTilingData& tiling, uint32_t cubeCoreNum)
 //  ValidateGemmParams — common parameter validation
 // ==========================================================================
 static aclblasStatus_t ValidateGemmParams(
-    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb,
-    int m, int n, int k, const void* alpha, int lda, int ldb, const void* beta, int ldc)
+    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k,
+    const void* alpha, int lda, int ldb, const void* beta, int ldc)
 {
     if (handle == nullptr) {
         OP_LOGE("aclblasGemm", "handle is nullptr");
@@ -173,8 +173,7 @@ static aclblasStatus_t ValidateGemmPointers(
 // ==========================================================================
 //  HandleSgemmAlphaZero — C = beta * C when k == 0 or alpha == 0
 // ==========================================================================
-static aclblasStatus_t HandleSgemmAlphaZero(
-    aclblasHandle_t handle, int m, int n, int ldc, float betaVal, float* C)
+static aclblasStatus_t HandleSgemmAlphaZero(aclblasHandle_t handle, int m, int n, int ldc, float betaVal, float* C)
 {
     if (C == nullptr) {
         return ACLBLAS_STATUS_SUCCESS;
@@ -198,8 +197,7 @@ static aclblasStatus_t HandleSgemmAlphaZero(
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
     uint32_t vecBlocks = std::min(aivCoreNum, static_cast<uint32_t>(n));
-    gemm_scale_do(vecBlocks, h->stream,
-                  reinterpret_cast<uint8_t*>(C), m, n, ldc, betaVal, 0.0f, 0);
+    gemm_scale_do(vecBlocks, h->stream, reinterpret_cast<uint8_t*>(C), m, n, ldc, betaVal, 0.0f, 0);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
@@ -226,8 +224,7 @@ static aclblasStatus_t PrepareSgemmWorkspace(
 }
 
 static aclblasStatus_t LaunchAlphaBetaKernel(
-    aclrtStream stream, uint8_t* tempABDevice, float* C,
-    int n, const GemmTilingData& abTiling)
+    aclrtStream stream, uint8_t* tempABDevice, float* C, int n, const GemmTilingData& abTiling)
 {
     uint32_t aivCoreNum = GetAivCoreCount();
     if (aivCoreNum == 0) {
@@ -238,16 +235,14 @@ static aclblasStatus_t LaunchAlphaBetaKernel(
     GemmTilingData tiling = abTiling;
     tiling.usedCoreNum = static_cast<int32_t>(vecBlocks);
     OP_LOGI("aclblasSgemm", "launching alpha_beta kernel: aivBlocks=%u", vecBlocks);
-    gemm_alpha_beta_do(vecBlocks, stream, tempABDevice,
-                       reinterpret_cast<uint8_t*>(C),
-                       reinterpret_cast<uint8_t*>(C), tiling);
+    gemm_alpha_beta_do(
+        vecBlocks, stream, tempABDevice, reinterpret_cast<uint8_t*>(C), reinterpret_cast<uint8_t*>(C), tiling);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 static aclblasStatus_t LaunchSgemmKernel(
-    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb,
-    int m, int n, int k, float alphaVal, const float* A, int lda,
-    const float* B, int ldb, float betaVal, float* C, int ldc)
+    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k, float alphaVal,
+    const float* A, int lda, const float* B, int ldb, float betaVal, float* C, int ldc)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream stream = h->stream;
@@ -264,9 +259,7 @@ static aclblasStatus_t LaunchSgemmKernel(
 
     bool needPostProcess = (alphaVal != 1.0f) || (betaVal != 0.0f);
 
-    GemmTilingData tiling = CalGemmTilingData(
-        m, n, k, lda, ldb, ldc, transa, transb,
-        alphaVal, 0.0f, betaVal, 0.0f);
+    GemmTilingData tiling = CalGemmTilingData(m, n, k, lda, ldb, ldc, transa, transb, alphaVal, 0.0f, betaVal, 0.0f);
 
     if (needPostProcess) {
         tiling.ldc = static_cast<int32_t>(CeilAlign(m, GEMM_FRACTAL));
@@ -281,7 +274,8 @@ static aclblasStatus_t LaunchSgemmKernel(
 
     uint8_t* tempABDevice = nullptr;
     aclblasStatus_t st = PrepareSgemmWorkspace(h, needPostProcess, m, n, tempABDevice);
-    if (st != ACLBLAS_STATUS_SUCCESS) return st;
+    if (st != ACLBLAS_STATUS_SUCCESS)
+        return st;
     uint8_t* cDevicePtr = needPostProcess ? tempABDevice : reinterpret_cast<uint8_t*>(C);
 
     OP_LOGI("aclblasSgemm", "launching cube kernel: blocks=%u", numBlocks);
@@ -341,14 +335,14 @@ static void FreeComplexBuffers(ComplexBuffers& buf)
 }
 
 static void DeinterleaveMatrix(
-    const std::complex<float>* hMat, int physRows, int physCols, int ld,
-    int logicalRows, bool transFlag, bool conjFlag,
+    const std::complex<float>* hMat, int physRows, int physCols, int ld, int logicalRows, bool transFlag, bool conjFlag,
     float* reOut, float* imOut)
 {
     for (int j = 0; j < physCols; j++) {
         for (int i = 0; i < physRows; i++) {
             std::complex<float> val = hMat[i + j * ld];
-            if (conjFlag) val = std::conj(val);
+            if (conjFlag)
+                val = std::conj(val);
             int lr = transFlag ? j : i;
             int lc = transFlag ? i : j;
             reOut[lr + lc * logicalRows] = val.real();
@@ -382,15 +376,12 @@ static aclblasStatus_t HandleCgemmAlphaZero(
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
     uint32_t vecBlocks = std::min(aivCoreNum, static_cast<uint32_t>(n));
-    gemm_scale_do(vecBlocks, h->stream,
-                  reinterpret_cast<uint8_t*>(C), m, n, ldc,
-                  betaVal.real(), betaVal.imag(), 1);
+    gemm_scale_do(vecBlocks, h->stream, reinterpret_cast<uint8_t*>(C), m, n, ldc, betaVal.real(), betaVal.imag(), 1);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 static void CombineComplexResults(
-    float ar, float ai, float br, float bi,
-    const float* t1, const float* t2, const float* t3, const float* t4,
+    float ar, float ai, float br, float bi, const float* t1, const float* t2, const float* t3, const float* t4,
     std::complex<float>* hC, int m, int n, int ldc, int tempLdc)
 {
     for (int j = 0; j < n; j++) {
@@ -411,8 +402,18 @@ static void CombineComplexResults(
 //  LaunchCgemmKernel — Complex32 device kernel launch
 // ==========================================================================
 
-struct MallocItem { void** ptr; size_t bytes; const char* name; };
-struct MemcpyItem { void* dst; const void* src; size_t bytes; aclrtMemcpyKind kind; const char* name; };
+struct MallocItem {
+    void** ptr;
+    size_t bytes;
+    const char* name;
+};
+struct MemcpyItem {
+    void* dst;
+    const void* src;
+    size_t bytes;
+    aclrtMemcpyKind kind;
+    const char* name;
+};
 
 static aclblasStatus_t CheckedMallocBatch(MallocItem* items, size_t count, ComplexBuffers& buf)
 {
@@ -441,9 +442,9 @@ static aclblasStatus_t CheckedMemcpyBatch(MemcpyItem* items, size_t count, Compl
 }
 
 static aclblasStatus_t LaunchCgemmKernel(
-    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb,
-    int m, int n, int k, std::complex<float> alphaVal, const aclblasComplex* A, int lda,
-    const aclblasComplex* B, int ldb, std::complex<float> betaVal, aclblasComplex* C, int ldc)
+    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k,
+    std::complex<float> alphaVal, const aclblasComplex* A, int lda, const aclblasComplex* B, int ldb,
+    std::complex<float> betaVal, aclblasComplex* C, int ldc)
 {
     auto* h = reinterpret_cast<_aclblas_handle*>(handle);
     aclrtStream stream = h->stream;
@@ -493,24 +494,30 @@ static aclblasStatus_t LaunchCgemmKernel(
         {buf.hB.data(), B, bBytes, ACL_MEMCPY_DEVICE_TO_HOST, "hB"},
     };
     aclblasStatus_t st = CheckedMemcpyBatch(d2hInit, 2, buf);
-    if (st != ACLBLAS_STATUS_SUCCESS) return st;
+    if (st != ACLBLAS_STATUS_SUCCESS)
+        return st;
 
-    DeinterleaveMatrix(buf.hA.data(), physRowsA, physColsA, lda, m,
-                       transa != ACLBLAS_OP_N, transa == ACLBLAS_OP_C, buf.reA.data(), buf.imA.data());
-    DeinterleaveMatrix(buf.hB.data(), physRowsB, physColsB, ldb, k,
-                       transb != ACLBLAS_OP_N, transb == ACLBLAS_OP_C, buf.reB.data(), buf.imB.data());
+    DeinterleaveMatrix(
+        buf.hA.data(), physRowsA, physColsA, lda, m, transa != ACLBLAS_OP_N, transa == ACLBLAS_OP_C, buf.reA.data(),
+        buf.imA.data());
+    DeinterleaveMatrix(
+        buf.hB.data(), physRowsB, physColsB, ldb, k, transb != ACLBLAS_OP_N, transb == ACLBLAS_OP_C, buf.reB.data(),
+        buf.imB.data());
 
-    size_t totalWorkspace = reABytes * 4 + mnBytes * 4;
+    constexpr size_t matrixABufCount = 2; // reA + imA
+    constexpr size_t matrixBBufCount = 2; // reB + imB
+    constexpr size_t tempResultCount = 4; // t1, t2, t3, t4
+    size_t totalWorkspace = reABytes * matrixABufCount + reBBytes * matrixBBufCount + mnBytes * tempResultCount;
     if (!CheckEffectiveWorkspaceSize(h, totalWorkspace)) {
         OP_LOGE("aclblasCgemm", "workspace need %zu bytes", totalWorkspace);
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
     uint8_t* workspace = reinterpret_cast<uint8_t*>(GetEffectiveWorkspace(h));
     uint8_t* d_reA = workspace;
-    uint8_t* d_imA = workspace + reABytes;
-    uint8_t* d_reB = workspace + reABytes * 2;
-    uint8_t* d_imB = workspace + reABytes * 3;
-    uint8_t* d_t1 = workspace + reABytes * 4;
+    uint8_t* d_imA = d_reA + reABytes;
+    uint8_t* d_reB = d_imA + reABytes;
+    uint8_t* d_imB = d_reB + reBBytes;
+    uint8_t* d_t1 = d_imB + reBBytes;
     uint8_t* d_t2 = d_t1 + mnBytes;
     uint8_t* d_t3 = d_t2 + mnBytes;
     uint8_t* d_t4 = d_t3 + mnBytes;
@@ -522,11 +529,11 @@ static aclblasStatus_t LaunchCgemmKernel(
         {d_imB, buf.imB.data(), reBBytes, ACL_MEMCPY_HOST_TO_DEVICE, "d_imB"},
     };
     st = CheckedMemcpyBatch(h2dItems, 4, buf);
-    if (st != ACLBLAS_STATUS_SUCCESS) return st;
+    if (st != ACLBLAS_STATUS_SUCCESS)
+        return st;
 
     GemmTilingData cubeTiling = CalGemmTilingData(
-        m, n, k, m, k, m, ACLBLAS_OP_N, ACLBLAS_OP_N,
-        alphaVal.real(), alphaVal.imag(), betaVal.real(), betaVal.imag());
+        m, n, k, m, k, m, ACLBLAS_OP_N, ACLBLAS_OP_N, alphaVal.real(), alphaVal.imag(), betaVal.real(), betaVal.imag());
     PrepareCubeTiling(cubeTiling, cubeCoreNum);
     cubeTiling.ldc = static_cast<int32_t>(CeilAlign(m, GEMM_FRACTAL));
 
@@ -539,10 +546,9 @@ static aclblasStatus_t LaunchCgemmKernel(
     gemm_kernel_do(numBlocks, stream, d_reB, d_imA, d_t4, cubeTiling);
 
     uint32_t combineBlocks = std::min(aivCoreNum, static_cast<uint32_t>(n));
-    gemm_cgemm_combine_do(combineBlocks, stream,
-        d_t1, d_t2, d_t3, d_t4, static_cast<int32_t>(tempLdc),
-        reinterpret_cast<uint8_t*>(C), m, n, ldc,
-        alphaVal.real(), alphaVal.imag(), betaVal.real(), betaVal.imag());
+    gemm_cgemm_combine_do(
+        combineBlocks, stream, d_t1, d_t2, d_t3, d_t4, static_cast<int32_t>(tempLdc), reinterpret_cast<uint8_t*>(C), m,
+        n, ldc, alphaVal.real(), alphaVal.imag(), betaVal.real(), betaVal.imag());
 
     return ACLBLAS_STATUS_SUCCESS;
 }
@@ -551,44 +557,47 @@ static aclblasStatus_t LaunchCgemmKernel(
 //  aclblasSgemm — public API entry (FP32)
 // ==========================================================================
 extern "C" aclblasStatus_t aclblasSgemm(
-    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb,
-    int m, int n, int k, const float* alpha, const float* A, int lda,
-    const float* B, int ldb, const float* beta, float* C, int ldc)
+    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k,
+    const float* alpha, const float* A, int lda, const float* B, int ldb, const float* beta, float* C, int ldc)
 {
-    OP_LOGI("aclblasSgemm", "entry: transa=%d, transb=%d, m=%d, n=%d, k=%d",
-            static_cast<int>(transa), static_cast<int>(transb), m, n, k);
+    OP_LOGI(
+        "aclblasSgemm", "entry: transa=%d, transb=%d, m=%d, n=%d, k=%d", static_cast<int>(transa),
+        static_cast<int>(transb), m, n, k);
 
-    aclblasStatus_t st = ValidateGemmParams(
-        handle, transa, transb, m, n, k, alpha, lda, ldb, beta, ldc);
-    if (st != ACLBLAS_STATUS_SUCCESS) return st;
-    if (m == 0 || n == 0) return ACLBLAS_STATUS_SUCCESS;
+    aclblasStatus_t st = ValidateGemmParams(handle, transa, transb, m, n, k, alpha, lda, ldb, beta, ldc);
+    if (st != ACLBLAS_STATUS_SUCCESS)
+        return st;
+    if (m == 0 || n == 0)
+        return ACLBLAS_STATUS_SUCCESS;
 
     float alphaVal = *alpha;
     float betaVal = *beta;
 
     float alphaAbs = std::abs(alphaVal);
     st = ValidateGemmPointers(k, alphaAbs, A, B, betaVal, C);
-    if (st != ACLBLAS_STATUS_SUCCESS) return st;
+    if (st != ACLBLAS_STATUS_SUCCESS)
+        return st;
 
-    return LaunchSgemmKernel(
-        handle, transa, transb, m, n, k, alphaVal, A, lda, B, ldb, betaVal, C, ldc);
+    return LaunchSgemmKernel(handle, transa, transb, m, n, k, alphaVal, A, lda, B, ldb, betaVal, C, ldc);
 }
 
 // ==========================================================================
 //  aclblasCgemm — public API entry (Complex32)
 // ==========================================================================
 extern "C" aclblasStatus_t aclblasCgemm(
-    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb,
-    int m, int n, int k, const aclblasComplex* alpha, const aclblasComplex* A, int lda,
-    const aclblasComplex* B, int ldb, const aclblasComplex* beta, aclblasComplex* C, int ldc)
+    aclblasHandle_t handle, aclblasOperation_t transa, aclblasOperation_t transb, int m, int n, int k,
+    const aclblasComplex* alpha, const aclblasComplex* A, int lda, const aclblasComplex* B, int ldb,
+    const aclblasComplex* beta, aclblasComplex* C, int ldc)
 {
-    OP_LOGI("aclblasCgemm", "entry: transa=%d, transb=%d, m=%d, n=%d, k=%d",
-            static_cast<int>(transa), static_cast<int>(transb), m, n, k);
+    OP_LOGI(
+        "aclblasCgemm", "entry: transa=%d, transb=%d, m=%d, n=%d, k=%d", static_cast<int>(transa),
+        static_cast<int>(transb), m, n, k);
 
-    aclblasStatus_t st = ValidateGemmParams(
-        handle, transa, transb, m, n, k, alpha, lda, ldb, beta, ldc);
-    if (st != ACLBLAS_STATUS_SUCCESS) return st;
-    if (m == 0 || n == 0) return ACLBLAS_STATUS_SUCCESS;
+    aclblasStatus_t st = ValidateGemmParams(handle, transa, transb, m, n, k, alpha, lda, ldb, beta, ldc);
+    if (st != ACLBLAS_STATUS_SUCCESS)
+        return st;
+    if (m == 0 || n == 0)
+        return ACLBLAS_STATUS_SUCCESS;
 
     std::complex<float> alphaVal(alpha->real, alpha->imag);
     std::complex<float> betaVal(beta->real, beta->imag);
@@ -596,10 +605,10 @@ extern "C" aclblasStatus_t aclblasCgemm(
     float betaAbs = std::abs(betaVal.real()) + std::abs(betaVal.imag());
     float alphaAbs = std::abs(alphaVal.real()) + std::abs(alphaVal.imag());
     st = ValidateGemmPointers(k, alphaAbs, A, B, betaAbs, C);
-    if (st != ACLBLAS_STATUS_SUCCESS) return st;
+    if (st != ACLBLAS_STATUS_SUCCESS)
+        return st;
 
-    return LaunchCgemmKernel(
-        handle, transa, transb, m, n, k, alphaVal, A, lda, B, ldb, betaVal, C, ldc);
+    return LaunchCgemmKernel(handle, transa, transb, m, n, k, alphaVal, A, lda, B, ldb, betaVal, C, ldc);
 }
 
 #endif
