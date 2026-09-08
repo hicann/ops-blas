@@ -15,8 +15,48 @@ Y[i] = X[i],   for i = 0, 1, ..., N-1
 | 接口名 | 功能简述 |
 |--------|---------|
 | aclblasScopy | 单精度浮点向量拷贝 |
+| aclblasCcopy | 单精度复数向量逐位拷贝 |
 
 ## 算子执行接口
+
+### aclblasCcopy
+
+#### 产品支持情况
+
+- Ascend 950PR / Ascend 950DT：支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasCcopy(aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, aclblasComplex* y, int incy)
+```
+
+#### 参数说明
+
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
+| n | 输入 | int | 复数元素个数，Host 内存 |
+| x | 输入 | const aclblasComplex*（FP32 complex） | 源向量，只读，Device 内存 |
+| incx | 输入 | int | X 的复数元素步长，可正可负，Host 内存 |
+| y | 输出 | aclblasComplex*（FP32 complex） | 目标向量；仅逻辑目标元素会被覆盖，Device 内存 |
+| incy | 输入 | int | Y 的复数元素步长，可正可负，Host 内存 |
+
+#### 约束说明
+
+- `n >= 0`；`n == 0` 为合法 no-op，此时不访问 handle、x 和 y。
+- `n > 0` 时 handle、x 和 y 不可为 nullptr。
+- `incx != 0`，`incy != 0`。
+- x 和 y 的物理长度分别至少为 `1 + (n - 1) * abs(incx)` 和
+  `1 + (n - 1) * abs(incy)` 个复数元素。负步长遵循 BLAS 语义：从物理 span 的高地址逻辑首元素
+  向低地址遍历，调用方传入的仍是物理 span 基址。
+
+`aclblasCcopy` 将每个 complex64 的两个 32 位分量按原始位模式复制，因此包括 NaN payload、Inf、
+有符号零在内均保持 bit-exact。跨步写入时，`y` 的步长空洞保持调用前内容不变。
+
+函数通过 `handle` 绑定的 stream 异步下发。读取输出前，调用方必须同步对应 stream。
 
 ### aclblasScopy
 
