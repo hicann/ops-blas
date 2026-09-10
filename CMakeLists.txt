@@ -63,7 +63,9 @@ include(cmake/asc_devkit_version.cmake)
 ops_blas_detect_asc_devkit_version()
 
 set(RUN_MODE "npu" CACHE STRING "run mode: npu")
-set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type Release/Debug" FORCE)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type Release/Debug" FORCE)
+endif()
 set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/out" CACHE STRING "install path" FORCE)
 
 # 外部传参
