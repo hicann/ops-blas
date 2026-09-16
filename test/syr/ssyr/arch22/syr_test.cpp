@@ -168,8 +168,8 @@ static int TestSsyrUpper()
     aclrtFree(aDevice);
     aclrtFree(xDevice);
     aclrtFree(alphaDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
@@ -276,8 +276,8 @@ static int TestSsyrLower()
     aclrtFree(aDevice);
     aclrtFree(xDevice);
     aclrtFree(alphaDevice);
-    aclrtDestroyStream(stream);
     aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
     aclrtResetDevice(deviceId);
     aclFinalize();
 
