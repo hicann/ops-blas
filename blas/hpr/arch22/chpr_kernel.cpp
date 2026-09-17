@@ -444,6 +444,10 @@ __aicore__ inline void ChprKernel::ProcessUpperCols(uint32_t begin, uint32_t end
             SetFlag<HardEvent::V_MTE3>(PIPE_EVT);
             WaitFlag<HardEvent::V_MTE3>(PIPE_EVT);
             CopyOutAos(apGM, apLocal, apOff * 2U, chunk);
+            // apLocal 会在下一列（或下一个 rowTile）被 CopyInAos 重新写入，
+            // 必须先等本列 CopyOutAos（MTE3 读）完成，否则 MTE2 写与 MTE3 读竞争。
+            SetFlag<HardEvent::MTE3_MTE2>(PIPE_EVT);
+            WaitFlag<HardEvent::MTE3_MTE2>(PIPE_EVT);
         }
     }
 }
@@ -492,6 +496,9 @@ __aicore__ inline void ChprKernel::ProcessLowerCols(uint32_t begin, uint32_t end
                 WaitFlag<HardEvent::V_MTE3>(PIPE_EVT);
             }
             CopyOutAos(apGM, apLocal, apOff * 2U, chunk);
+            // 同 upper 路径：防止下一列 CopyInAos(MTE2 写)与本列 CopyOutAos(MTE3 读)竞争 apLocal。
+            SetFlag<HardEvent::MTE3_MTE2>(PIPE_EVT);
+            WaitFlag<HardEvent::MTE3_MTE2>(PIPE_EVT);
         }
     }
 }

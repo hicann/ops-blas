@@ -175,6 +175,7 @@ __aicore__ inline RightCubePackMode DetermineRightCubePackModeDevice(RightCubeEx
 constexpr uint32_t SSYMM_LEFT_TILE_M = 8;
 constexpr uint32_t SSYMM_LEFT_TILE_K = 64;
 constexpr uint32_t SSYMM_LEFT_TILE_N = 128;
+constexpr uint16_t SSYMM_SYNC_EVT = 0;
 
 enum class SsymmSideMode { LEFT, RIGHT };
 enum class SsymmFillMode { LOWER, UPPER };
@@ -584,6 +585,10 @@ __aicore__ inline void SsymmKernel<T, SIDE, UPLO>::ProcessLeft()
                 ProcessLeftFallbackTile(rowBase, rowBlockCount, colBase, colCount, kBase, kCount, outLocal);
             }
             CopyOutLeftOutputBlock(rowBase, rowBlockCount, colBase, colCount, outLocal);
+            // outLocal（深度 1 队列）会被下一个 tile 的 CopyInLeftOutputBlock 重新写入，
+            // 必须先等本 tile 的 CopyOut（MTE3 读）完成，避免 MTE2 写与 MTE3 读竞争。
+            SetFlag<HardEvent::MTE3_MTE2>(SSYMM_SYNC_EVT);
+            WaitFlag<HardEvent::MTE3_MTE2>(SSYMM_SYNC_EVT);
             outQueue.FreeTensor(outLocal);
         }
     }
@@ -642,6 +647,11 @@ __aicore__ inline void SsymmKernel<T, SIDE, UPLO>::CopyInRightOperands(uint32_t 
     uint32_t rowBlockCount, uint32_t colBase, uint32_t colCount, uint32_t kBase, uint32_t kCount,
     LocalTensor<T> bPanelLocal, LocalTensor<T> aTileLocal)
 {
+    // 上一轮 K 迭代的 Muls(bPanelLocal, alpha) 是向量写，与本轮 DataCopy 的 MTE2 写
+    // 竞争同一 bPanelLocal 缓冲，必须先等向量流水线完成再发起搬入。
+    SetFlag<HardEvent::V_MTE2>(SSYMM_SYNC_EVT);
+    WaitFlag<HardEvent::V_MTE2>(SSYMM_SYNC_EVT);
+
     for (uint32_t localRow = 0; localRow < rowBlockCount; ++localRow) {
         uint32_t row = rowBase + localRow;
         uint32_t panelOffset = localRow * SSYMM_RIGHT_TILE_K;
@@ -799,6 +809,9 @@ __aicore__ inline void SsymmKernel<T, SIDE, UPLO>::ProcessRight()
                 tileQueue.FreeTensor(aTileLocal);
             }
             CopyOutRightOutputBlock(rowBase, rowBlockCount, colBase, colCount, outLocal);
+            // 同 LEFT 路径：outLocal 单缓冲跨 tile 复用，先等 MTE3 读完成再回收。
+            SetFlag<HardEvent::MTE3_MTE2>(SSYMM_SYNC_EVT);
+            WaitFlag<HardEvent::MTE3_MTE2>(SSYMM_SYNC_EVT);
             outQueue.FreeTensor(outLocal);
         }
     }

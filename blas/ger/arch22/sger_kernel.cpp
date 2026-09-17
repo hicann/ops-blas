@@ -15,7 +15,7 @@
 using namespace AscendC;
 
 constexpr uint32_t BUFFER_NUM = 2;
-constexpr uint32_t QUEUE_NUM = 3;
+constexpr uint32_t QUEUE_NUM = 4;
 constexpr uint32_t BYTENUM_PER_FLOAT32 = 4;
 constexpr uint32_t UB_SIZE = 192 * 1024;
 constexpr uint32_t MAX_UB_ELEMENTS = UB_SIZE / BYTENUM_PER_FLOAT32;
@@ -36,7 +36,8 @@ private:
 
     TPipe* pipe;
     TQue<TPosition::VECIN, 2> xQueue;
-    TQue<TPosition::VECOUT, 2> aQueue;
+    TQue<TPosition::VECIN, 2> aInQueue;
+    TQue<TPosition::VECOUT, 2> aOutQueue;
     TQue<TPosition::VECCALC, 1> tmpQueue;
 
     GlobalTensor<T> aGM;
@@ -95,7 +96,8 @@ __aicore__ inline void SgerKernel<T>::Init(const SgerTilingData& tiling, TPipe* 
 
     uint32_t ubSizePerBuffer = UB_SIZE / BUFFER_NUM / QUEUE_NUM;
     pipe->InitBuffer(xQueue, BUFFER_NUM, ubSizePerBuffer);
-    pipe->InitBuffer(aQueue, BUFFER_NUM, ubSizePerBuffer);
+    pipe->InitBuffer(aInQueue, BUFFER_NUM, ubSizePerBuffer);
+    pipe->InitBuffer(aOutQueue, BUFFER_NUM, ubSizePerBuffer);
     pipe->InitBuffer(tmpQueue, BUFFER_NUM, ubSizePerBuffer);
 }
 
@@ -121,19 +123,24 @@ __aicore__ inline void SgerKernel<T>::CopyIn(uint32_t col, uint32_t rowOff, uint
     }
     xQueue.EnQue<T>(xLocal);
 
-    LocalTensor<T> aLocal = aQueue.AllocTensor<T>();
+    LocalTensor<T> aLocal = aInQueue.AllocTensor<T>();
     uint32_t aCol = colStart + col;
     DataCopyExtParams aParams{1, static_cast<uint32_t>(chunk * sizeof(T)), 0, 0, 0};
     uint64_t aOff = static_cast<uint64_t>(static_cast<int64_t>(aCol) * lda) + rowOff;
     DataCopyPad(aLocal, aGM[aOff], aParams, noPad);
-    aQueue.EnQue<T>(aLocal);
+    aInQueue.EnQue<T>(aLocal);
+
+    event_t eventIDMTE2ToV = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE2_V));
+    SetFlag<HardEvent::MTE2_V>(eventIDMTE2ToV);
+    WaitFlag<HardEvent::MTE2_V>(eventIDMTE2ToV);
 }
 
 template <typename T>
 __aicore__ inline void SgerKernel<T>::Compute(uint32_t col, uint32_t rowOff, uint32_t chunk)
 {
     LocalTensor<T> xLocal = xQueue.DeQue<T>();
-    LocalTensor<T> aLocal = aQueue.DeQue<T>();
+    LocalTensor<T> aInLocal = aInQueue.DeQue<T>();
+    LocalTensor<T> aOutLocal = aOutQueue.AllocTensor<T>();
     LocalTensor<T> tmpLocal = tmpQueue.AllocTensor<T>();
 
     uint32_t aCol = colStart + col;
@@ -148,23 +155,31 @@ __aicore__ inline void SgerKernel<T>::Compute(uint32_t col, uint32_t rowOff, uin
         }
     }
     Muls(tmpLocal, xLocal, alphaY, chunk);
-    Add(aLocal, aLocal, tmpLocal, chunk);
+    Add(aOutLocal, aInLocal, tmpLocal, chunk);
 
     tmpQueue.FreeTensor(tmpLocal);
-
-    aQueue.EnQue<T>(aLocal);
     xQueue.FreeTensor(xLocal);
+    aInQueue.FreeTensor(aInLocal);
+    aOutQueue.EnQue<T>(aOutLocal);
+
+    event_t eventIDVToMTE3 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE3));
+    SetFlag<HardEvent::V_MTE3>(eventIDVToMTE3);
+    WaitFlag<HardEvent::V_MTE3>(eventIDVToMTE3);
 }
 
 template <typename T>
 __aicore__ inline void SgerKernel<T>::CopyOut(uint32_t col, uint32_t rowOff, uint32_t chunk)
 {
-    LocalTensor<T> aLocal = aQueue.DeQue<T>();
+    LocalTensor<T> aLocal = aOutQueue.DeQue<T>();
     uint32_t aCol = colStart + col;
     DataCopyExtParams outParams{1, static_cast<uint32_t>(chunk * sizeof(T)), 0, 0, 0};
     uint64_t aOff = static_cast<uint64_t>(static_cast<int64_t>(aCol) * lda) + rowOff;
     DataCopyPad(aGM[aOff], aLocal, outParams);
-    aQueue.FreeTensor(aLocal);
+    aOutQueue.FreeTensor(aLocal);
+
+    event_t eventIDMTE3ToMTE2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE3_MTE2));
+    SetFlag<HardEvent::MTE3_MTE2>(eventIDMTE3ToMTE2);
+    WaitFlag<HardEvent::MTE3_MTE2>(eventIDMTE3ToMTE2);
 }
 
 template <typename T>

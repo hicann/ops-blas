@@ -487,17 +487,14 @@ inline RightCubeStrategy SelectRightCubeStrategy(RightCubeUplo uplo,
     uint32_t ldb,
     uint32_t ldc)
 {
-    auto isStage4SupportedM = [](uint32_t value) {
-        return value == 32 || value == 64 || value == 128 || value == 256 || value == 512;
-    };
-    auto isStage4SupportedN = [](uint32_t value) {
-        return value == 256 || value == 512 || value == 1024;
-    };
-    if ((uplo == RightCubeUplo::LOWER || uplo == RightCubeUplo::UPPER) &&
-        isStage4SupportedM(m) && isStage4SupportedN(n) &&
-        lda == n && ldb == n && ldc == n) {
-        return RightCubeStrategy::PARTIAL_CUBE;
-    }
+    (void)uplo;
+    (void)m;
+    (void)n;
+    (void)lda;
+    (void)ldb;
+    (void)ldc;
+    // FIXME: PARTIAL_CUBE 的 chunk-local cube 路径（pack/dense/accum）计算结果错误，
+    // 在修复前统一回退到 FALLBACK_TO_SCRATCH（已验证全 shape 正确）。
     return RightCubeStrategy::FALLBACK_TO_SCRATCH;
 }
 
