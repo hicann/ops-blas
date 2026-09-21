@@ -208,7 +208,7 @@ __aicore__ inline void LoadAStridedTile(
         ndA.dValue = curM;
         ndA.srcNdMatrixStride = 0;
         ndA.srcDValue = static_cast<uint32_t>(st.tiling.lda);
-        ndA.dstNzC0Stride = RoundUp(curK, CUBE_BLOCK);
+        ndA.dstNzC0Stride = RoundUp(BASE_K, CUBE_BLOCK);
     }
     AscendC::DataCopy(a1, aGM[aOffset], ndA);
     AscendC::PipeBarrier<PIPE_ALL>();
@@ -251,7 +251,7 @@ __aicore__ inline void LoadBStridedTile(
         ndB.dValue = curN;
         ndB.srcNdMatrixStride = 0;
         ndB.srcDValue = static_cast<uint32_t>(st.tiling.ldb);
-        ndB.dstNzC0Stride = RoundUp(curK, CUBE_BLOCK);
+        ndB.dstNzC0Stride = RoundUp(BASE_K, CUBE_BLOCK);
     } else {
         bOffset = st.bBaseOffset + static_cast<uint64_t>(ni) * BASE_N * st.tiling.ldb +
                   static_cast<uint64_t>(st.kStart + kIdx * BASE_K);

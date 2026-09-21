@@ -11,5 +11,5 @@
 ops_blas_add_gtest_tests(${OPS_BLAS} gemm_strided_batched_ex_test)
 
 target_include_directories(gemm_strided_batched_ex_test PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../gemm/gemm_ex
+    ${CMAKE_CURRENT_SOURCE_DIR}/../gemm_ex
     ${CMAKE_CURRENT_SOURCE_DIR}/../gemm_batched_ex)
