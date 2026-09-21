@@ -1,8 +1,8 @@
-# Stbsv算子
+# Tbsv算子
 
 ## 算子概述
 
-Stbsv 算子实现了三角带状方程组求解操作，核心运算为：`op(A) * x = b`，其中 A 为 n×n 三角带状矩阵（带宽 k），结果原地覆盖到输入向量 x 中。
+tbsv (Triangular Banded matrix Solve) 求解三角带状方程组，核心运算为：`op(A) * x = b`，其中 A 为 n×n 三角带状矩阵（带宽 k），结果原地覆盖到输入向量 x 中。
 
 数学表达式：
 
