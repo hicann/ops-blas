@@ -549,6 +549,12 @@ aclblasStatus_t aclblasCherk(
     const aclblasComplex* A, int lda,
     const float* beta, aclblasComplex* C, int ldc);
 
+aclblasStatus_t aclblasCsyrk(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
+    int n, int k, const aclblasComplex* alpha,
+    const aclblasComplex* A, int lda,
+    const aclblasComplex* beta, aclblasComplex* C, int ldc);
+
 #ifdef __cplusplus
 }
 #endif
