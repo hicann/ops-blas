@@ -555,6 +555,12 @@ aclblasStatus_t aclblasCsyrk(
     const aclblasComplex* A, int lda,
     const aclblasComplex* beta, aclblasComplex* C, int ldc);
 
+aclblasStatus_t aclblasCsymm(
+    aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo,
+    int m, int n, const aclblasComplex* alpha,
+    const aclblasComplex* A, int lda, const aclblasComplex* B, int ldb,
+    const aclblasComplex* beta, aclblasComplex* C, int ldc);
+
 #ifdef __cplusplus
 }
 #endif

@@ -58,7 +58,7 @@
 namespace cblas3 {
 // Targeted using-declarations (not a blanket `using namespace`) to avoid leaking
 // the entire AscendC/matmul symbol set into every translation unit that
-// includes this shared header (only these 18 symbols are actually used below).
+// includes this shared header (only these 19 symbols are actually used below).
 using AscendC::CMPMODE;
 using AscendC::DataCopyExtParams;
 using AscendC::DataCopyPadExtParams;
@@ -71,6 +71,7 @@ using AscendC::LocalTensor;
 using AscendC::MatmulImpl;
 using AscendC::MatmulType;
 using AscendC::PipeBarrier;
+using AscendC::RoundMode;
 using AscendC::SELMODE;
 using AscendC::SetFlag;
 using AscendC::TBuf;
@@ -398,6 +399,14 @@ __aicore__ inline void SplitBody(GM_ADDR src, GM_ADDR dstRe, GM_ADDR dstIm, cons
         for (uint32_t base = 0; base < tiling.rows; base += SPLIT_CHUNK) {
             const uint32_t len = SplitChunkLen(base, tiling.rows);
             LoadChunkDeinterleaved(srcGm, srcColOffset, base, len, stage, re, im);
+            if (tiling.scaleEnabled != 0U) {
+                Muls(re, re, tiling.scaleFactor, len);
+                Muls(im, im, tiling.negateImag != 0U ? -tiling.scaleFactor : tiling.scaleFactor, len);
+                PipeBarrier<PIPE_V>();
+            } else if (tiling.negateImag != 0U) {
+                Muls(im, im, -1.0F, len);
+                PipeBarrier<PIPE_V>();
+            }
 
             SetFlag<HardEvent::V_MTE3>(EVENT_ID0);
             WaitFlag<HardEvent::V_MTE3>(EVENT_ID0);
@@ -463,10 +472,34 @@ __aicore__ inline void InitSplitConcatCtx(
     ctx.negIm = bufs.neg.Get<float>();
 }
 
-// Emits one chunk to all six destination segments (two per output buffer).
-__aicore__ inline void StoreSplitConcatChunk(const SplitConcatCtx& ctx, uint64_t lo, uint64_t hi, uint32_t len)
+// Which pair of operands Phase 0 is asked to emit.
+//
+//   kConcatPQR   : P = [Xr | Xi], Q = [Xr | -Xi], R = [Xi | Xr] as concatenated
+//                  halves, selected with blockStride spanning a whole half.
+//   kInterleavePQ: P = [Xi_j, Xr_j], Q = [Xr_j, -Xi_j] per input column, selected
+//                  with colStride = 2*packedLd and blockStride = packedLd. Only P
+//                  and Q are written.
+//
+// The interleaved form exists for the sign-cancelling products. Its accumulator
+// alternates the two signs per input column, so a term and its counterpart cancel
+// while the running sum is still small; summing them as separate blocks lets each
+// half reach the fp32 range limit on its own, and Inf - Inf is NaN. On the
+// RANDOM_EXTREME shapes, whose input carries +/-FLT_MAX, that is the difference
+// between matching the reference everywhere and returning NaN.
+enum class SplitEmit { kConcatPQR, kInterleavePQ };
+
+// Emits one chunk to the destination segments the mode asks for.
+__aicore__ inline void StoreSplitConcatChunk(
+    const SplitConcatCtx& ctx, SplitEmit mode, uint64_t lo, uint64_t hi, uint32_t len)
 {
     DataCopyExtParams outParams{1U, len * static_cast<uint32_t>(sizeof(float)), 0U, 0U, 0U};
+    if (mode == SplitEmit::kInterleavePQ) {
+        DataCopyPad(ctx.pGm[lo], ctx.im, outParams);
+        DataCopyPad(ctx.pGm[hi], ctx.re, outParams);
+        DataCopyPad(ctx.qGm[lo], ctx.re, outParams);
+        DataCopyPad(ctx.qGm[hi], ctx.negIm, outParams);
+        return;
+    }
     DataCopyPad(ctx.pGm[lo], ctx.re, outParams);
     DataCopyPad(ctx.pGm[hi], ctx.im, outParams);
     DataCopyPad(ctx.qGm[lo], ctx.re, outParams);
@@ -475,8 +508,8 @@ __aicore__ inline void StoreSplitConcatChunk(const SplitConcatCtx& ctx, uint64_t
     DataCopyPad(ctx.rGm[hi], ctx.re, outParams);
 }
 
-__aicore__ inline void SplitConcatBody(
-    GM_ADDR src, GM_ADDR dstP, GM_ADDR dstQ, GM_ADDR dstR, const CBlas3SplitConcatTilingData& tiling)
+__aicore__ inline void SplitConcatCore(
+    GM_ADDR src, GM_ADDR dstP, GM_ADDR dstQ, GM_ADDR dstR, const CBlas3SplitConcatTilingData& tiling, SplitEmit mode)
 {
     const uint32_t coreNum = static_cast<uint32_t>(GetBlockNum());
     if (coreNum == 0U) {
@@ -503,11 +536,24 @@ __aicore__ inline void SplitConcatBody(
             WaitFlag<HardEvent::V_MTE3>(EVENT_ID0);
 
             const uint64_t lo = dstBase + base;
-            StoreSplitConcatChunk(ctx, lo, lo + tiling.blockStride, len);
+            StoreSplitConcatChunk(ctx, mode, lo, lo + tiling.blockStride, len);
 
             SyncAfterChunkStore();
         }
     }
+}
+
+__aicore__ inline void SplitConcatBody(
+    GM_ADDR src, GM_ADDR dstP, GM_ADDR dstQ, GM_ADDR dstR, const CBlas3SplitConcatTilingData& tiling)
+{
+    SplitConcatCore(src, dstP, dstQ, dstR, tiling, SplitEmit::kConcatPQR);
+}
+
+// dstP doubles as the unused R slot: kInterleavePQ writes only P and Q.
+__aicore__ inline void SplitInterleaveBody(
+    GM_ADDR src, GM_ADDR dstP, GM_ADDR dstQ, const CBlas3SplitConcatTilingData& tiling)
+{
+    SplitConcatCore(src, dstP, dstQ, dstP, tiling, SplitEmit::kInterleavePQ);
 }
 
 // ---------------------------------------------------------------------------

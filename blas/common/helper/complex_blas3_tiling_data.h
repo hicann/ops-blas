@@ -64,6 +64,15 @@ struct CBlas3SplitTilingData {
     uint32_t cols;     // logical cols of the input
     uint32_t lda;      // leading dimension of the input, in complex elements
     uint32_t packedLd; // row stride of the packed real output, in floats
+    // Non-zero emits -Xi instead of Xi. Callers that pair the two halves along K
+    // use it to fold a subtraction into the operand; zero (the default) leaves the
+    // split unchanged.
+    uint32_t negateImag;
+    // Non-zero multiplies both halves by `scaleFactor`, which callers set to a
+    // power of two to move the operand away from the top of the fp32 range before
+    // it reaches the Cube. Zero (the default) leaves the split unchanged.
+    uint32_t scaleEnabled;
+    float scaleFactor;
 };
 
 // Phase 0 variant that emits the three K-concatenated operands the rank-K
@@ -85,26 +94,20 @@ struct CBlas3SplitTilingData {
 // the sign into the operand makes the cancellation happen inside one Cube
 // accumulation chain instead.
 //
-// Layout: Phase 0 writes each input column twice, `blockStride` floats apart,
-// and advances `colStride` floats per input column; `packedLd` is the row stride
-// the GEMM sees. Those three select the arrangement without changing the values
-// written, so the same kernel emits either of:
-//   block-concatenated: the two contributions form whole halves, i.e. the second
-//              copy of column j lands a whole block past the first. Reached with
-//              colStride = one column and blockStride = the block size.
-//   K-interleaved: the two copies of column j land in adjacent packed columns.
-//              Reached with colStride = two columns and blockStride = one.
-//              This keeps a term and its sign-flipped counterpart adjacent along
-//              K so they cancel inside the accumulator before either can reach
-//              the fp32 range limit (Inf - Inf would otherwise be NaN).
-// Which one applies also depends on trans, because Phase 0's writes must stay
-// contiguous; see MakeCsyrkSplitTiling for the concrete strides.
+// Layout: `blockStride` is the distance between the two halves and `packedLd` the
+// row stride, both in floats. The two differ per trans mode because Phase 0 must
+// keep its writes contiguous:
+//   trans='N': the packed view is (k x n) row-major with row stride n, so the two
+//              halves stack as whole blocks -> packedLd = n, blockStride = k*n
+//   trans='T': the packed view is (n x k) row-major with row stride k, so the two
+//              halves sit side by side within each row -> packedLd = 2k,
+//              blockStride = k
 struct CBlas3SplitConcatTilingData {
     uint32_t rows;        // logical rows of the input
     uint32_t cols;        // logical cols of the input
     uint32_t lda;         // leading dimension of the input, in complex elements
-    uint32_t packedLd;    // row stride of each packed buffer, in floats
-    uint32_t blockStride; // offset from a column's first copy to its second, in floats
+    uint32_t packedLd;    // row stride of each concatenated buffer, in floats
+    uint32_t blockStride; // offset from the first half to the second, in floats
     uint32_t colStride;   // offset between consecutive input columns, in floats
 };
 

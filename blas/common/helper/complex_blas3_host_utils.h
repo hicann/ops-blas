@@ -83,6 +83,28 @@ static inline bool CBlas3TryAlignGm(uint64_t bytes, uint64_t* out)
     return true;
 }
 
+// A complex element is two floats wide; host-side mirror of COMPLEX_ELENUM.
+constexpr uint32_t CBLAS3_CPLX_FLOATS = 2;
+
+// Phase 0 divides one operand by 2^CBLAS3_RANGE_SCALE_EXP and Phase 2 multiplies
+// the sums back. Both factors are exact powers of two, so every value that stays
+// normal on the way down comes back bit-identical -- the transform exists only to
+// keep the Cube's products and running sums away from the top of the fp32 range.
+//
+// Without it an operand near FLT_MAX overflows inside the accumulator even where
+// the result is perfectly representable: on the RANDOM_EXTREME shape only 15 of
+// the 342 in-range outputs survive. Eight binades of headroom cover a product of
+// a FLT_MAX-sized entry with an operand up to 8 and an accumulation of a few
+// hundred such terms, and recover all 342.
+//
+// The cost is at the bottom of the range: an input below 2^-118 lands in the
+// denormals after scaling and loses mantissa bits. Anything that small only
+// matters when every contribution to an output is that small, in which case the
+// unscaled result underflows as well.
+constexpr int CBLAS3_RANGE_SCALE_EXP = 8;
+constexpr float CBLAS3_RANGE_SCALE_DOWN = 1.0F / 256.0F; // 2^-8
+constexpr float CBLAS3_RANGE_SCALE_UP = 256.0F;          // 2^8
+
 // Read alpha and beta back from device memory.
 //
 // Works for both the real-scalar operators (T = float: cherk, and the beta of
@@ -256,6 +278,208 @@ static inline CBlas3GemmTilingData CBlas3MakeRankKGemmTiling(
     t.uploMode = uploMode;
     t.transMode = shape.transMode;
     return t;
+}
+
+// Shape bookkeeping for the symm-family operators (chemm / csymm).
+//
+// A is d x d and triangular-stored, B and C are m x n; d = m for side='L' and
+// d = n for side='R'. All column-major.
+//
+// The GEMM works on the transposed identity C^T = (A*B)^T = B^T*A^T, so its own
+// extents are M = n, N = m, and K = d. Both packed operands are already the
+// transposes a row-major Matmul wants, so neither is transposed -- see
+// CBLAS3_GEMM_TRANS_NONE.
+//
+// aPadded is A's packed row stride rounded up to the expansion tile, because
+// MirrorTriBody only handles whole tiles.
+struct CBlas3SymmShape {
+    uint32_t m;
+    uint32_t n;
+    uint32_t d;         // side='L' ? m : n
+    uint32_t aPadded;   // d rounded up to CBLAS3_EXPAND_TILE
+    uint32_t tileCount; // aPadded / CBLAS3_EXPAND_TILE
+    bool sideLeft;
+};
+
+static inline CBlas3SymmShape CBlas3ResolveSymmShape(bool sideLeft, uint32_t m, uint32_t n)
+{
+    CBlas3SymmShape s{};
+    s.m = m;
+    s.n = n;
+    s.d = sideLeft ? m : n;
+    s.aPadded = CeilAlign<uint32_t>(s.d, CBLAS3_EXPAND_TILE);
+    s.tileCount = s.aPadded / CBLAS3_EXPAND_TILE;
+    s.sideLeft = sideLeft;
+    return s;
+}
+
+// The four GEMMs of chemm / csymm differ only in which packed buffers they take, so
+// one tiling describes all of them.
+//
+// side='L': left = packed B (seen as n x m, stride m), right = packed A (seen as
+//           m x m, stride aPadded) -> K = m
+// side='R': left = packed A (seen as n x n, stride aPadded), right = packed B (seen
+//           as n x m, stride m) -> K = n
+static inline CBlas3GemmTilingData CBlas3MakeSymmGemmTiling(const CBlas3SymmShape& shape, uint32_t tempLdc)
+{
+    CBlas3GemmTilingData t{};
+    t.m = shape.n;
+    t.n = shape.m;
+    t.k = shape.d;
+    t.ldc = tempLdc;
+    t.mBlocks = CeilDiv<uint32_t>(shape.n, CBLAS3_TILE_M);
+    t.nBlocks = CeilDiv<uint32_t>(shape.m, CBLAS3_TILE_N);
+    t.uploMode = CBLAS3_UPLO_NONE;
+    t.transMode = CBLAS3_GEMM_TRANS_NONE;
+    t.ldA = shape.sideLeft ? shape.m : shape.aPadded;
+    t.ldB = shape.sideLeft ? shape.aPadded : shape.m;
+    t.packedLd = t.ldA;
+    return t;
+}
+
+// Paired-K variant of the above (side='L' only). The contraction runs over 2*m
+// slots: slot 2j carries the real parts, slot 2j+1 the imaginary ones.
+//   left  = B itself, read straight from the caller's buffer. Its row i is source
+//           column i, i.e. [Br_0, Bi_0, Br_1, Bi_1, ...], so the row stride is
+//           twice B's leading dimension and no packing pass is needed.
+//   right = one of the A buffers, whose planes sit one packed column apart, so the
+//           stride between consecutive K slots is unchanged at aPadded.
+static inline CBlas3GemmTilingData CBlas3MakeSymmPairedGemmTiling(
+    const CBlas3SymmShape& shape, uint32_t ldb, uint32_t tempLdc)
+{
+    CBlas3GemmTilingData t = CBlas3MakeSymmGemmTiling(shape, tempLdc);
+    t.k = shape.d * CBLAS3_CPLX_FLOATS;
+    t.ldA = ldb * CBLAS3_CPLX_FLOATS;
+    t.ldB = shape.aPadded;
+    t.packedLd = t.ldA;
+    return t;
+}
+
+// Workspace for the symm family. Two layouts, selected by CBlas3SymmUsesPairedK:
+//
+//   paired (side='L'): two temps and two A buffers, each holding a real and an
+//       imaginary plane interleaved by packed column. B is not packed at all --
+//       its source columns already carry the interleaved K order the GEMM wants.
+//   plain  (side='R'): four temps, the Ar / Ai pair and the Br / Bi pair.
+//
+// tempLdc is the row stride of the transposed C^T output, so it spans m.
+struct CBlas3SymmWorkspace {
+    uint8_t* temp[4] = {nullptr};
+    uint8_t* ar = nullptr;
+    uint8_t* ai = nullptr;
+    uint8_t* br = nullptr;
+    uint8_t* bi = nullptr;
+    // Paired layout only: aPair[0] = [Ar | -Ai], aPair[1] = [Ai | Ar], both
+    // interleaved by packed column with the imaginary plane one column on.
+    uint8_t* aPair[2] = {nullptr};
+    uint32_t tempLdc = 0;
+};
+
+// Whether the paired-K layout applies. Only side='L' qualifies: there the GEMM's
+// left operand is B with K running along a packed row, which is exactly how a
+// column-major complex matrix already stores its real and imaginary parts, so B
+// needs no packing and A only needs its two planes one packed column apart. For
+// side='R' the roles swap and A -- the operand that must be mirrored out of its
+// stored triangle -- would need the interleave along the fast axis, which the
+// tile mirror cannot produce; that side keeps the four-GEMM layout.
+static inline bool CBlas3SymmUsesPairedK(const CBlas3SymmShape& shape) { return shape.sideLeft; }
+
+// Sub-buffer sizes for the symm family, all of them checked. Same reasoning as
+// CBlas3ComputeRankKBytes: aPadded is m (or n) rounded up to the expansion tile,
+// so at a dimension of INT_MAX the A plane alone is 2^31 * 2^31 * 4 == 2^64 and
+// would wrap to zero. `total` is 0 when the temps are skipped.
+struct CBlas3SymmBytes {
+    uint64_t tempBytes = 0U;
+    uint64_t aBytes = 0U;
+    uint64_t bBytes = 0U;
+    uint64_t total = 0U;
+};
+
+static inline bool CBlas3ComputeSymmBytes(
+    const CBlas3SymmShape& shape, uint32_t tempLdc, bool skipTemp, CBlas3SymmBytes& out)
+{
+    // skipTemp means none of the temp/A/B buffers are ever touched
+    // (CBlas3PrepareSymmWorkspace short-circuits to SUCCESS with no allocation),
+    // so the size math below -- which can itself overflow for extreme m/n --
+    // must not run and must not turn an unrelated shape into a spurious
+    // ALLOC_FAILED.
+    if (skipTemp) {
+        out = CBlas3SymmBytes{};
+        return true;
+    }
+    bool ok = CBlas3TryMulU64(tempLdc, shape.n, &out.tempBytes) &&
+              CBlas3TryMulU64(out.tempBytes, sizeof(float), &out.tempBytes) &&
+              CBlas3TryAlignGm(out.tempBytes, &out.tempBytes) &&
+              CBlas3TryMulU64(shape.aPadded, shape.aPadded, &out.aBytes) &&
+              CBlas3TryMulU64(out.aBytes, sizeof(float), &out.aBytes) && CBlas3TryAlignGm(out.aBytes, &out.aBytes) &&
+              CBlas3TryMulU64(shape.m, shape.n, &out.bBytes) &&
+              CBlas3TryMulU64(out.bBytes, sizeof(float), &out.bBytes) && CBlas3TryAlignGm(out.bBytes, &out.bBytes);
+    if (!ok) {
+        return false;
+    }
+    // Paired: 2 temps + 2 A buffers of twice the plain size, and no B buffers.
+    // Plain: 4 temps + the Ar/Ai and Br/Bi pairs.
+    const bool paired = CBlas3SymmUsesPairedK(shape);
+    uint64_t tempTotal = 0U;
+    uint64_t aTotal = 0U;
+    uint64_t bTotal = 0U;
+    return CBlas3TryMulU64(out.tempBytes, paired ? 2U : 4U, &tempTotal) &&
+           CBlas3TryMulU64(out.aBytes, paired ? 4U : 2U, &aTotal) &&
+           CBlas3TryMulU64(out.bBytes, paired ? 0U : 2U, &bTotal) && CBlas3TryAddU64(tempTotal, aTotal, &out.total) &&
+           CBlas3TryAddU64(out.total, bTotal, &out.total);
+}
+
+static inline aclblasStatus_t CBlas3PrepareSymmWorkspace(
+    _aclblas_handle* h, const CBlas3SymmShape& shape, bool skipTemp, CBlas3SymmWorkspace& ws, const char* tag)
+{
+    // C^T is (n x m) row-major, so its row stride spans m.
+    ws.tempLdc = CeilAlign<uint32_t>(shape.m, CBLAS3_TEMP_ALIGN);
+
+    CBlas3SymmBytes bytes;
+    if (!CBlas3ComputeSymmBytes(shape, ws.tempLdc, skipTemp, bytes)) {
+        OP_LOGE(
+            tag, "workspace size overflows 64 bits: m=%u n=%u aPadded=%u tempLdc=%u", shape.m, shape.n, shape.aPadded,
+            ws.tempLdc);
+        return ACLBLAS_STATUS_ALLOC_FAILED;
+    }
+    if (skipTemp) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+
+    // Paired: 2 temps + 2 A buffers of twice the plain size, and no B buffers.
+    // Plain: 4 temps + the Ar/Ai and Br/Bi pairs.
+    const bool paired = CBlas3SymmUsesPairedK(shape);
+    const uint32_t tempCount = paired ? 2U : 4U;
+    const size_t total = static_cast<size_t>(bytes.total);
+    aclblasStatus_t ret = EnsureDefaultWorkspace(h, total);
+    if (ret != ACLBLAS_STATUS_SUCCESS) {
+        OP_LOGE(tag, "workspace allocation of %zu bytes failed", total);
+        return ret;
+    }
+    uint8_t* base = static_cast<uint8_t*>(GetEffectiveWorkspace(h));
+    if (base == nullptr) {
+        OP_LOGE(tag, "GetEffectiveWorkspace returned nullptr");
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+    size_t off = 0;
+    for (uint32_t i = 0; i < tempCount; ++i) {
+        ws.temp[i] = base + off;
+        off += bytes.tempBytes;
+    }
+    if (paired) {
+        ws.aPair[0] = base + off;
+        off += 2U * bytes.aBytes;
+        ws.aPair[1] = base + off;
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    ws.ar = base + off;
+    off += bytes.aBytes;
+    ws.ai = base + off;
+    off += bytes.aBytes;
+    ws.br = base + off;
+    off += bytes.bBytes;
+    ws.bi = base + off;
+    return ACLBLAS_STATUS_SUCCESS;
 }
 
 // Issue one logical GEMM, splitting K so that no launch exceeds the kernel's
