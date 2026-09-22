@@ -26,8 +26,8 @@ trans='C': C = alpha * A^H * A + beta * C
 #### 产品支持情况
 
 - Ascend 950PR / Ascend 950DT：支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
 - Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
-- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
 
 > Ascend 950PR/Ascend 950DT 上的 cherk 依赖 CANN asc-devkit >= 9.1（`ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR >= 1`），低于该版本时编译与运行将跳过此算子。
 
@@ -66,6 +66,8 @@ aclblasStatus_t aclblasCherk(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 - C 不可为 nullptr（当 n > 0 时）
 - alpha、beta 为实数（float），分别缩放复数 C 的实部与虚部
 - 输出 C 满足 Hermitian 性质：C[i][j] = conj(C[j][i])，对角线元素虚部为零
+- 当 alpha 为 0（或 k 为 0）且 beta 为 1 时按 BLAS 语义直接返回，C 保持原值不变——**包含其对角线虚部**
+- Atlas A2 上本算子内部会申请库工作区暂存拆分后的实数矩阵与 GEMM 中间结果，容量约为 `24·n²` 字节；当超出 `ACLBLAS_MAX_WORKSPACE_SIZE`（2 GiB，对应 n 约 9205）时返回 `ACLBLAS_STATUS_ALLOC_FAILED` 并在日志中给出所需字节数
 
 #### 调用示例
 

@@ -15,14 +15,12 @@
 
 #include "cann_ops_blas.h"
 #include "cblas_compat.h"
+#include "cblas_threaded.h"
 
 // Sentinel: all validations passed, proceed to compute.
 static const int CHERK_CPU_VALID_OK = 0x7FFFFFFF;
 
-static bool CherkIsValidUplo(aclblasFillMode_t uplo)
-{
-    return uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER;
-}
+static bool CherkIsValidUplo(aclblasFillMode_t uplo) { return uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER; }
 
 static bool CherkIsValidTrans(aclblasOperation_t trans)
 {
@@ -32,18 +30,17 @@ static bool CherkIsValidTrans(aclblasOperation_t trans)
 // Parameter validation aligned with ssyrk_golden.h; complex version differs
 // only in A/C pointer types (aclblasComplex*). See 测试方案 §2.4.
 static int ValidateCherkCpuParams(
-    aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
-    int n, int k, int lda, int ldc,
+    aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k, int lda, int ldc,
     const float* alpha, const float* beta, const aclblasComplex* A, const aclblasComplex* C)
 {
     if (handle == nullptr) {
         return static_cast<int>(ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
     }
     if (!CherkIsValidUplo(uplo)) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_ENUM);
     }
     if (!CherkIsValidTrans(trans)) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
+        return static_cast<int>(ACLBLAS_STATUS_INVALID_ENUM);
     }
     if (n < 0 || k < 0) {
         return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
@@ -81,9 +78,8 @@ static int ValidateCherkCpuParams(
 //   trans == OP_T  -> CblasConjTrans   (NOT CblasTrans)
 //   trans == OP_C  -> CblasConjTrans
 inline aclblasStatus_t aclblasCherk_cpu(
-    aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
-    int n, int k, const float* alpha, const aclblasComplex* A, int lda,
-    const float* beta, aclblasComplex* C, int ldc)
+    aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k, const float* alpha,
+    const aclblasComplex* A, int lda, const float* beta, aclblasComplex* C, int ldc)
 {
     int st = ValidateCherkCpuParams(handle, uplo, trans, n, k, lda, ldc, alpha, beta, A, C);
     if (st != CHERK_CPU_VALID_OK) {
@@ -97,16 +93,13 @@ inline aclblasStatus_t aclblasCherk_cpu(
     CBLAS_TRANSPOSE cblasTrans = (trans == ACLBLAS_OP_N) ? CblasNoTrans : CblasConjTrans;
 
     // aclblasComplex = {float real; float imag} is binary-compatible with
-    // OpenBLAS's complex layout, so the void* cast is a pure reinterpret.
-    cblas_cherk(
-        CblasColMajor,
-        ToCblasUplo(uplo),
-        cblasTrans,
-        n, k,
-        alphaVal,
-        static_cast<const void*>(A), lda,
-        betaVal,
-        static_cast<void*>(C), ldc);
+    // OpenBLAS's complex layout, so the float* casts below are pure reinterprets.
+    // CherkThreaded splits the output into column panels across threads; each
+    // element still accumulates over the full K extent in the same order, so the
+    // result is bit-identical to a single cblas_cherk call. See cblas_threaded.h.
+    blas_test::CherkThreaded(
+        ToCblasUplo(uplo), cblasTrans, n, k, alphaVal, reinterpret_cast<const float*>(A), lda, betaVal,
+        reinterpret_cast<float*>(C), ldc);
 
     return ACLBLAS_STATUS_SUCCESS;
 }
