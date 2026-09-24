@@ -90,7 +90,7 @@ for arg in "$@"; do
             echo "  bash build.sh --pkg                           # 编译并打包run包"
             echo "  bash build.sh --pkg --soc=ascend950           # 打包指定SOC的run包"
             echo "  bash build.sh --pkg --soc=ascend950 --ops=scopy --run  # 编译指定算子打包并运行测试"
-            echo "  bash build.sh --ops=scopy --run --device=1     # 指定测试运行设备(默认0)"
+            echo "  bash build.sh --ops=scopy --run --device=1     # 指定偏好测试设备(默认0，被占用时自动换空闲卡)"
             exit 1
             ;;
     esac
@@ -226,6 +226,49 @@ if [ -z "${ASCEND_HOME}" ]; then
 fi
 # 确保后续使用的 ASCEND_HOME_PATH 有值
 export ASCEND_HOME_PATH="${ASCEND_HOME_PATH:-${ASCEND_HOME}}"
+
+# ==========================
+# 运行测试前智能选择空闲设备
+# TEST_DEVICE_ID 是编译期宏（-DTEST_DEVICE_ID），必须在 cmake 配置之前完成选卡
+# ==========================
+if [ "${RUN_TEST}" == "ON" ] && [ -n "${BUILD_OPS}" ]; then
+    SELECT_DEVICE_SCRIPT="${BASE_PATH}/scripts/select_device.py"
+    if [ ! -f "${SELECT_DEVICE_SCRIPT}" ]; then
+        print_error "设备选择脚本不存在: ${SELECT_DEVICE_SCRIPT}"
+        exit 1
+    fi
+    set +e
+    SELECTED_DEVICE=$(python3 "${SELECT_DEVICE_SCRIPT}" --prefer "${TEST_DEVICE_ID}")
+    select_ret=$?
+    set -e
+    case ${select_ret} in
+        0)
+            if [[ "${SELECTED_DEVICE}" =~ ^[0-9]+$ ]]; then
+                if [ "${SELECTED_DEVICE}" != "${TEST_DEVICE_ID}" ]; then
+                    echo "[INFO] 使用设备 ${SELECTED_DEVICE}（原偏好设备 ${TEST_DEVICE_ID} 被占用，已自动切换）"
+                else
+                    echo "[INFO] 使用设备 ${SELECTED_DEVICE}"
+                fi
+                TEST_DEVICE_ID="${SELECTED_DEVICE}"
+            else
+                print_error "设备选择结果异常: ${SELECTED_DEVICE}"
+                exit 1
+            fi
+            ;;
+        10)
+            print_error "没有可用设备"
+            exit 1
+            ;;
+        20)
+            print_error "所有设备均被占用"
+            exit 1
+            ;;
+        *)
+            print_error "设备选择失败，select_device.py 退出码 ${select_ret}，详见上方日志"
+            exit 1
+            ;;
+    esac
+fi
 
 # ==========================
 # 构建
