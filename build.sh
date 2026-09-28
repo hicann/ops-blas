@@ -15,6 +15,9 @@ BUILD_OPS=""
 RUN_TEST=OFF
 ENABLE_PACKAGE=FALSE
 TEST_DEVICE_ID=0
+TEST_DEVICE_COUNT=1
+RUN_BLAS_ALL=OFF
+BLAS_SMOKE=OFF
 
 export BASE_PATH=$(
   cd "$(dirname $0)"
@@ -80,6 +83,20 @@ for arg in "$@"; do
         --device=*)
             TEST_DEVICE_ID="${arg#*=}"
             ;;
+        --devices=*)
+            # 多 device 并行分片（issue #457）：如 --devices=2 表示用设备 0..N-1
+            # 按算子均分并行执行；与 --device 互斥，--devices 优先
+            TEST_DEVICE_COUNT="${arg#*=}"
+            ;;
+        --blas-all)
+            # 合并测试 Runner（issue #457）：运行单一 blas_all_test 可执行
+            # （全部算子测试源聚合编译，suite 初始化仅 1 次），替代逐算子循环
+            RUN_BLAS_ALL=ON
+            ;;
+        --smoke)
+            # 冒烟抽样（issue #457）：按 CSV 分级抽样执行，负例与边界全保
+            BLAS_SMOKE=ON
+            ;;
         *)
             echo "Unknown option: $arg"
             echo "Usage:"
@@ -91,6 +108,9 @@ for arg in "$@"; do
             echo "  bash build.sh --pkg --soc=ascend950           # 打包指定SOC的run包"
             echo "  bash build.sh --pkg --soc=ascend950 --ops=scopy --run  # 编译指定算子打包并运行测试"
             echo "  bash build.sh --ops=scopy --run --device=1     # 指定偏好测试设备(默认0，被占用时自动换空闲卡)"
+            echo "  bash build.sh --ops=scopy,cherk --run --devices=2   # 按 2 个设备分片并行"
+            echo "  bash build.sh --run --blas-all                 # 用合并 Runner 运行全部(单进程)"
+            echo "  bash build.sh --run --smoke                    # 冒烟抽样模式运行全部"
             exit 1
             ;;
     esac
@@ -229,9 +249,11 @@ export ASCEND_HOME_PATH="${ASCEND_HOME_PATH:-${ASCEND_HOME}}"
 
 # ==========================
 # 运行测试前智能选择空闲设备
-# TEST_DEVICE_ID 是编译期宏（-DTEST_DEVICE_ID），必须在 cmake 配置之前完成选卡
+# TEST_DEVICE_ID 是编译期宏（-DTEST_DEVICE_ID），必须在 cmake 配置之前完成选卡。
+# --devices=N 多卡分片模式跳过此逻辑：各分片进程通过 BLAS_DEVICE_ID=0..N-1
+# 自行绑定设备（blas_test.h 运行时读取），无单卡偏好可言。
 # ==========================
-if [ "${RUN_TEST}" == "ON" ] && [ -n "${BUILD_OPS}" ]; then
+if [ "${RUN_TEST}" == "ON" ] && [ -n "${BUILD_OPS}" ] && [ "${TEST_DEVICE_COUNT}" -le 1 ]; then
     SELECT_DEVICE_SCRIPT="${BASE_PATH}/scripts/select_device.py"
     if [ ! -f "${SELECT_DEVICE_SCRIPT}" ]; then
         print_error "设备选择脚本不存在: ${SELECT_DEVICE_SCRIPT}"
@@ -342,10 +364,6 @@ if [ "${RUN_TEST}" == "ON" ]; then
     # 将逗号分隔的算子名转换为数组
     IFS=',' read -ra OP_ARRAY <<< "${BUILD_OPS}"
 
-    FAILED_OPS=()
-    PASSED_OPS=()
-    SKIPPED_OPS=()
-
     # 读取 CMake 配置阶段生成的 skip 清单
     declare -A SKIP_REASON_MAP=()
     SKIPPED_FILE="${BUILD_DIR}/test/skipped_tests.list"
@@ -356,11 +374,45 @@ if [ "${RUN_TEST}" == "ON" ]; then
         done < "${SKIPPED_FILE}"
     fi
 
+    # 可运行算子 = 请求算子去掉 skip 名单
+    RUNNABLE_OPS=()
+    SKIPPED_OPS=()
     for op in "${OP_ARRAY[@]}"; do
-        # 解析测试二进制路径：支持直接目录 (test/scopy/) 和家族嵌套 (test/gbmv/sgbmv/)
-        TEST_BIN="${BUILD_DIR}/test/${op}/${op}_test"
+        if [ -n "${SKIP_REASON_MAP[${op}]+x}" ]; then
+            echo ""
+            echo "========== Skipping ${op}_test =========="
+            print_skip "${op}_test: not supported on SOC '${SOC_VERSION}' (${SKIP_REASON_MAP[${op}]})"
+            SKIPPED_OPS+=("${op}")
+        else
+            RUNNABLE_OPS+=("${op}")
+        fi
+    done
+
+    # ------------------------------------------------------------
+    # 冒烟抽样（issue #457·方案2）：BLAS_SMOKE=ON 时按 CSV 分级抽样生成
+    # BLAS_TEST_CASES，负例与边界全保，groups 内等距取样。未生成条目的算子
+    # （无 CSV/解析失败）保持该算子全量。
+    # ------------------------------------------------------------
+    if [ "${BLAS_SMOKE}" == "ON" ] && [ "${#RUNNABLE_OPS[@]}" -gt 0 ]; then
+        sampled=$(python3 "${BASE_PATH}/scripts/ci/smoke_sample.py" "${SOC_ARCH_DIRS[0]}" "${RUNNABLE_OPS[@]}" 2>/dev/null || true)
+        if [ -n "${sampled}" ]; then
+            export BLAS_TEST_CASES="${sampled}"
+            echo "Smoke sampling enabled: BLAS_TEST_CASES set (see scripts/ci/smoke_sample.py)."
+        else
+            echo "Smoke sampling unavailable (no CSV found), falling back to full cases."
+        fi
+    fi
+
+    # ------------------------------------------------------------
+    # 多 device 并行分片（issue #457·方案4）：TEST_DEVICE_COUNT>1 时把可运行
+    # 算子均分为 N 片，第 i 片进程设 BLAS_DEVICE_ID=i（blas_test.h 运行时读取，
+    # 优先于编译期 TEST_DEVICE_ID）后台并行执行，完成后汇总各片 PASS/FAIL。
+    # ------------------------------------------------------------
+    shard_run_one() {
+        # $1=op $2=device_id
+        local op="$1" dev="$2"
+        local TEST_BIN="${BUILD_DIR}/test/${op}/${op}_test"
         if [ ! -f "${TEST_BIN}" ]; then
-            # 搜索家族子目录
             for family_dir in "${BUILD_DIR}/test"/*/; do
                 if [ -f "${family_dir}${op}/${op}_test" ]; then
                     TEST_BIN="${family_dir}${op}/${op}_test"
@@ -368,46 +420,120 @@ if [ "${RUN_TEST}" == "ON" ]; then
                 fi
             done
         fi
-        # Binary may be under a directory without the leading type character
         if [ ! -f "${TEST_BIN}" ]; then
-            family="${op:1}"
-            if [ -f "${BUILD_DIR}/test/${family}/${op}_test" ]; then
-                TEST_BIN="${BUILD_DIR}/test/${family}/${op}_test"
-            fi
+            local family="${op:1}"
+            [ -f "${BUILD_DIR}/test/${family}/${op}_test" ] && TEST_BIN="${BUILD_DIR}/test/${family}/${op}_test"
         fi
-
-        # 当前 SOC 不支持该算子时，直接标记为 skip，避免误报 fail/error
-        if [ -n "${SKIP_REASON_MAP[${op}]+x}" ]; then
-            echo ""
-            echo "========== Skipping ${op}_test =========="
-            print_skip "${op}_test: not supported on SOC '${SOC_VERSION}' (${SKIP_REASON_MAP[${op}]})"
-            SKIPPED_OPS+=("${op}")
-            continue
-        fi
-
-        echo ""
-        echo "========== Running ${op}_test =========="
         if [ ! -f "${TEST_BIN}" ]; then
-            print_error "Test binary not found: ${TEST_BIN} (build may have failed)"
-            FAILED_OPS+=("${op}")
-            continue
+            echo "[FAIL] ${op}_test: binary not found (build may have failed)"
+            return 1
         fi
+        BLAS_DEVICE_ID="${dev}" "${TEST_BIN}" "$(dirname "${TEST_BIN}")"
+    }
 
-        TEST_CFG_DIR="$(dirname "${TEST_BIN}")"
+    run_sharded() {
+        local n_shards="$1"
+        shift
+        local -a shard_ops=("$@")
+        local -a pids=()
+        local -a shard_ops_list=()
+        local base=${#shard_ops[@]}
+        local per=$(( (base + n_shards - 1) / n_shards ))
+        rm -rf "${BUILD_DIR}/shard_status" && mkdir -p "${BUILD_DIR}/shard_status"
 
-        # 临时禁用 errexit 以捕获测试退出码
+        for ((i=0; i<n_shards; i++)); do
+            local slice=("${shard_ops[@]:i*per:per}")
+            [ ${#slice[@]} -eq 0 ] && continue
+            (
+                for op in "${slice[@]}"; do
+                    echo ""
+                    echo "========== [device ${i}] Running ${op}_test =========="
+                    set +e
+                    shard_run_one "${op}" "${i}"
+                    local rc=$?
+                    set -e
+                    echo "${op} ${rc}" >> "${BUILD_DIR}/shard_status/device_${i}.txt"
+                done
+            ) > "${BUILD_DIR}/shard_log_${i}.txt" 2>&1 &
+            pids+=($!)
+            shard_ops_list+=("$(IFS=,; echo "${slice[*]}")")
+        done
+
+        echo "Sharded run: ${n_shards} devices, ops per device: ${shard_ops_list[*]}"
+        for pid in "${pids[@]}"; do
+            wait "${pid}"
+        done
+
+        # 汇总分片状态
+        for f in "${BUILD_DIR}"/shard_status/*.txt; do
+            [ -f "${f}" ] || continue
+            while read -r op rc; do
+                if [ "${rc}" -eq 0 ]; then
+                    echo "[PASS] ${op}_test (shard $(basename "${f}" .txt))"
+                    PASSED_OPS+=("${op}")
+                else
+                    echo "[FAIL] ${op}_test (shard $(basename "${f}" .txt), exit code: ${rc})"
+                    FAILED_OPS+=("${op}")
+                fi
+            done < "${f}"
+        done
+    }
+
+    # 注意：SKIPPED_OPS 在上方 skip 判定循环里已记录跳过算子，
+    # 此处只初始化 PASSED/FAILED，不能重置 SKIPPED_OPS（否则跳过信息丢失）
+    FAILED_OPS=()
+    PASSED_OPS=()
+
+    # ------------------------------------------------------------
+    # 合并测试 Runner（issue #457·方案1）：单一 blas_all_test 进程跑全部算子，
+    # suite 级 aclInit 复用（80 次 → 1 次）。构建/执行失败时回退 per-op 循环。
+    # ------------------------------------------------------------
+    ALL_RUNNER_BIN="${BUILD_DIR}/test/blas_all_test"
+    if [ "${RUN_BLAS_ALL}" == "ON" ] && [ -f "${ALL_RUNNER_BIN}" ]; then
+        echo "========== Running blas_all_test (amalgamated runner) =========="
+        if [ "${TEST_DEVICE_COUNT}" -gt 1 ]; then
+            # 合并 Runner 单进程内多 suite 共享设备，分片仍按 suite（gtest_filter）
+            # 由 test_main.cpp 处理，这里退化为单 device 执行
+            echo "Note: --blas-all runs in one process; --devices is ignored."
+        fi
         set +e
-        "${TEST_BIN}" "${TEST_CFG_DIR}"
-        exit_code=$?
+        "${ALL_RUNNER_BIN}" "$(dirname "${ALL_RUNNER_BIN}")"
+        all_rc=$?
         set -e
-        if [ $exit_code -eq 0 ]; then
-            echo "[PASS] ${op}_test"
-            PASSED_OPS+=("${op}")
+        if [ ${all_rc} -eq 0 ]; then
+            echo "[PASS] blas_all_test"
+            echo ""
+            echo "========================================"
+            echo "Test Summary:"
+            echo "  Amalgamated runner PASSED (all gtest suites)."
+            echo "========================================"
+            exit 0
         else
-            echo "[FAIL] ${op}_test (exit code: $exit_code)"
-            FAILED_OPS+=("${op}")
+            echo "[WARN] blas_all_test failed (exit code: ${all_rc}), falling back to per-op run for precise attribution."
         fi
-    done
+    elif [ "${RUN_BLAS_ALL}" == "ON" ]; then
+        echo "[WARN] blas_all_test binary not found, falling back to per-op run."
+    fi
+
+    if [ "${TEST_DEVICE_COUNT}" -gt 1 ] && [ "${#RUNNABLE_OPS[@]}" -gt 0 ]; then
+        run_sharded "${TEST_DEVICE_COUNT}" "${RUNNABLE_OPS[@]}"
+    else
+        for op in "${RUNNABLE_OPS[@]}"; do
+            echo ""
+            echo "========== Running ${op}_test =========="
+            set +e
+            shard_run_one "${op}" "${TEST_DEVICE_ID}"
+            rc=$?
+            set -e
+            if [ ${rc} -eq 0 ]; then
+                echo "[PASS] ${op}_test"
+                PASSED_OPS+=("${op}")
+            else
+                echo "[FAIL] ${op}_test (exit code: ${rc})"
+                FAILED_OPS+=("${op}")
+            fi
+        done
+    fi
 
     # 汇总测试结果
     echo ""

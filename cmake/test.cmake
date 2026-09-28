@@ -275,6 +275,8 @@ function(_ops_blas_register_gtest_target target link_lib)
     ops_blas_get_test_target_sources(${target} _test_srcs)
     list(APPEND _test_srcs ${CMAKE_SOURCE_DIR}/test/frame/test_main.cpp)
     add_executable(${target} ${_test_srcs})
+    # 记录 gtest 目标清单：合并测试 Runner（blas_all_test，issue #457）据此聚合全部源
+    set_property(GLOBAL APPEND PROPERTY OPS_BLAS_GTEST_TARGETS ${target})
 
     if(DEFINED TEST_DEVICE_ID)
         target_compile_definitions(${target} PRIVATE TEST_DEVICE_ID=${TEST_DEVICE_ID})
@@ -383,4 +385,186 @@ function(ops_blas_add_gtest_tests link_lib)
         endif()
         _ops_blas_register_gtest_target(${target} ${link_lib})
     endforeach()
+endfunction()
+
+# ----------------------------------------------------------------------------------------------------------
+# 合并测试 Runner（blas_all_test，issue #457 全量耗时优化）。
+# 把全部 *_test 目标的测试源聚合编译进单一可执行文件：
+#   - aclInit/SetDevice/aclblasCreate 等 suite 级初始化由 blas_test.h 的引用计数守卫
+#     在 suite 间复用，80 次 aclInit 降为 1 次（每 suite 约 3s，共省约 4 分钟）；
+#   - 跨文件重名全局符号（如 16 个 *_test.cpp 里的 VerifyResult）由
+#     amalgamate_conflicts.py 生成清单、localize_launcher.sh 对 .o 做 objcopy
+#     --localize-symbols 降级为局部符号，规避 multiple definition；
+#   - BLAS_TEST_CASES 里 op:ALL / op:case1,case2 的算子选择由 test_main.cpp
+#     按可执行名（blas_all_test 无 _test 后缀 → 走 ALL 匹配分支）与 suite 前缀
+#     映射文件（all_runner_suites.map）共同支持。
+# 独立目标仍按原样构建：blas_all_test 仅在 --run-blas-all 时由 build.sh 使用，
+# 以及 per-op 目标构建/链接失败时的回退路径。
+# ----------------------------------------------------------------------------------------------------------
+function(_ops_blas_register_all_runner link_lib)
+    get_property(_gtest_targets GLOBAL PROPERTY OPS_BLAS_GTEST_TARGETS)
+    if(NOT _gtest_targets)
+        return()
+    endif()
+
+    _ops_blas_ensure_gtest_found()
+    _ops_blas_ensure_refblas_found()
+
+    # 1) 聚合源：每个目标的测试源（不含各自的 test_main.cpp，只保留一份 main）
+    set(_all_srcs "")
+    set(_all_dirs "")
+    foreach(_tgt ${_gtest_targets})
+        get_target_property(_srcs ${_tgt} SOURCES)
+        foreach(_src ${_srcs})
+            if(_src MATCHES "test_main\\.cpp$")
+                continue()
+            endif()
+            list(APPEND _all_srcs ${_src})
+            get_filename_component(_src_dir "${_src}" DIRECTORY)
+            if(_src_dir)
+                list(APPEND _all_dirs "${_src_dir}")
+            endif()
+        endforeach()
+    endforeach()
+    list(REMOVE_DUPLICATES _all_dirs)
+    list(APPEND _all_srcs ${CMAKE_SOURCE_DIR}/test/frame/test_main.cpp)
+
+    # 2) 冲突符号清单（configure 期生成，编译 launcher 消费）。
+    # 输出文件由脚本 -o 参数显式写入（VERBATIM 下 shell 重定向会被转义失效）
+    set(_conflict_list "${CMAKE_CURRENT_BINARY_DIR}/all_runner_conflict_symbols.txt")
+    add_custom_command(
+        OUTPUT "${_conflict_list}"
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/test/frame/amalgamate_conflicts.py
+                -o "${_conflict_list}" ${_all_srcs}
+        DEPENDS ${_all_srcs} ${CMAKE_SOURCE_DIR}/test/frame/amalgamate_conflicts.py
+        COMMENT "amalgamate: detecting cross-file global symbol conflicts"
+        VERBATIM)
+    add_custom_target(blas_all_conflict_list DEPENDS "${_conflict_list}")
+
+    # 3) suite 前缀映射：op -> INSTANTIATE_TEST_SUITE_P 前缀（test_main.cpp ALL 匹配用）
+    set(_suite_map "${CMAKE_CURRENT_BINARY_DIR}/all_runner_suites.map")
+    set(_map_content "")
+    foreach(_tgt ${_gtest_targets})
+        set(_prefix "")
+        # 从目标源文件提取 INSTANTIATE 前缀（每个 gtest 目标恰好一个）。
+        # 书写形态含单行与多行两种：INSTANTIATE_TEST_SUITE_P(\n    Prefix, Class,
+        # 用 python 统一处理（CMake REGEX 对多行匹配支持有限）
+        get_target_property(_srcs ${_tgt} SOURCES)
+        foreach(_src ${_srcs})
+            if(NOT _src MATCHES "\\.cpp$")
+                continue()
+            endif()
+            execute_process(
+                COMMAND python3 -c
+                        "import re,sys;src=open(sys.argv[1],encoding='utf-8',errors='ignore').read();m=re.search(r'INSTANTIATE_TEST_SUITE_P\\(\\s*([A-Za-z0-9_]+)',src);print(m.group(1) if m else '')"
+                        "${_src}"
+                OUTPUT_VARIABLE _prefix
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+                RESULT_VARIABLE _prefix_rc)
+            if(_prefix_rc EQUAL 0 AND _prefix)
+                break()
+            endif()
+        endforeach()
+            if(_prefix)
+                # 键写两份：完整 target 名（ccopy_test）与去掉 _test 后缀的算子名
+                # （ccopy，BLAS_TEST_CASES 里 run_example.sh 使用的是算子名）
+                string(APPEND _map_content "${_tgt}:${_prefix}\n")
+                string(REGEX REPLACE "_test$" "" _op_key "${_tgt}")
+                if(NOT _op_key STREQUAL "${_tgt}")
+                    string(APPEND _map_content "${_op_key}:${_prefix}\n")
+                endif()
+            else()
+                message(WARNING "amalgamate: no INSTANTIATE_TEST_SUITE_P prefix found for '${_tgt}', "
+                    "BLAS_TEST_CASES op-level selection will not cover it in blas_all_test")
+            endif()
+        endforeach()
+        file(WRITE "${_suite_map}" "${_map_content}")
+
+    # 4) 编译 launcher：对 .o 做冲突符号本地化（仅本目标）。
+    # 以 /bin/bash 前缀执行脚本，不依赖 configure_file 产物的执行权限位。
+    set(_launcher "${CMAKE_CURRENT_BINARY_DIR}/localize_launcher_used.sh")
+    configure_file(${CMAKE_SOURCE_DIR}/test/frame/localize_launcher.sh
+                   "${_launcher}" COPYONLY)
+
+    add_executable(blas_all_test ${_all_srcs})
+    add_dependencies(blas_all_test blas_all_conflict_list)
+    set_target_properties(blas_all_test PROPERTIES
+        CXX_COMPILER_LAUNCHER "/bin/bash;${_launcher};${_conflict_list}")
+
+    if(DEFINED TEST_DEVICE_ID)
+        target_compile_definitions(blas_all_test PRIVATE TEST_DEVICE_ID=${TEST_DEVICE_ID})
+    endif()
+
+    # 5) include 目录并集：每个源所在目录 + 各目标已注册的 include 路径
+    set(_all_includes "")
+    foreach(_tgt ${_gtest_targets})
+        get_target_property(_inc ${_tgt} INCLUDE_DIRECTORIES)
+        if(_inc)
+            list(APPEND _all_includes ${_inc})
+        endif()
+    endforeach()
+    foreach(_dir ${_all_dirs})
+        list(APPEND _all_includes ${_dir})
+        foreach(arch_dir ${SOC_ARCH_DIRS})
+            if(IS_DIRECTORY "${_dir}/${arch_dir}")
+                list(APPEND _all_includes "${_dir}/${arch_dir}")
+            endif()
+        endforeach()
+    endforeach()
+    list(REMOVE_DUPLICATES _all_includes)
+    target_include_directories(blas_all_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/test/frame
+        ${CMAKE_SOURCE_DIR}/test/utils
+        ${CMAKE_SOURCE_DIR}/blas/common/helper
+        ${_all_includes}
+        $ENV{LINUX_INCLUDE_PATH}
+        ${GTEST_INCLUDE_DIR}
+        ${REFBLAS_INCLUDE_DIR}
+        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/op_common/
+        ${ASCEND_CANN_PACKAGE_PATH}/include/op_common/
+        ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base/
+    )
+    # 6) 聚合 per-target 编译定义（如 ssymm 的 SSYMM_ARCH35=1）。
+    # 宏名按算子前缀命名（SSYMM_/CCOPY_ 等），跨算子无同名冲突；含生成器
+    # 表达式（$<...>）或与 TEST_DEVICE_ID 相关的条目跳过。
+    set(_all_defs "")
+    foreach(_tgt ${_gtest_targets})
+        get_target_property(_defs ${_tgt} COMPILE_DEFINITIONS)
+        if(_defs)
+            foreach(_def ${_defs})
+                if(_def MATCHES "^\\$<" OR _def MATCHES "^TEST_DEVICE_ID" OR _def STREQUAL "")
+                    continue()
+                endif()
+                list(APPEND _all_defs "${_def}")
+            endforeach()
+        endif()
+    endforeach()
+    list(REMOVE_DUPLICATES _all_defs)
+    if(_all_defs)
+        target_compile_definitions(blas_all_test PRIVATE ${_all_defs})
+    endif()
+
+    target_compile_features(blas_all_test PRIVATE cxx_std_17)
+    target_link_directories(blas_all_test PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/lib64")
+    target_link_libraries(blas_all_test PRIVATE
+        ${link_lib}
+        $ENV{EAGER_LIBRARY_PATH}/libascendcl.so
+        ${GTEST_LIB}
+        ${REFBLAS_LIB}
+        ${REFLAPACK_LIB}
+        pthread
+        tiling_api
+        platform
+        register
+        c_sec
+    )
+
+    # 6) suite 映射与 CSV/JSON 一起拷到可执行目录，test_main.cpp 运行时读取
+    add_custom_command(TARGET blas_all_test POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${_suite_map}" $<TARGET_FILE_DIR:blas_all_test>/all_runner_suites.map
+        COMMENT "amalgamate: installing all_runner_suites.map")
+    _ops_blas_copy_test_config_files(blas_all_test)
 endfunction()

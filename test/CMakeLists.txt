@@ -126,4 +126,9 @@ if(BUILD_TEST)
     foreach(test_name ${_OPS_BLAS_BUILT_TESTS})
         file(APPEND ${CMAKE_CURRENT_BINARY_DIR}/built_tests.list "${test_name}\n")
     endforeach()
+
+    # 合并测试 Runner（issue #457 全量耗时优化）：聚合全部 gtest 目标的测试源
+    # 为单一 blas_all_test 可执行，suite 初始化（aclInit 等）在 suite 间复用，
+    # 80 次 aclInit 降为 1 次。独立 per-op 目标仍按原样构建（回退与单算子场景用）。
+    _ops_blas_register_all_runner(${OPS_BLAS})
 endif()
