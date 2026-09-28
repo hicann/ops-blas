@@ -8,8 +8,7 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CSYRK_PARAM_H
-#define CSYRK_PARAM_H
+#pragma once
 
 #include <string>
 #include <algorithm>
@@ -48,8 +47,8 @@ struct CsyrkParam : public BlasTestParamBase {
         n = parseInt(ReadMap(map, "n", "0"));
         k = parseInt(ReadMap(map, "k", "0"));
 
-        alpha.real = parseFloat(ReadMap(map, "alpha_re", "1.0"));
-        alpha.imag = parseFloat(ReadMap(map, "alpha_im", "0.0"));
+        alpha.real = parseFloat(ReadMap(map, "alpha_real", ReadMap(map, "alpha_re", "1.0")));
+        alpha.imag = parseFloat(ReadMap(map, "alpha_imag", ReadMap(map, "alpha_im", "0.0")));
         aFill = BlasFillMode(ReadMap(map, "a_fill", "RANDOM_NORM_1"));
 
         // Default lda (column-major):
@@ -58,16 +57,17 @@ struct CsyrkParam : public BlasTestParamBase {
         int defaultLda = (trans == ACLBLAS_OP_N) ? std::max(1, n) : std::max(1, k);
         lda = parseInt(ReadMap(map, "lda", std::to_string(defaultLda)));
 
-        beta.real = parseFloat(ReadMap(map, "beta_re", "0.0"));
-        beta.imag = parseFloat(ReadMap(map, "beta_im", "0.0"));
+        beta.real = parseFloat(ReadMap(map, "beta_real", ReadMap(map, "beta_re", "0.0")));
+        beta.imag = parseFloat(ReadMap(map, "beta_imag", ReadMap(map, "beta_im", "0.0")));
         cFill = BlasFillMode(ReadMap(map, "c_fill", "VALUE_NORM_0"));
         ldc = parseInt(ReadMap(map, "ldc", std::to_string(std::max(1, n))));
 
         nullA = (ReadMap(map, "nullA", "0") == "1");
         nullC = (ReadMap(map, "nullC", "0") == "1");
-        nullAlpha = (ReadMap(map, "nullAlpha", "0") == "1");
-        nullBeta = (ReadMap(map, "nullBeta", "0") == "1");
+        nullAlpha = (ReadMap(map, "nullAlpha", ReadMap(map, "null_alpha", "0")) == "1") ||
+            (ReadMap(map, "alpha_real", ReadMap(map, "alpha_re", "1")) == "null");
+        nullBeta = (ReadMap(map, "nullBeta", ReadMap(map, "null_beta", "0")) == "1") ||
+            (ReadMap(map, "beta_real", ReadMap(map, "beta_re", "0")) == "null");
     }
 };
 
-#endif // CSYRK_PARAM_H

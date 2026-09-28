@@ -2,7 +2,7 @@
 
 ## 算子概述
 
-Syrk（Single-precision Symmetric Rank-K Update）算子实现了单精度浮点对称矩阵的秩-k更新操作，将 alpha * op(A) * op(A)^T 加到对称矩阵 C 的指定三角区域。
+Syrk（Symmetric Rank-K Update）算子实现了对称矩阵的秩-k更新操作，将 alpha * op(A) * op(A)^T 加到对称矩阵 C 的指定三角区域。
 
 数学表达式：
 
@@ -245,9 +245,12 @@ int main()
 
 #### 产品支持情况
 
-- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
-- Ascend 950PR / Ascend 950DT：不支持
+- Ascend 950PR / Ascend 950DT：支持（arch35 实现）
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持（arch22 实现）
 - Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
+
+> 两套架构实现并存：`arch22/` 面向 Atlas A2，`arch35/` 面向 Ascend 950PR。
+> 两者接口签名一致，但 `trans` 取值域不同，见下方「约束说明」。
 
 #### 函数原型
 
@@ -260,38 +263,37 @@ aclblasStatus_t aclblasCsyrk(aclblasHandle_t handle, aclblasFillMode_t uplo, acl
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
-| uplo | 输入 | aclblasFillMode_t | C 矩阵存储模式：ACLBLAS_UPPER(121) 仅更新上三角或 ACLBLAS_LOWER(122) 仅更新下三角，Host 内存 |
-| trans | 输入 | aclblasOperation_t | A 矩阵转置模式：ACLBLAS_OP_N(111) 不转置或 ACLBLAS_OP_T(112) **普通转置**（非共轭），Host 内存 |
+| uplo | 输入 | aclblasFillMode_t | C 矩阵存储模式：ACLBLAS_UPPER(121) 保留上三角或 ACLBLAS_LOWER(122) 保留下三角，Host 内存 |
+| trans | 输入 | aclblasOperation_t | A 矩阵转置模式：ACLBLAS_OP_N(111) 不转置、ACLBLAS_OP_T(112) 普通转置；`ACLBLAS_OP_C`(113) 仅 arch35 接受（本算子为对称（非厄米特）运算，OP_C 不共轭、按 OP_T 等价处理），Host 内存 |
 | n | 输入 | int | C 矩阵的阶数，n >= 0，Host 内存 |
-| k | 输入 | int | A 矩阵的第二维度（trans='N' 时），k >= 0，Host 内存 |
-| alpha | 输入 | const aclblasComplex*（复数 FP32） | 复数标量乘数，不可为 nullptr，Device 内存 |
-| A | 输入 | const aclblasComplex*（复数 FP32） | 输入复矩阵，trans='N' 时维度为 N×K，trans='T' 时维度为 K×N，Device 内存 |
-| lda | 输入 | int | A 矩阵的主维，trans='N' 时 lda >= max(1, n)，trans='T' 时 lda >= max(1, k)，Host 内存 |
-| beta | 输入 | const aclblasComplex*（复数 FP32） | 复数标量乘数，不可为 nullptr，Device 内存 |
-| C | 输入/输出 | aclblasComplex*（复数 FP32） | N×N **对称**复矩阵，输入旧值，输出新值，仅 uplo 指定三角区域被更新，Device 内存 |
+| k | 输入 | int | A 矩阵的第二维度（trans='N' 时为 A 的列数，trans='T'/'C' 时为 A 的行数），k >= 0，Host 内存 |
+| alpha | 输入 | const aclblasComplex*（complex64） | 复数标量乘数，不可为 nullptr，Device 内存 |
+| A | 输入 | const aclblasComplex*（complex64） | 输入矩阵，trans='N' 时维度为 N×K，trans='T'/'C' 时维度为 K×N，Device 内存 |
+| lda | 输入 | int | A 矩阵的主维，trans='N' 时 lda >= max(1, n)，trans='T'/'C' 时 lda >= max(1, k)，Host 内存 |
+| beta | 输入 | const aclblasComplex*（complex64） | 复数标量乘数，不可为 nullptr，Device 内存 |
+| C | 输入/输出 | aclblasComplex*（complex64） | N×N 对称（非厄米特）复数矩阵，输入旧值、输出新值，仅 uplo 引用三角被更新，另一三角不访问、由对称性隐含，Device 内存 |
 | ldc | 输入 | int | C 矩阵的主维，ldc >= max(1, n)，Host 内存 |
 
 #### 约束说明
 
 - n >= 0, k >= 0
 - uplo 为 ACLBLAS_UPPER 或 ACLBLAS_LOWER
-- trans 为 ACLBLAS_OP_N 或 ACLBLAS_OP_T（**不接受 ACLBLAS_OP_C**：csyrk 用的是普通转置，共轭转置会改变语义）
+- trans 为 ACLBLAS_OP_N、ACLBLAS_OP_T；`ACLBLAS_OP_C` 在 arch35 上等价于 OP_T（不共轭）并被接受，在 arch22 上返回 `ACLBLAS_STATUS_INVALID_ENUM`
 - trans='N' 时：lda >= max(1, n)
-- trans='T' 时：lda >= max(1, k)
+- trans='T'/'C' 时：lda >= max(1, k)
 - ldc >= max(1, n)
 - alpha、beta 不可为 nullptr
 - A 不可为 nullptr（当 n > 0 且 k > 0 时）
 - C 不可为 nullptr（当 n > 0 时）
+- n = 0 时为合法 no-op；alpha=(0,0) 或 k=0 且 beta≠(1,0) 时仅对引用三角执行 C = beta*C
 - alpha、beta 均为复数，合并阶段按复数乘法缩放
 - 输出 C 为**对称**（非 Hermitian）：C[i][j] = C[j][i]，**对角线元素虚部不为零**且携带有效信息——这是与 cherk 最容易混淆的一点
-- 当 alpha 为 0（或 k 为 0）且 beta 为 1 时按 BLAS 语义直接返回，C 保持原值不变
 - A、C 为列主序 complex64（`aclblasComplex`，即 fp32 实部 + fp32 虚部）存储的 Device 内存
-- 本算子内部会申请库工作区暂存拆分后的实数矩阵与 GEMM 中间结果，容量约为 `32·n²` 字节；当超出 `ACLBLAS_MAX_WORKSPACE_SIZE`（2 GiB，对应 n 约 8192）时返回 `ACLBLAS_STATUS_ALLOC_FAILED` 并在日志中给出所需字节数
-- trans='T' 走 block-concat 实现路径；官方测试网格未提供 trans='T' 搭配 RANDOM_EXTREME（极端数值）填充的用例组合，该路径下的极端数值稳定性未经官方用例验证
+- 本算子内部会申请库工作区暂存拆分后的实数矩阵与 GEMM 中间结果；当超出 `ACLBLAS_MAX_WORKSPACE_SIZE`（2 GiB）时返回 `ACLBLAS_STATUS_ALLOC_FAILED` 并在日志中给出所需字节数
 
 #### 调用示例
 
-示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](../../docs/zh/develop/compile_and_run_example.md)。
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](https://gitcode.com/cann/ops-blas/blob/master/docs/zh/develop/compile_and_run_example.md)。
 
 ```cpp
 #include <cstdio>
