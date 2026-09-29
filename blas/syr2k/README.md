@@ -10,7 +10,8 @@ syr2k 算子实现了对称秩2k更新运算，核心运算为 C = alpha * (op(A
 C = alpha * (op(A) * op(B)^T + op(B) * op(A)^T) + beta * C
 
 其中 op(X) = X     当 trans = ACLBLAS_OP_N
-     op(X) = X^T   当 trans = ACLBLAS_OP_T
+      op(X) = X^T   当 trans = ACLBLAS_OP_T
+      op(X) = X^T   当 trans = ACLBLAS_OP_C（Csyr2k 不执行共轭）
 C 为 n×n 对称矩阵，A 和 B 为 n×k 或 k×n 矩阵
 ```
 
@@ -19,6 +20,7 @@ C 为 n×n 对称矩阵，A 和 B 为 n×k 或 k×n 矩阵
 | 接口名 | 功能简述 |
 |--------|---------|
 | aclblasSsyr2k | 单精度浮点对称秩2k更新 |
+| aclblasCsyr2k | 单精度复数对称秩2k更新 |
 
 ## 算子执行接口
 
@@ -267,3 +269,51 @@ int main()
     return 0;
 }
 ```
+
+### aclblasCsyr2k
+
+#### 产品支持情况
+
+- Ascend 950PR：支持
+- Ascend 950DT：未验证
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
+
+> Ascend 950PR 实现位于 `blas/syr2k/arch35/`，依赖 CANN asc-devkit 9.1 或更高版本。
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasCsyr2k(
+    aclblasHandle_t handle,
+    aclblasFillMode_t uplo,
+    aclblasOperation_t trans,
+    int n,
+    int k,
+    const aclblasComplex* alpha,
+    const aclblasComplex* A,
+    int lda,
+    const aclblasComplex* B,
+    int ldb,
+    const aclblasComplex* beta,
+    aclblasComplex* C,
+    int ldc);
+```
+
+#### 约束说明
+
+- `uplo` 为 `ACLBLAS_UPPER` 或 `ACLBLAS_LOWER`，仅指定三角被引用和更新。
+- `trans` 支持 `ACLBLAS_OP_N`、`ACLBLAS_OP_T` 和 `ACLBLAS_OP_C`；OP_C 按无共轭 OP_T 处理。
+- trans=N 时 `lda, ldb >= max(1,n)`；trans=T/C 时 `lda, ldb >= max(1,k)`；`ldc >= max(1,n)`。
+- `alpha`、`beta` 和 C 不可为空；k>0 时 A、B 不可为空。
+- C 是复数对称矩阵而非 Hermitian 矩阵；非对角元素不共轭，对角元素虚部不强制为零。
+- n=0 为合法 no-op；alpha=0 或 k=0 时仅按 beta 更新指定三角。
+
+#### 编译与测试
+
+```bash
+bash build.sh --ops=csyr2k --soc=ascend950
+bash build.sh --ops=csyr2k --soc=ascend950 --run --device=0
+```
+
+测试代码和官方 CSV 位于 `test/syr2k/csyr2k/`，详细步骤见该目录的 README。
