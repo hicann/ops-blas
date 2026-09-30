@@ -88,6 +88,15 @@ set_source_files_properties(
     PROPERTIES LANGUAGE ASC
 )
 
+# cgerc has task-level microsecond latency targets. Keep its arch35 device
+# implementation optimized even when the repository's test build uses Debug.
+if("arch35" IN_LIST SOC_ARCH_DIRS)
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/blas/gerc/arch35/cgerc_kernel.cpp
+        PROPERTIES COMPILE_OPTIONS "-O3;-DNDEBUG;-funroll-loops;-ffp-contract=off"
+    )
+endif()
+
 # Device kernels compile with the ASC frontend; all host code (api / internal / engine / *_host.cpp)
 # compiles as plain C++. The classification is produced by blasLt/CMakeLists.txt, so no per-file
 # language whitelist is maintained here.
