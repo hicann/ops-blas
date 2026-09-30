@@ -13,7 +13,7 @@ C_i = alpha * op(A_i) * op(B_i) + beta * C_i,   i = 0, 1, ..., batchCount-1
   A_i = A + i * strideA   （A 是 batch 0 的首地址，strideA 是相邻 batch 间的元素偏移量）
   B_i = B + i * strideB
   C_i = C + i * strideC
-  strideA/strideB/strideC = 0 时表示所有 batch 复用同一矩阵（广播）
+  strideA/strideB = 0 时表示输入矩阵跨 batch 广播；C 的各 batch 不得重叠
 
   op(X) = X       当 trans = ACLBLAS_OP_N
   op(X) = X^T     当 trans = ACLBLAS_OP_T
@@ -32,9 +32,11 @@ C_i = alpha * op(A_i) * op(B_i) + beta * C_i,   i = 0, 1, ..., batchCount-1
 
 #### 产品支持情况
 
-- Ascend 950PR / Ascend 950DT：支持
-- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
-- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
+| 产品 | 实现支持 | 验证状态 |
+|---|---|---|
+| Ascend 950PR / Ascend 950DT | 支持（arch35） | 沿用原实现 |
+| Atlas A3 训练/推理系列（含 Atlas 800I A3） | 支持（arch22） | Ascend910_9382：1312 项测试、200 项性能全部通过 |
+| Atlas A2 训练/推理系列（含 Atlas 800I A2） | 支持（arch22） | Ascend910B3：1312 项测试、200 项性能全部通过 |
 
 > Ascend 950PR/Ascend 950DT 上的 aclblasSgemmStridedBatched 依赖 CANN asc-devkit >= 9.1（`ASC_DEVKIT_MAJOR >= 9 && ASC_DEVKIT_MINOR >= 1`），低于该版本时编译与运行将跳过此算子。
 
@@ -70,14 +72,14 @@ aclblasStatus_t aclblasSgemmStridedBatched(aclblasHandle_t handle, aclblasOperat
 #### 约束说明
 
 - handle 不可为 nullptr，否则返回 `ACLBLAS_STATUS_HANDLE_IS_NULLPTR`
-- transA、transB 必须属于 {ACLBLAS_OP_N, ACLBLAS_OP_T, ACLBLAS_OP_C}
+- transA、transB 必须属于 {ACLBLAS_OP_N, ACLBLAS_OP_T, ACLBLAS_OP_C}，非法取值返回 `ACLBLAS_STATUS_INVALID_ENUM`
 - m >= 0、n >= 0、k >= 0、batchCount >= 0
 - alpha、beta 不可为 nullptr
 - transA=N 时 lda >= max(1, m)；transA=T/C 时 lda >= max(1, k)
 - transB=N 时 ldb >= max(1, k)；transB=T/C 时 ldb >= max(1, n)
 - ldc >= max(1, m)
 - k > 0 时（且 m>0、n>0、batchCount>0），A、B 不可为 nullptr
-- beta != 0 时（且 m>0、n>0、batchCount>0），C 不可为 nullptr
+- m>0、n>0、batchCount>0 时，arch22 实现要求 C 不可为 nullptr（beta=0 仅免去读取旧 C，输出仍会写入 C）；arch35 实现沿用上游校验，beta=0 时允许 C 为 nullptr
 - 所有矩阵按列主序（Column-Major）存储，lda/ldb/ldc 语义遵循 NETLIB/CBLAS BLAS 标准
 - strideA/strideB 取值无上界强制校验，允许为 0（表示对应矩阵在所有 batch 间广播复用）；调用方须保证各 batch 子矩阵在所声明的 shape/ld/stride 下不越界访问显存
 - strideC == 0 且 batchCount > 1 时各 batch 写入同一 C 区域，存在写覆盖/竞争，语义未定义，由调用方负责规避
@@ -265,3 +267,48 @@ int main()
     return 0;
 }
 ```
+
+
+## Atlas A2/A3（arch22）实现与自测
+
+实现位于 `arch22/`，使用 CANN 9.1.0 Ascend C kernel 直调，共用上述公开接口。
+所有 kernel 提交至 handle 绑定的 stream；Host 不读取矩阵内容，也不在正常调用中同步设备。
+
+- 乘加规模不超过 4096 且 batchCount 小于 32 的小矩阵、以及仅缩放场景使用 AIV；`beta=0` 不读取旧 C，`alpha=0`/`k=0` 不计算矩阵乘。
+- 一般矩阵使用 FP32 Cube Matmul，关闭 HF32；通过 `C^T = op(B)^T op(A)^T` 处理列主序。
+- NN、紧密排布、alpha=1/beta=0 的 8³ 批量矩阵使用 AIV Gather/FMA；16³/32³ 大批量使用静态 Batch Matmul，小批量使用独立 Cube 调度。
+- 8³ 在 batchCount 至少为 512 时采用 32 批分组，以减少重复 Gather 初始化；较小批量保持原分组。极大值回退保留完整 48 位乘积并执行单次 FP32 舍入，避免相消时超出 ULP 误差界。
+- Batch Matmul 的 AIV 分支并行检测极大输入，并在对应 Cube 完成后执行缩放回退，保持 Netlib 的溢出语义。
+- 输出按 128×128 分块，并将 batch 纳入任务编号；K 超过 4096 时分段累加。
+- `alpha=1,beta=0` 直接写入 C；其余场景按 workspace 容量分组处理 batch，再由 AIV 合并 alpha/beta。单个矩阵放不下时按列切条。
+- workspace 至少容纳一列按 8 元素对齐的 FP32 临时输出。不满足时返回 `ACLBLAS_STATUS_ALLOC_FAILED`；调用方可使用 `aclblasSetWorkspace` 提供空间。
+- 正尺寸输出必须提供可写的 Device C 指针。矩阵 padding 和 batch 间隙保持不变；负 stride 返回非法参数。
+
+在安装了 Netlib BLAS、LAPACK、GTest 的 Ascend Linux 环境，从仓库根目录执行：
+
+```bash
+source /usr/local/Ascend/cann-9.1.0/set_env.sh
+bash build.sh --soc=ascend910b3 --ops=gemm_strided_batched
+# 默认冒烟：前 50 条 CSV 用例及 3 项独立接口检查
+build/test/gemm_strided_batched/gemm_strided_batched_test
+# 完整验收：显式启用全量 CSV 及补充回归，再按精度/性能筛选
+GSB_FULL_TEST=1 build/test/gemm_strided_batched/gemm_strided_batched_test --gtest_filter='*-*TC_PF*'
+GSB_FULL_TEST=1 build/test/gemm_strided_batched/gemm_strided_batched_test --gtest_filter='*TC_PF*'
+```
+
+A3 使用与实际设备匹配的 `--soc=ascend910_9382` 等参数重新编译并复验。测试支持通过
+`ASCEND_DEVICE_ID` 环境变量覆盖设备编号。
+
+`test/gemm_strided_batched/arch22/` 保留全量 `gemm_strided_batched_test.csv`（1000 精度、200 性能）及额外回归 CSV。
+默认仅加载 `gemm_strided_batched_smoke.csv`，其内容为全量 CSV 的表头及前 50 条用例，供流水线冒烟使用；更新全量 CSV 后须同步这 50 条记录。
+设置 `GSB_FULL_TEST=1` 时加载全量任务 CSV 和 `gemm_strided_batched_regression.csv`。两种模式均保留独立接口检查；冒烟通过不能替代全量精度和性能验收。
+额外回归覆盖跨 K 分段、NaN/Inf 短路、非对齐 padding/广播，小矩阵批尾、极大值、NaN/Inf，以及均匀、正态分布各 32 例。
+正态回归用例由固定种子的 `std::normal_distribution` 生成 A/B/C，均值位于 [-5,5]，标准差位于 [0.1,2]。
+全量模式共 1313 项测试，包含 110 项额外回归与 3 项独立接口检查（空 handle、负 stride、golden 非法转置枚举）。其中 7 项额外回归覆盖 32 批分组边界、尾批、循环及特殊值。
+大型转置 B 会先在 CPU 参考阶段整理为连续布局，再调用同一 Netlib SGEMM；已与原调用进行 90 项逐位一致性检查。
+每例输出 matched_ratio 和 max_abs_error，并逐元素检查输出区之外的数据未被修改。
+
+性能用例先预热 20 次，再用 stream event 包围 200 次调用，输出 `[PERF] ... avg_ms=... samples=200 warmup=20`。
+该计时包含整次接口提交的 kernel 序列及提交间隙，不包含 Host 数据准备、拷贝和 CPU golden。
+性能重放要求用例为 `alpha=1,beta=0`；必须同时检查 GTest 成功状态。
+A3 测量不能替代任务书要求的 A2/910B3 性能验收。

@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <vector>
 
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
@@ -29,9 +30,9 @@ inline aclblasStatus_t ValidateGemmSbBasicParams(
     if (handle == nullptr)
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
     if (transA != ACLBLAS_OP_N && transA != ACLBLAS_OP_T && transA != ACLBLAS_OP_C)
-        return ACLBLAS_STATUS_INVALID_VALUE;
+        return ACLBLAS_STATUS_INVALID_ENUM;
     if (transB != ACLBLAS_OP_N && transB != ACLBLAS_OP_T && transB != ACLBLAS_OP_C)
-        return ACLBLAS_STATUS_INVALID_VALUE;
+        return ACLBLAS_STATUS_INVALID_ENUM;
     if (m < 0 || n < 0 || k < 0 || batchCount < 0)
         return ACLBLAS_STATUS_INVALID_VALUE;
     if (alpha == nullptr || beta == nullptr)
@@ -40,8 +41,8 @@ inline aclblasStatus_t ValidateGemmSbBasicParams(
 }
 
 inline aclblasStatus_t ValidateGemmSbDimAndPtrParams(
-    aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k,
-    const float* A, int lda, const float* B, int ldb, const float* beta, float* C, int ldc)
+    aclblasOperation_t transA, aclblasOperation_t transB, int m, int n, int k, const float* A, int lda, const float* B,
+    int ldb, const float* beta, float* C, int ldc)
 {
     const int physRowsA = (transA == ACLBLAS_OP_N) ? m : k;
     const int physRowsB = (transB == ACLBLAS_OP_N) ? k : n;
@@ -91,6 +92,15 @@ inline void ScaleCGolden(float* c, int m, int n, int ldc, float beta)
     }
 }
 
+// Copies transposed B into contiguous K columns before the Netlib call.
+// This changes only memory access: the same values and K-order reach SGEMM.
+inline void PackTransposedB(const float* Bi, int k, int n, int ldb, float* packedB)
+{
+    for (int j = 0; j < n; ++j)
+        for (int l = 0; l < k; ++l)
+            packedB[static_cast<size_t>(j) * k + l] = Bi[static_cast<size_t>(l) * ldb + j];
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CPU golden: C_i = alpha * op(A_i) * op(B_i) + beta * C_i, for i in [0, batchCount).
 //   A_i = A + i*strideA, B_i = B + i*strideB, C_i = C + i*strideC (element offsets).
@@ -114,6 +124,11 @@ inline aclblasStatus_t aclblasSgemmStridedBatched_cpu(
     const float alphaVal = *alpha;
     const float betaVal = *beta;
 
+    // Copy transposed B into contiguous K columns before the Netlib call.
+    // This changes only memory access: the same values and K-order reach SGEMM.
+    const bool packB = transB != ACLBLAS_OP_N && m >= 128 && n >= 128 && k >= 128 && alphaVal != 0.0f;
+    std::vector<float> packedB(packB ? static_cast<size_t>(k) * n : 0);
+
     for (int i = 0; i < batchCount; i++) {
         const float* Ai = (A != nullptr) ? A + i * strideA : nullptr;
         const float* Bi = (B != nullptr) ? B + i * strideB : nullptr;
@@ -126,8 +141,14 @@ inline aclblasStatus_t aclblasSgemmStridedBatched_cpu(
             ScaleCGolden(Ci, m, n, ldc, betaVal);
             continue;
         }
+        if (packB) {
+            if (i == 0 || strideB != 0)
+                PackTransposedB(Bi, k, n, ldb, packedB.data());
+            Bi = packedB.data();
+        }
         cblas_sgemm(
-            CblasColMajor, ToCblasOp(transA), ToCblasOp(transB), m, n, k, alphaVal, Ai, lda, Bi, ldb, betaVal, Ci, ldc);
+            CblasColMajor, ToCblasOp(transA), packB ? CblasNoTrans : ToCblasOp(transB), m, n, k, alphaVal, Ai, lda, Bi,
+            packB ? k : ldb, betaVal, Ci, ldc);
     }
     return ACLBLAS_STATUS_SUCCESS;
 }
