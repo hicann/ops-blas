@@ -27,6 +27,7 @@
 #include "common/helper/kernel_constant.h"
 #define KERNEL_UTILS_LITE
 #include "common/helper/kernel_utils.h"
+#include "gemm_batched_kernel.h"
 #include "gemm_batched_tiling_data.h"
 
 using namespace AscendC::Te;
@@ -283,6 +284,45 @@ __aicore__ inline void GbProcessOneTask(
 }
 
 template <class LayoutA, class LayoutB, uint32_t DtypeId>
+__aicore__ inline void GbProcessOneStridedTask(
+    __gm__ uint8_t* aBase, __gm__ uint8_t* bBase, __gm__ uint8_t* cBase, uint64_t strideA, uint64_t strideB,
+    uint64_t strideC, uint32_t taskId, const GemmBatchedGemmTilingData& tiling, uint32_t baseK, uint32_t kL1Iter)
+{
+    using DType = typename GbDtypeTraits<DtypeId>::type;
+    const uint32_t M = tiling.m;
+    const uint32_t N = tiling.n;
+    const uint32_t K = tiling.k;
+    const uint32_t mBlocks = tiling.mBlocks;
+    const uint32_t nBlocks = tiling.nBlocks;
+    const uint32_t singleCoreM = tiling.singleCoreM;
+    const uint32_t singleCoreN = tiling.singleCoreN;
+
+    uint32_t batchIdx = taskId / (mBlocks * nBlocks);
+    uint32_t mnTask = taskId % (mBlocks * nBlocks);
+    uint32_t mBlockIdx = mnTask / nBlocks;
+    uint32_t nBlockIdx = mnTask % nBlocks;
+    if (mBlockIdx % 2 == 1) {
+        nBlockIdx = nBlocks - 1 - nBlockIdx;
+    }
+
+    __gm__ DType* aGm = reinterpret_cast<__gm__ DType*>(aBase) + static_cast<uint64_t>(batchIdx) * strideA;
+    __gm__ DType* bGm = reinterpret_cast<__gm__ DType*>(bBase) + static_cast<uint64_t>(batchIdx) * strideB;
+    __gm__ float* cGm = reinterpret_cast<__gm__ float*>(cBase) + static_cast<uint64_t>(batchIdx) * strideC;
+
+    auto gmATensor = MakeTensor(MakeMemPtr<Location::GM>(aGm), MakeGmLayout<DType>(LayoutA{}, M, K, tiling.lda));
+    auto gmBTensor = MakeTensor(MakeMemPtr<Location::GM>(bGm), MakeGmLayout<DType>(LayoutB{}, K, N, tiling.ldb));
+    auto gmCTensor = MakeTensor(MakeMemPtr<Location::GM>(cGm), MakeGmLayout<DType>(NDExtLayoutPtn{}, M, N, tiling.ldc));
+
+    uint32_t mStart = mBlockIdx * singleCoreM;
+    uint32_t nStart = nBlockIdx * singleCoreN;
+    uint32_t mEnd = Min<uint32_t>(mStart + singleCoreM, M);
+    uint32_t nEnd = Min<uint32_t>(nStart + singleCoreN, N);
+    GbProcessMNTiles<DtypeId>(
+        gmATensor, gmBTensor, gmCTensor, mStart, mEnd, nStart, nEnd, tiling.tileM, tiling.tileN, K, tiling.tileKChunk,
+        baseK, kL1Iter);
+}
+
+template <class LayoutA, class LayoutB, uint32_t DtypeId>
 __aicore__ inline void gemm_batched_gemm_kernel_impl(
     __gm__ uint8_t* aarray, __gm__ uint8_t* barray, __gm__ uint8_t* carray,
     GemmBatchedGemmTilingData tiling)
@@ -326,6 +366,45 @@ __aicore__ inline void gemm_batched_gemm_kernel_impl(
     AscendC::SetMMColumnMajor();
 }
 
+template <class LayoutA, class LayoutB, uint32_t DtypeId>
+__aicore__ inline void gemm_batched_strided_gemm_kernel_impl(
+    __gm__ uint8_t* a, __gm__ uint8_t* b, __gm__ uint8_t* c, __gm__ uint8_t* infoArray, uint64_t strideA,
+    uint64_t strideB, uint64_t strideC, GemmBatchedGemmTilingData tiling)
+{
+    AscendC::InitSocState();
+    using DType = typename GbDtypeTraits<DtypeId>::type;
+    const uint32_t baseK = (sizeof(DType) == sizeof(float)) ? GEMM_BATCHED_FP32_L0_BASE_K : GEMM_BATCHED_FP16_L0_BASE_K;
+    const uint32_t kL1Iter = (tiling.k + tiling.tileKChunk - 1) / tiling.tileKChunk;
+
+    if constexpr (DtypeId == 0) {
+        AscendC::SetHF32Mode(AscendC::HF32Mode::DISABLE);
+    }
+    AscendC::SetMMRowMajor();
+    AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(0);
+    AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(1);
+    AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(0);
+    AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(1);
+    AscendC::SetFlag<AscendC::HardEvent::FIX_M>(PIPE_FLAG);
+    AscendC::GlobalTensor<int> statuses;
+    statuses.SetGlobalBuffer(reinterpret_cast<__gm__ int*>(infoArray));
+
+    for (uint32_t taskId = AscendC::GetBlockIdx(); taskId < tiling.totalTasks; taskId += AscendC::GetBlockNum()) {
+        uint32_t batchIdx = taskId / (tiling.mBlocks * tiling.nBlocks);
+        if (statuses.GetValue(batchIdx) != 0) {
+            continue;
+        }
+        GbProcessOneStridedTask<LayoutA, LayoutB, DtypeId>(
+            a, b, c, strideA, strideB, strideC, taskId, tiling, baseK, kL1Iter);
+    }
+
+    AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(0);
+    AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(1);
+    AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(0);
+    AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(1);
+    AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(PIPE_FLAG);
+    AscendC::SetMMColumnMajor();
+}
+
 // ── extern "C" kernel entry points for cube GEMM ──
 #define GEMM_BATCHED_GEMM_KERNEL_ENTRY(FUNC_NAME, LAYOUT_A, LAYOUT_B, DTYPE_ID) \
 extern "C" __global__ __aicore__ __cube__ void FUNC_NAME( \
@@ -348,6 +427,15 @@ GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_bf16_nn, NDExtLayoutPtn,
 GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_bf16_nt, NDExtLayoutPtn, DNExtLayoutPtn, 2)
 GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_bf16_tn, DNExtLayoutPtn, NDExtLayoutPtn, 2)
 GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_bf16_tt, DNExtLayoutPtn, DNExtLayoutPtn, 2)
+
+extern "C" __global__ __aicore__ __cube__ void cgetri_strided_gemm_kernel_fp32_nn(
+    __gm__ uint8_t* a, __gm__ uint8_t* b, __gm__ uint8_t* c, __gm__ uint8_t* infoArray, uint64_t strideA,
+    uint64_t strideB, uint64_t strideC, GemmBatchedGemmTilingData tiling)
+{
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
+    gemm_batched_strided_gemm_kernel_impl<NDExtLayoutPtn, NDExtLayoutPtn, 0>(
+        a, b, c, infoArray, strideA, strideB, strideC, tiling);
+}
 
 // ── Kernel 1 launcher ──
 #define DEFINE_GEMM_DTYPE_LAUNCHER(LAUNCHER_NAME, KERNEL_PREFIX) \
@@ -379,6 +467,14 @@ void gemm_batched_gemm_kernel_do(uint32_t numBlocks, void* stream,
         case GEMM_BATCHED_DTYPE_BF16: LaunchGemmBf16(numBlocks, stream, a, b, carray, tilingData); break;
         default: break;
     }
+}
+
+void cgetri_strided_gemm_kernel_do(
+    uint32_t numBlocks, void* stream, const uint8_t* a, const uint8_t* b, uint8_t* c, uint8_t* infoArray,
+    uint64_t strideA, uint64_t strideB, uint64_t strideC, const GemmBatchedGemmTilingData& tilingData)
+{
+    cgetri_strided_gemm_kernel_fp32_nn<<<numBlocks, nullptr, stream>>>(
+        const_cast<uint8_t*>(a), const_cast<uint8_t*>(b), c, infoArray, strideA, strideB, strideC, tilingData);
 }
 
 // ============================================================================
