@@ -558,6 +558,12 @@ aclblasStatus_t aclblasCherk(
     const aclblasComplex* A, int lda,
     const float* beta, aclblasComplex* C, int ldc);
 
+aclblasStatus_t aclblasCher2k(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
+    int n, int k, const aclblasComplex* alpha,
+    const aclblasComplex* A, int lda, const aclblasComplex* B, int ldb,
+    const float* beta, aclblasComplex* C, int ldc);
+
 aclblasStatus_t aclblasCsyrk(
     aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans,
     int n, int k, const aclblasComplex* alpha,
