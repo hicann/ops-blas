@@ -220,38 +220,44 @@ int main()
 
 #### 产品支持情况
 
-- Ascend 950PR / Ascend 950DT：不支持
+- Ascend 950PR / Ascend 950DT：支持
 - Atlas A3 训练系列产品 / Atlas A3 推理系列产品：支持
 - Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
 
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCgemv(aclblasHandle_t handle, aclblasOperation trans, const int64_t m, const int64_t n, const aclblasComplex alpha, aclblasComplex* A, const int64_t lda, aclblasComplex* x, const int64_t incx, const aclblasComplex beta, aclblasComplex* y, const int64_t incy)
+aclblasStatus_t aclblasCgemv(aclblasHandle_t handle, aclblasOperation_t trans, int m, int n, const aclblasComplex *alpha, const aclblasComplex *A, int lda, const aclblasComplex *x, int incx, const aclblasComplex *beta, aclblasComplex *y, int incy)
 ```
+
+`m`、`n`、`lda`、`incx`、`incy` 沿用现有公共接口的 `int` 类型，与 [cann_ops_blas.h](../../include/cann_ops_blas.h) 中的声明一致。调用时，这些参数的值须在 `int` 的取值范围内。
 
 #### 参数说明
 
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，Host 内存 |
-| trans | 输入 | aclblasOperation | 矩阵操作类型：N=不转置，T=转置，C=共轭转置，Host 内存 |
-| m | 输入 | int64_t | 矩阵 A 的行数，Host 内存 |
-| n | 输入 | int64_t | 矩阵 A 的列数，Host 内存 |
-| alpha | 输入 | const aclblasComplex | 复数标量 alpha，Host 内存 |
-| A | 输入 | aclblasComplex* | m x n 复数矩阵，Device 内存 |
-| lda | 输入 | int64_t | 矩阵 A 的主维长度，Host 内存 |
-| x | 输入 | aclblasComplex* | 向量 x（长度取决于 trans），Device 内存 |
-| incx | 输入 | int64_t | x 中连续元素之间的步长，Host 内存 |
-| beta | 输入 | const aclblasComplex | 复数标量 beta，Host 内存 |
-| y | 输入/输出 | aclblasComplex* | 向量 y（长度取决于 trans），Device 内存 |
-| incy | 输入 | int64_t | y 中连续元素之间的步长，Host 内存 |
+| trans | 输入 | aclblasOperation_t | 矩阵操作类型：ACLBLAS_OP_N（不转置）、ACLBLAS_OP_T（转置）、ACLBLAS_OP_C（共轭转置，先转置再逐元素取共轭），Host 内存 |
+| m | 输入 | int | 矩阵 A 的行数，m >= 0，Host 内存 |
+| n | 输入 | int | 矩阵 A 的列数，n >= 0，Host 内存 |
+| alpha | 输入 | const aclblasComplex*（COMPLEX64） | 复数标量 alpha，不可为 nullptr，Host 内存 |
+| A | 输入 | const aclblasComplex*（COMPLEX64） | 列主序复数矩阵，数组维度 lda x n，前 m x n 部分为有效系数矩阵，Device 内存 |
+| lda | 输入 | int | 矩阵 A 的主维，lda >= max(1, m)，Host 内存 |
+| x | 输入 | const aclblasComplex*（COMPLEX64） | 输入向量，trans=N 时逻辑长度 n，trans=T/C 时逻辑长度 m，Device 内存 |
+| incx | 输入 | int | 向量 x 的元素步长，incx != 0，Host 内存 |
+| beta | 输入 | const aclblasComplex*（COMPLEX64） | 复数标量 beta，不可为 nullptr。若 beta == (0,0)，则 y 的输入值不被使用，Host 内存 |
+| y | 输入/输出 | aclblasComplex*（COMPLEX64） | 输入/输出向量，原地覆写，trans=N 时逻辑长度 m，trans=T/C 时逻辑长度 n，Device 内存 |
+| incy | 输入 | int | 向量 y 的元素步长，incy != 0，Host 内存 |
 
 #### 约束说明
 
 - m >= 0, n >= 0
 - lda >= max(1, m)
 - incx != 0, incy != 0
+- alpha、beta 不可为 nullptr
+- Ascend 950PR 支持正负步长，负步长按 Netlib 语义反向遍历
+- Ascend 950PR 上，trans 取值不在 {ACLBLAS_OP_N, ACLBLAS_OP_T, ACLBLAS_OP_C} 时返回 ACLBLAS_STATUS_INVALID_ENUM
+- Ascend 950PR 上，m == 0 或 n == 0 为合法 quick return；alpha == (0,0) 且 beta == (1,0) 时不写 y；alpha == (0,0) 且 beta != (1,0) 时只计算 y = beta * y，不读 A、x；beta == (0,0) 时不读取 y 的输入值
 
 #### 调用示例
 
@@ -335,11 +341,11 @@ struct AclblasHandleDeleter {
 
 int aclblasCgemvTest(AclContext& ctx)
 {
-    constexpr int64_t m = 2;
-    constexpr int64_t n = 2;
-    constexpr int64_t lda = 2;
-    constexpr int64_t incx = 1;
-    constexpr int64_t incy = 1;
+    constexpr int m = 2;
+    constexpr int n = 2;
+    constexpr int lda = 2;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
     constexpr size_t aSize = static_cast<size_t>(lda) * n * sizeof(aclblasComplex);
     constexpr size_t xSize = static_cast<size_t>(n) * sizeof(aclblasComplex);
     constexpr size_t ySize = static_cast<size_t>(m) * sizeof(aclblasComplex);
@@ -380,9 +386,9 @@ int aclblasCgemvTest(AclContext& ctx)
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
 
     blasRet = aclblasCgemv(
-        static_cast<aclblasHandle_t>(handle.get()), ACLBLAS_OP_N, m, n, alpha,
-        static_cast<aclblasComplex*>(dA.get()), lda,
-        static_cast<aclblasComplex*>(dX.get()), incx, beta,
+        static_cast<aclblasHandle_t>(handle.get()), ACLBLAS_OP_N, m, n, &alpha,
+        static_cast<const aclblasComplex*>(dA.get()), lda,
+        static_cast<const aclblasComplex*>(dX.get()), incx, &beta,
         static_cast<aclblasComplex*>(dY.get()), incy);
     CHECK_RET(blasRet == ACLBLAS_STATUS_SUCCESS, return blasRet);
 
