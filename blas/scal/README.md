@@ -16,6 +16,7 @@ x[i] = alpha * x[i]  (i = 0 .. n-1，步长为 incx)
 |--------|---------|
 | aclblasSscal | 实数向量乘以标量 |
 | aclblasCscal | 复数向量乘以复数标量 |
+| aclblasCsscal | 复数向量乘以实数标量 |
 
 ## 算子执行接口
 
@@ -225,3 +226,39 @@ aclblasStatus_t aclblasCscal(aclblasHandle_t handle, const int64_t n, const aclb
 
 - n >= 0
 - incx != 0
+
+### aclblasCsscal
+
+#### 产品支持情况
+
+- Ascend 950PR / Ascend 950DT：支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：待支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：待支持
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasCsscal(
+    aclblasHandle_t handle,
+    int n,
+    const float* alpha,
+    aclblasComplex* x,
+    int incx)
+```
+
+#### 参数说明
+
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
+| n | 输入 | int | 向量 x 的复数元素个数，Host 内存；n ≤ 0 时为 no-op |
+| alpha | 输入 | const float*（FP32） | 指向实数标量乘数的指针，Host 内存 |
+| x | 输入/输出 | aclblasComplex*（FP32 complex） | 复数向量，Device 内存，原地更新 |
+| incx | 输入 | int | x 中连续复数元素之间的步长，Host 内存；incx ≤ 0 时为 no-op |
+
+#### 约束说明
+
+- n ≤ 0 或 incx ≤ 0 时为 no-op（返回 ACLBLAS_STATUS_SUCCESS，不修改 x）
+- alpha=0.0 时为置零操作（非 no-op）
+- alpha=1.0 时允许提前返回
+- n > 0 时 alpha、x 不得为 nullptr
