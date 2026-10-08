@@ -10,3 +10,11 @@
 
 # GTest CSV-driven precision ST target (always built when the operator is enabled).
 ops_blas_add_gtest_tests(${OPS_BLAS} csymm_test)
+
+if(SOC_ARCH_DIRS MATCHES "arch35")
+    target_compile_definitions(csymm_test PRIVATE CSYMM_ARCH35=1)
+elseif(SOC_ARCH_DIRS MATCHES "arch22")
+    target_compile_definitions(csymm_test PRIVATE CSYMM_ARCH22=1)
+else()
+    message(FATAL_ERROR "Unsupported SOC_ARCH_DIRS='${SOC_ARCH_DIRS}' for csymm_test (expected arch35 or arch22)")
+endif()

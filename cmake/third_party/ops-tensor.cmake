@@ -40,7 +40,7 @@ if(EXISTS "${CANN_3RD_LIB_PATH}/ops-tensor")
     execute_process(
       COMMAND git submodule update --init --recursive
       WORKING_DIRECTORY ${OPTENSOR_SOURCE_PATH}
-      TIMEOUT 20
+      TIMEOUT 300
       RESULT_VARIABLE SUBMODULE_RESULT
       ERROR_VARIABLE SUBMODULE_ERROR
       OUTPUT_QUIET
@@ -68,7 +68,7 @@ else()
   execute_process(
     COMMAND git submodule update --init --recursive
     WORKING_DIRECTORY ${OPTENSOR_SOURCE_PATH}
-    TIMEOUT 20
+    TIMEOUT 300
     RESULT_VARIABLE SUBMODULE_RESULT
     ERROR_VARIABLE SUBMODULE_ERROR
     OUTPUT_QUIET
@@ -77,6 +77,41 @@ else()
     message(WARNING "ops-tensor submodule update failed: ${SUBMODULE_ERROR}")
   else()
     message(STATUS "ops-tensor submodule update")
+  endif()
+endif()
+
+# Fail fast if the tensor_api submodule is not at the commit recorded by the pinned ops-tensor tag:
+# a partial/failed submodule update (the WARNING paths above) would otherwise let CI silently compile
+# against stale or missing tensor_api headers.
+execute_process(
+  COMMAND git ls-tree HEAD include/tensor_api
+  WORKING_DIRECTORY ${OPTENSOR_SOURCE_PATH}
+  OUTPUT_VARIABLE _OPTENSOR_SUBMODULE_LS
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET)
+string(REPLACE "\t" " " _OPTENSOR_SUBMODULE_LS "${_OPTENSOR_SUBMODULE_LS}")
+separate_arguments(_OPTENSOR_SUBMODULE_PARTS UNIX_COMMAND "${_OPTENSOR_SUBMODULE_LS}")
+set(_OPTENSOR_SUBMODULE_MODE "")
+set(_OPTENSOR_SUBMODULE_EXPECTED "")
+list(LENGTH _OPTENSOR_SUBMODULE_PARTS _OPTENSOR_SUBMODULE_N)
+if(_OPTENSOR_SUBMODULE_N GREATER_EQUAL 3)
+  list(GET _OPTENSOR_SUBMODULE_PARTS 0 _OPTENSOR_SUBMODULE_MODE)
+  list(GET _OPTENSOR_SUBMODULE_PARTS 2 _OPTENSOR_SUBMODULE_EXPECTED)
+endif()
+if(_OPTENSOR_SUBMODULE_MODE STREQUAL "160000")
+  execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY ${OPTENSOR_SOURCE_PATH}/include/tensor_api
+    OUTPUT_VARIABLE _OPTENSOR_SUBMODULE_ACTUAL
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET)
+  if(NOT _OPTENSOR_SUBMODULE_ACTUAL STREQUAL _OPTENSOR_SUBMODULE_EXPECTED)
+    message(
+      FATAL_ERROR
+        "ops-tensor submodule 'include/tensor_api' is not at the commit required by tag ${OPTENSOR_TAG_ID}.\n"
+        "  expected: ${_OPTENSOR_SUBMODULE_EXPECTED}\n"
+        "  actual:   ${_OPTENSOR_SUBMODULE_ACTUAL}\n"
+        "Fix: git -C ${OPTENSOR_SOURCE_PATH} submodule update --init --recursive")
   endif()
 endif()
 

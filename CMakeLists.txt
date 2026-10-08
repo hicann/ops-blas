@@ -66,6 +66,7 @@ set(RUN_MODE "npu" CACHE STRING "run mode: npu")
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type Release/Debug" FORCE)
 endif()
+set(CMAKE_ASC_FLAGS_RELEASE "-O3" CACHE STRING "AscendC compile flags (Release)" FORCE)
 set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_LIST_DIR}/out" CACHE STRING "install path" FORCE)
 
 # 外部传参
@@ -160,10 +161,32 @@ target_compile_features(${OPS_BLASLT} PRIVATE cxx_std_17)
 
 set(ASC_WARN_SUPPRESS "-Wno-#pragma-messages" "-Wno-deprecated-declarations" "-Wno-c++20-extensions")
 
+# Older CANN toolchains (e.g. 9.1.0) are missing two things that ops-tensor's
+# tensor_api headers rely on: the arch-gated bf16/fp8/fp4 vector builtins seen by
+# the ASC front-end's arch-less pass, and the __asc_aicore debug-bus helpers.
+# Both probes are resolved by ops_blas_detect_asc_devkit_version(); when either
+# fires, force-include the compat header so every ASC translation unit sees the
+# shims before tensor_api/tensor.h.
+set(_ASC_TENSOR_API_COMPAT_DEFS "")
+if(ASC_TENSOR_API_DEBUG_BUS_SHIM)
+  list(APPEND _ASC_TENSOR_API_COMPAT_DEFS ASC_TENSOR_API_DEBUG_BUS_SHIM=1)
+endif()
+if(ASC_TENSOR_API_ARCH_TYPES_SHIM)
+  list(APPEND _ASC_TENSOR_API_COMPAT_DEFS ASC_TENSOR_API_ARCH_TYPES_SHIM=1)
+endif()
+if(_ASC_TENSOR_API_COMPAT_DEFS)
+  set(_ASC_TENSOR_API_COMPAT_OPTION
+      $<$<COMPILE_LANGUAGE:ASC>:SHELL:-include ${CMAKE_CURRENT_LIST_DIR}/blas/common/helper/tensor_api_asc_compat.h>)
+else()
+  set(_ASC_TENSOR_API_COMPAT_OPTION "")
+endif()
+
 target_compile_options(${OPS_BLASLT} PRIVATE
     $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS} -DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
     $<$<COMPILE_LANGUAGE:CXX>:-DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
+    ${_ASC_TENSOR_API_COMPAT_OPTION}
 )
+target_compile_definitions(${OPS_BLASLT} PRIVATE ${_ASC_TENSOR_API_COMPAT_DEFS})
 
 target_link_directories(${OPS_BLASLT} PRIVATE "${ASCEND_CANN_PACKAGE_PATH}/lib64")
 target_link_libraries(
@@ -218,7 +241,9 @@ target_compile_options(${OPS_BLAS} PRIVATE
     $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS} -DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
     $<$<COMPILE_LANGUAGE:ASC>:SHELL:-iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api -iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api/include -DIMPL_TENSOR_API_UTILS_INT_IMPL_H>
     $<$<COMPILE_LANGUAGE:CXX>:-DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
+    ${_ASC_TENSOR_API_COMPAT_OPTION}
 )
+target_compile_definitions(${OPS_BLAS} PRIVATE ${_ASC_TENSOR_API_COMPAT_DEFS})
 
 # ========= 安装规则（CPack 打包时放入 lib64 和 include） =========
 install(TARGETS ${OPS_BLASLT} ${OPS_BLAS}

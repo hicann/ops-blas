@@ -167,52 +167,73 @@ aclblasDestroy(handle);
 aclFinalize();
 ```
 
+---
+
 ### aclblasCsymm
 
 #### 产品支持情况
 
-- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
-- Ascend 950PR / Ascend 950DT：不支持
+- Ascend 950PR / Ascend 950DT：支持
 - Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
+
+> aclblasCsymm 提供 arch35（`blas/symm/arch35/`，面向 Ascend 950PR / Ascend 950DT）与 arch22（`blas/symm/arch22/`，面向 Atlas A2）两套实现。接口声明位于公共头文件 `include/cann_ops_blas.h`，供各产品线共用，未定义产品线私有平行接口。
 
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCsymm(aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo, int m, int n, const aclblasComplex* alpha, const aclblasComplex* A, int lda, const aclblasComplex* B, int ldb, const aclblasComplex* beta, aclblasComplex* C, int ldc)
+aclblasStatus_t aclblasCsymm(aclblasHandle_t handle, aclblasSideMode_t side, aclblasFillMode_t uplo, int m, int n, const aclblasComplex *alpha, const aclblasComplex *A, int lda, const aclblasComplex *B, int ldb, const aclblasComplex *beta, aclblasComplex *C, int ldc)
 ```
 
 #### 参数说明
 
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
-| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
-| side | 输入 | aclblasSideMode_t | A 位于乘法的哪一侧：ACLBLAS_SIDE_LEFT(141) 为 C = alpha\*A\*B + beta\*C，ACLBLAS_SIDE_RIGHT(142) 为 C = alpha\*B\*A + beta\*C，Host 内存 |
-| uplo | 输入 | aclblasFillMode_t | **A** 矩阵的存储三角：ACLBLAS_UPPER(121) 上三角或 ACLBLAS_LOWER(122) 下三角，Host 内存 |
-| m | 输入 | int | B、C 的行数，m >= 0，Host 内存 |
-| n | 输入 | int | B、C 的列数，n >= 0，Host 内存 |
-| alpha | 输入 | const aclblasComplex*（复数 FP32） | 复数标量乘数，不可为 nullptr，Device 内存 |
-| A | 输入 | const aclblasComplex*（复数 FP32） | 对称复矩阵，side=LEFT 时为 M×M、side=RIGHT 时为 N×N，仅 uplo 指定的三角被引用，Device 内存 |
-| lda | 输入 | int | A 矩阵的主维，side=LEFT 时 lda >= max(1, m)，side=RIGHT 时 lda >= max(1, n)，Host 内存 |
-| B | 输入 | const aclblasComplex*（复数 FP32） | M×N 一般复矩阵，Device 内存 |
-| ldb | 输入 | int | B 矩阵的主维，ldb >= max(1, m)，Host 内存 |
-| beta | 输入 | const aclblasComplex*（复数 FP32） | 复数标量乘数，不可为 nullptr，Device 内存 |
-| C | 输入/输出 | aclblasComplex*（复数 FP32） | M×N **一般**复矩阵，输入旧值，输出新值，**全部元素**都被更新，Device 内存 |
-| ldc | 输入 | int | C 矩阵的主维，ldc >= max(1, m)，Host 内存 |
+| handle | 输入 | aclblasHandle_t | ACL-BLAS 句柄，Host 内存 |
+| side | 输入 | aclblasSideMode_t | A 矩阵位置：ACLBLAS_SIDE_LEFT（左侧）或 ACLBLAS_SIDE_RIGHT（右侧），Host 内存 |
+| uplo | 输入 | aclblasFillMode_t | A 矩阵存储模式：ACLBLAS_LOWER（下三角）或 ACLBLAS_UPPER（上三角），Host 内存 |
+| m | 输入 | int | 矩阵 C 的行数，m >= 0，Host 内存 |
+| n | 输入 | int | 矩阵 C 的列数，n >= 0，Host 内存 |
+| alpha | 输入 | const aclblasComplex*（COMPLEX64） | 复数标量 alpha，不可为 nullptr；arch35 为 Host 内存，arch22 为 Device 内存 |
+| A | 输入 | const aclblasComplex*（COMPLEX64） | 对称矩阵（A = Aᵀ，不共轭），side=LEFT 时 m×m，side=RIGHT 时 n×n，仅 uplo 指定三角被引用，Device 内存 |
+| lda | 输入 | int | 矩阵 A 的主维，Host 内存（详见约束说明） |
+| B | 输入 | const aclblasComplex*（COMPLEX64） | m×n 普通矩阵，Device 内存 |
+| ldb | 输入 | int | 矩阵 B 的主维，Host 内存（详见约束说明） |
+| beta | 输入 | const aclblasComplex*（COMPLEX64） | 复数标量 beta，不可为 nullptr；arch35 为 Host 内存，arch22 为 Device 内存 |
+| C | 输入/输出 | aclblasComplex*（COMPLEX64） | m×n 矩阵，输入旧值并原地覆写输出新值，Device 内存 |
+| ldc | 输入 | int | 矩阵 C 的主维，Host 内存（详见约束说明） |
 
 #### 约束说明
 
-- m >= 0, n >= 0
-- side 为 ACLBLAS_SIDE_LEFT 或 ACLBLAS_SIDE_RIGHT
-- uplo 为 ACLBLAS_UPPER 或 ACLBLAS_LOWER，指的是 **A** 的存储三角（不是 C）
-- side=LEFT 时：lda >= max(1, m)；side=RIGHT 时：lda >= max(1, n)
-- ldb >= max(1, m)，ldc >= max(1, m)
-- alpha、beta 不可为 nullptr
-- A、B、C 不可为 nullptr（当 m > 0 且 n > 0 时）
-- alpha、beta 均为复数，合并阶段按复数乘法缩放
-- A 为对称矩阵，只需存储 uplo 指定的一侧三角，另一侧由算子按 A[i][j] = A[j][i]，对角线元素虚部照常参与运算 补齐
+- handle 不可为 nullptr，否则返回 ACLBLAS_STATUS_HANDLE_IS_NULLPTR
+- side 必须为 ACLBLAS_SIDE_LEFT 或 ACLBLAS_SIDE_RIGHT，uplo 必须为 ACLBLAS_UPPER 或 ACLBLAS_LOWER，非法值返回 ACLBLAS_STATUS_INVALID_ENUM
+- m >= 0，n >= 0，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- m==0 或 n==0 时直接返回 ACLBLAS_STATUS_SUCCESS，不访问任何指针、不校验 ld 参数（BLAS 标准）
+- side=LEFT 时 lda >= max(1, m)；side=RIGHT 时 lda >= max(1, n)
+- ldb >= max(1, m)，ldc >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- m>0 且 n>0 时，alpha、beta 不可为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- m>0 且 n>0 且 alpha!=(0,0) 时，A、B 不可为 nullptr；alpha==(0,0) 时 A、B 可为 nullptr（BLAS 标准）
+- beta==(0,0) 时 C 可为 nullptr（BLAS 标准：此时 C 不需要是有效输入，实现也不会读取 C，避免 0×NaN 污染结果）
+- alpha==(0,0) 且 beta==(1,0) 时 C 保持不变（Netlib csymm quick return）；alpha==(0,0) 时跳过矩阵乘，仅执行 C = beta * C
+- 矩阵 A、B、C 均按列主序（column-major）存储，复数元素 (row, col) 存储于 col*ld + row 位置，实部在前、虚部在后
+- A 的对称性（A = Aᵀ）由调用方保证，实现不校验；未被引用的三角内容不参与计算；对角元素虚部不置零、不作修正（区别于 Hermitian 算子 aclblasChemm）
+- 不支持超出 lda/ldb/ldc 语义的非连续 Tensor
+- 计算为异步执行，依赖 handle 绑定的 stream；读回 Device 结果前需要同步 stream
+- uplo 指定的是 **A** 的存储三角（不是 C），另一侧由算子按 A[i][j] = A[j][i] 补齐，对角线元素虚部照常参与运算
+- alpha、beta 均为复数，缩放阶段按复数乘法展开
 - 输出 C 为一般 M×N 矩阵，不具备任何对称性，全部元素均被写入
-- A、B、C 为列主序 complex64（`aclblasComplex`，即 fp32 实部 + fp32 虚部）存储的 Device 内存
-- 本算子内部会申请库工作区暂存展开后的 A、拆分后的 B 与 GEMM 中间结果；当超出 `ACLBLAS_MAX_WORKSPACE_SIZE`（2 GiB）时返回 `ACLBLAS_STATUS_ALLOC_FAILED` 并在日志中给出所需字节数
+- 算子内部会申请库工作区暂存展开后的 A、拆分后的 B 与 GEMM 中间结果；当超出 `ACLBLAS_MAX_WORKSPACE_SIZE`（2 GiB）时返回 `ACLBLAS_STATUS_ALLOC_FAILED` 并在日志中给出所需字节数
+
+#### 实现说明（arch35）
+
+三段式 Kernel 流水（Ascend C kernel 直调）：
+
+1. **Prep（AIV, SIMT）**：按 uplo 将对称三角镜像为完整矩阵，并把 COMPLEX64 的 A、B 拆分为 real / imag 四个 float 平面；镜像只做下标转置，不做共轭
+2. **GEMM（AIC, Cube）**：复数乘展开为 4 次实数矩阵乘，在同一次 Kernel 启动内以 (tile × term) 为工作项遍历，结果写入 4 个临时平面
+   - term0 = Ar×Br，term1 = Ai×Bi，term2 = Ar×Bi，term3 = Ai×Br
+   - prodReal = term0 − term1，prodImag = term2 + term3
+   - 列主序适配：Host 侧交换 m↔n 并翻转 side，Kernel 内部按行主序计算 Cᵀ
+3. **Scale（AIV, SIMT）**：C = alpha * prod + beta * C，按扁平化的列主序元素空间遍历以获得最好的 AIV 访存合并
 
 #### 调用示例
 

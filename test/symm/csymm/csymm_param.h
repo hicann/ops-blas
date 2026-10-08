@@ -8,15 +8,89 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CSYMM_PARAM_H
-#define CSYMM_PARAM_H
+#pragma once
 
-#include <string>
 #include <algorithm>
+#include <cmath>
+#include <string>
 
+#include "acl/acl.h"
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
+#include "fill.h"
 
+#ifdef CSYMM_ARCH35
+// ===== arch35: alpha/beta 为 Host 端复数标量，CSV 列 alpha_real/alpha_imag =====
+// CSV columns:
+//   case_name,description,side,uplo,m,n,alpha_real,alpha_imag,a_fill,lda,
+//   b_fill,ldb,beta_real,beta_imag,c_fill,ldc,expect_result,
+//   mere_threshold,mare_multiplier,random_seed
+struct CsymmParam : public BlasTestParamBase {
+    aclblasSideMode_t side = ACLBLAS_SIDE_LEFT;
+    aclblasFillMode_t uplo = ACLBLAS_LOWER;
+    int m = 0;
+    int n = 0;
+    float alphaReal = 1.0f;
+    float alphaImag = 0.0f;
+    bool nullAlpha = false;
+    BlasFillMode aFill = parseFill("RANDOM_NORM_5_5");
+    int lda = 0;
+    BlasFillMode bFill = parseFill("RANDOM_NORM_5_5");
+    int ldb = 0;
+    float betaReal = 0.0f;
+    float betaImag = 0.0f;
+    bool nullBeta = false;
+    BlasFillMode cFill = parseFill("RANDOM_NORM_5_5");
+    int ldc = 0;
+
+    CsymmParam(const csv_map& map) : BlasTestParamBase(map)
+    {
+        side = parseSideMode(ReadMap(map, "side", "LEFT"));
+        uplo = parseFillMode(ReadMap(map, "uplo", "LOWER"));
+        m = parseInt(ReadMap(map, "m", "0"));
+        n = parseInt(ReadMap(map, "n", "0"));
+
+        const std::string alphaRealStr = ReadMap(map, "alpha_real", "1.0");
+        const std::string alphaImagStr = ReadMap(map, "alpha_imag", "0.0");
+        nullAlpha = (alphaRealStr == "null" || alphaRealStr == "nullptr");
+        alphaReal = nullAlpha ? 0.0f : parseFloat(alphaRealStr, 1.0f);
+        alphaImag = nullAlpha ? 0.0f : parseFloat(alphaImagStr, 0.0f);
+
+        aFill = parseFill(ReadMap(map, "a_fill", "RANDOM_NORM_5_5"));
+        lda = parseInt(ReadMap(map, "lda", "0"));
+        bFill = parseFill(ReadMap(map, "b_fill", "RANDOM_NORM_5_5"));
+        ldb = parseInt(ReadMap(map, "ldb", "0"));
+
+        const std::string betaRealStr = ReadMap(map, "beta_real", "0.0");
+        const std::string betaImagStr = ReadMap(map, "beta_imag", "0.0");
+        nullBeta = (betaRealStr == "null" || betaRealStr == "nullptr");
+        betaReal = nullBeta ? 0.0f : parseFloat(betaRealStr, 0.0f);
+        betaImag = nullBeta ? 0.0f : parseFloat(betaImagStr, 0.0f);
+
+        cFill = parseFill(ReadMap(map, "c_fill", "RANDOM_NORM_5_5"));
+        ldc = parseInt(ReadMap(map, "ldc", "0"));
+
+        // An empty leading-dimension cell means "compact": fall back to the minimum
+        // legal value (lda >= max(1, dimA), ldb >= max(1, m), ldc >= max(1, m)).
+        const int aDim = (side == ACLBLAS_SIDE_LEFT) ? m : n;
+        if (lda <= 0) {
+            lda = std::max(1, aDim);
+        }
+        if (ldb <= 0) {
+            ldb = std::max(1, m);
+        }
+        if (ldc <= 0) {
+            ldc = std::max(1, m);
+        }
+    }
+
+    bool isZeroAlpha() const
+    {
+        return alphaReal == 0.0f && alphaImag == 0.0f;
+    }
+};
+#else
+// ===== arch22: alpha/beta 为 Device 端复数标量，CSV 另有 nullA/nullB/nullC 列 =====
 // Parameter struct for aclblasCsymm (complex<float> symmetric matrix product).
 //
 // A is complex symmetric (A == A^T), not Hermitian: its imaginary part is
@@ -78,5 +152,4 @@ struct CsymmParam : public BlasTestParamBase {
         nullBeta = (ReadMap(map, "nullBeta", "0") == "1");
     }
 };
-
-#endif // CSYMM_PARAM_H
+#endif

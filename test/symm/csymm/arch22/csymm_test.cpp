@@ -462,8 +462,8 @@ static bool PrepareHostData(const CsymmParam& p, CsymmHostData& d)
 
 // Setting CBLAS3_PERF_MODE=1 switches TC_PF_ cases to timing mode: the operator
 // is warmed up and then averaged over a repeat window, and the CPU golden is
-// skipped. Default (unset) keeps every case fully verified, so the numbers the
-// task's verify_performance.py reads are unaffected by this switch.
+// skipped. Default (unset) keeps every case fully verified, so the cases measured
+// for performance are unaffected by this switch.
 //
 // Timing mode exists because a single cold call is not the operator's cost — the
 // first call on a shape also pays workspace growth and kernel load — and because
