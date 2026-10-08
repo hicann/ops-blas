@@ -15,6 +15,7 @@ A = A + alpha * x * y^T
 | 接口名 | 功能简述 |
 |--------|---------|
 | aclblasSger | 单精度浮点矩阵秩-1更新 |
+| aclblasCgeru | 单精度复数无共轭矩阵秩-1更新 |
 
 ## 算子执行接口
 
@@ -52,3 +53,124 @@ aclblasStatus_t aclblasSger(aclblasHandle_t handle, int m, int n, const float *a
 - m >= 0, n >= 0
 - incx != 0, incy != 0
 - lda >= max(1, m)
+
+### aclblasCgeru
+
+#### 产品支持情况
+
+| 产品 | 支持情况 |
+|------|----------|
+| Ascend 950PR | 支持 |
+| Ascend 950DT | 支持 |
+| Atlas A3 训练系列产品 / Atlas A3 推理系列产品 | 不支持 |
+| Atlas A2 训练系列产品 / Atlas A2 推理系列产品 | 不支持 |
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasCgeru(aclblasHandle_t handle, int m, int n, const aclblasComplex* alpha, const aclblasComplex* x, int incx, const aclblasComplex* y, int incy, aclblasComplex* A, int lda)
+```
+
+#### 参数说明
+
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
+| m | 输入 | int | 矩阵 A 的行数，Host 内存 |
+| n | 输入 | int | 矩阵 A 的列数，Host 内存 |
+| alpha | 输入 | const aclblasComplex* | Complex64 标量乘数，Host 内存 |
+| x | 输入 | const aclblasComplex* | 长度为 m 的 Complex64 列向量，Device 内存 |
+| incx | 输入 | int | 向量 x 的非零步长，Host 内存 |
+| y | 输入 | const aclblasComplex* | 长度为 n 的 Complex64 列向量，Device 内存 |
+| incy | 输入 | int | 向量 y 的非零步长，Host 内存 |
+| A | 输入/输出 | aclblasComplex* | m x n 列主序 Complex64 矩阵，原地更新，Device 内存 |
+| lda | 输入 | int | 矩阵 A 的主维，Host 内存 |
+
+`aclblasCgeru` 计算 `A = A + alpha * x * y^T`，不对 y 做共轭。支持正、负非零步长；
+`m == 0`、`n == 0` 或 alpha 为复零时不访问 Device 数据。
+
+#### 约束说明
+
+- m >= 0，n >= 0
+- incx != 0，incy != 0
+- 列主序矩阵的 lda >= max(1, m)，不以列数 n 作为下限
+- handle 和 alpha 不为空；非快速返回时 x、y、A 不为空
+- 额外 GM 工作区需求为 0 字节；三条执行路径均仅使用核内 UB 或寄存器作为临时存储，不分配或使用 handle 工作区
+
+#### 调用示例
+
+示例代码如下，仅供参考，具体编译和执行过程请参考[编译与运行样例](../../docs/zh/develop/compile_and_run_example.md)。
+
+```cpp
+#include <cstdio>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int main()
+{
+    constexpr int deviceId = 0;
+    constexpr int m = 2;
+    constexpr int n = 2;
+    constexpr int incx = 1;
+    constexpr int incy = 1;
+    constexpr int lda = m;
+    const aclblasComplex alpha{1.0f, 0.0f};
+    const std::vector<aclblasComplex> hostX{{1.0f, 1.0f}, {2.0f, -1.0f}};
+    const std::vector<aclblasComplex> hostY{{3.0f, 0.0f}, {0.0f, 2.0f}};
+    std::vector<aclblasComplex> hostA(lda * n, {0.0f, 0.0f});
+
+    aclInit(nullptr);
+    aclrtSetDevice(deviceId);
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasHandle_t handle = nullptr;
+    aclblasCreate(&handle);
+    aclblasSetStream(handle, stream);
+
+    aclblasComplex* deviceX = nullptr;
+    aclblasComplex* deviceY = nullptr;
+    aclblasComplex* deviceA = nullptr;
+    const size_t xBytes = hostX.size() * sizeof(aclblasComplex);
+    const size_t yBytes = hostY.size() * sizeof(aclblasComplex);
+    const size_t aBytes = hostA.size() * sizeof(aclblasComplex);
+    aclrtMalloc(reinterpret_cast<void**>(&deviceX), xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&deviceY), yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&deviceA), aBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(deviceX, xBytes, hostX.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(deviceY, yBytes, hostY.data(), yBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    aclrtMemcpy(deviceA, aBytes, hostA.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    const aclblasStatus_t status =
+        aclblasCgeru(handle, m, n, &alpha, deviceX, incx, deviceY, incy, deviceA, lda);
+    aclrtSynchronizeStream(stream);
+    aclrtMemcpy(hostA.data(), aBytes, deviceA, aBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    std::printf("aclblasCgeru status: %d\n", static_cast<int>(status));
+
+    aclrtFree(deviceX);
+    aclrtFree(deviceY);
+    aclrtFree(deviceA);
+    aclblasDestroy(handle);
+    aclrtDestroyStream(stream);
+    aclrtResetDevice(deviceId);
+    aclFinalize();
+    return status == ACLBLAS_STATUS_SUCCESS ? 0 : 1;
+}
+```
+
+#### 执行路径与浮点语义
+
+Host 按输入布局和动态 AIV 核数计算分块。连续布局 `incx == 1 && incy == 1 && lda == m`、
+`m <= 4096` 且 `m * n > 32768` 时选择 RegBase 路径；其余布局在每核 tile 的行、列均不超过
+4096 时选择 SIMT Cache，否则选择 DirectGM。这些条件是布局、核内容量与工作量门槛，不依赖测试编号。
+
+RegBase 路径不对行向量切片，仅按列分核；每核拷入完整 x，按 UB 容量滑动处理列块。
+容量规划使用 64 位中间值，将 x、矩阵列块、参数缓冲及其对齐填充的总占用限定在 240 KiB 内。
+若无法容纳一列，在申请 UB 缓冲前回退为同一 tile 的 DirectGM 计算。
+
+SIMT 路径根据 FP32 指数判断复乘的任一乘积是否可能溢出；对可能溢出或包含非有限操作数的复乘
+保留独立乘积求值，以维持 Netlib BLAS 的 Inf/NaN 语义。该保护仅作用于特殊值分支，不在整个文件
+禁用 FMA；常规分支保持原有优化。
+RegBase 中 alpha 的 UB 标量写入使用 `volatile` 保留实际存储，并通过 S→V 事件建立流水线顺序，
+与上述防乘加收缩的用途不同。
