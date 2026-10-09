@@ -21,6 +21,7 @@
 #include <cstdint>
 
 #include "kernel_operator.h"
+#include "simt_api/asc_simt.h"
 #define ASCENDC_CUBE_ONLY
 #include "tensor_api/tensor.h"
 #include "cann_ops_blas_common.h"
@@ -29,259 +30,7 @@
 #include "common/helper/kernel_utils.h"
 #include "gemm_batched_kernel.h"
 #include "gemm_batched_tiling_data.h"
-
-using namespace AscendC::Te;
-
-constexpr uint16_t PIPE_FLAG = 0;
-
-constexpr uint32_t FINAL_ACCUMULATION = 3;
-constexpr uint32_t NON_FINAL_ACCUMULATION = 2;
-
-// ============================================================================
-// Dtype traits
-// ============================================================================
-template <uint32_t DtypeId>
-struct GbDtypeTraits;
-
-template <>
-struct GbDtypeTraits<0> {
-    using type = float;
-    static constexpr uint32_t C0 = GEMM_BATCHED_FP32_C0;
-    static constexpr uint32_t elemSize = sizeof(float);
-};
-
-template <>
-struct GbDtypeTraits<1> {
-    using type = half;
-    static constexpr uint32_t C0 = GEMM_BATCHED_FP16_C0;
-    static constexpr uint32_t elemSize = sizeof(half);
-};
-
-template <>
-struct GbDtypeTraits<2> {
-    using type = bfloat16_t;
-    static constexpr uint32_t C0 = GEMM_BATCHED_FP16_C0;
-    static constexpr uint32_t elemSize = sizeof(bfloat16_t);
-};
-
-// Layout helper for column-major data:
-// NDExtLayoutPtn(rows, ld): stride=(ld, 1), element (i,j) at i*ld+j → row-major read.
-//   Used for transposed access: op(A)[i][j] = A[j][i] at i*ld+j.
-// DNExtLayoutPtn(ld, cols): stride=(1, ld), element (i,j) at j*ld+i → column-major read.
-//   Used for non-transposed access: A[i][j] at j*ld+i.
-template <typename DType>
-__aicore__ inline auto MakeGmLayout(NDExtLayoutPtn, uint32_t rows, uint32_t cols, uint32_t ld) {
-    (void)cols;
-    constexpr uint64_t dtypeC0 = GEMM_BATCHED_UB_ALIGN_BYTES / sizeof(DType);
-    return MakeFrameLayout<NDExtLayoutPtn, AscendC::Std::Int<dtypeC0>>(rows, ld);
-}
-template <typename DType>
-__aicore__ inline auto MakeGmLayout(DNExtLayoutPtn, uint32_t rows, uint32_t cols, uint32_t ld) {
-    (void)rows;
-    constexpr uint64_t dtypeC0 = GEMM_BATCHED_UB_ALIGN_BYTES / sizeof(DType);
-    return MakeFrameLayout<DNExtLayoutPtn, AscendC::Std::Int<dtypeC0>>(ld, cols);
-}
-
-// ============================================================================
-// Kernel 1: GEMM (AIC-only, tensor_api)
-// ================================================================================
-
-template <uint32_t DtypeId, typename TensorAL1, typename TensorBL1>
-__aicore__ inline void GbProcessL0Loop(
-    const TensorAL1& tensorAL1, const TensorBL1& tensorBL1,
-    uint32_t curTileM, uint32_t curTileN, uint32_t curK, uint32_t baseK,
-    uint64_t l1LoopCnt, uint32_t kL1Iter, uint32_t kOff, uint32_t tileKChunk,
-    uint64_t& l0PingPong)
-{
-    using DType = typename GbDtypeTraits<DtypeId>::type;
-    constexpr uint32_t C0 = GbDtypeTraits<DtypeId>::C0;
-
-    uint32_t kSteps = (curK + baseK - 1) / baseK;
-    for (uint32_t kk = 0; kk < kSteps; kk++) {
-        uint32_t curBaseK = Min<uint32_t>(baseK, curK - kk * baseK);
-        uint32_t l0Half = l0PingPong & 1;
-        // L0A/L0B are separate hardware buffers with built-in ping-pong.
-        // Offsets 0 and TOTAL_L0A_SIZE/2 are the hardware-defined addresses;
-        // the hardware manages banks internally, no software bank conflict.
-        uint32_t l0aOff = l0Half * (AscendC::TOTAL_L0A_SIZE >> 1);
-        uint32_t l0bOff = l0Half * (AscendC::TOTAL_L0B_SIZE >> 1);
-
-        auto tensorAL0 = MakeTensor(
-            MakeMemPtr<Location::L0A, DType>(l0aOff),
-            MakeFrameLayout<NZLayoutPtn, AscendC::Std::Int<C0>>(curTileM, curBaseK));
-        auto tensorBL0 = MakeTensor(
-            MakeMemPtr<Location::L0B, DType>(l0bOff),
-            MakeFrameLayout<ZNLayoutPtn, AscendC::Std::Int<C0>>(curBaseK, curTileN));
-
-        AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(l0Half);
-
-        uint32_t kL0Offset = kk * baseK;
-        auto tensorBlockAL1 = tensorAL1.Slice(
-            MakeCoord(0, (long)kL0Offset), MakeShape(curTileM, curBaseK));
-        auto tensorBlockBL1 = tensorBL1.Slice(
-            MakeCoord((long)kL0Offset, 0), MakeShape(curBaseK, curTileN));
-
-        Copy(MakeCopy(CopyL12L0A{}), tensorAL0, tensorBlockAL1);
-        Copy(MakeCopy(CopyL12L0B{}), tensorBL0, tensorBlockBL1);
-        AscendC::SetFlag<AscendC::HardEvent::MTE1_M>(l0Half);
-
-        AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(l0Half);
-
-        auto tensorL0C = MakeTensor(
-            MakeMemPtr<Location::L0C, float>(0),
-            MakeFrameLayout<NZLayoutPtn, AscendC::Std::Int<GEMM_BATCHED_L0C_C0>>(
-                curTileM, curTileN));
-
-        bool isFirst = (l1LoopCnt == 0 && kk == 0);
-        bool isLastK = (kOff / tileKChunk + 1 == kL1Iter) && (kk + 1 == kSteps);
-        uint8_t unitFlag = isLastK ? FINAL_ACCUMULATION : NON_FINAL_ACCUMULATION;
-        MmadParams mmadParams{
-            static_cast<uint16_t>(curTileM),
-            static_cast<uint16_t>(curTileN),
-            static_cast<uint16_t>(curBaseK),
-            unitFlag,
-            isFirst};
-        Mmad(MmadAtom<MmadTraits<MmadOperation>>{}.with(mmadParams),
-             tensorL0C, tensorAL0, tensorBL0);
-        AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0Half);
-        l0PingPong++;
-    }
-}
-
-template <uint32_t DtypeId, typename GmAT, typename GmBT>
-__aicore__ inline void GbProcessKL1Loop(
-    const GmAT& gmATensor, const GmBT& gmBTensor,
-    uint32_t mOff, uint32_t nOff, uint32_t curTileM, uint32_t curTileN,
-    uint32_t K, uint32_t tileKChunk, uint32_t baseK, uint32_t kL1Iter,
-    uint64_t& l0PingPong, uint64_t& l1LoopCnt)
-{
-    using DType = typename GbDtypeTraits<DtypeId>::type;
-    constexpr uint32_t C0 = GbDtypeTraits<DtypeId>::C0;
-
-    for (uint32_t kOff = 0; kOff < K; kOff += tileKChunk) {
-        uint32_t curK = Min<uint32_t>(tileKChunk, K - kOff);
-        uint32_t l1BufId = l1LoopCnt & GEMM_BATCHED_L1_BUF_MASK;
-        // Bank-isolated ping-pong: l1BufId=0 → bank 0 (offset 0),
-        // l1BufId=1 → bank 1 (offset TOTAL_L1_SIZE/2 = 256 KB).
-        // Layout: [Ping A][Ping B] | [Pong A][Pong B] — avoids L1 bank conflict.
-        uint32_t l1BaseBytes = l1BufId * (AscendC::TOTAL_L1_SIZE >> 1);
-        uint32_t aL1Elems = RoundUp<uint32_t>(curTileM, GEMM_BATCHED_FRACTAL) *
-                            RoundUp<uint32_t>(curK, C0);
-        uint32_t bL1ByteOff = l1BaseBytes + aL1Elems * sizeof(DType);
-
-        auto tensorAL1 = MakeTensor(
-            MakeMemPtr<Location::L1, DType>(l1BaseBytes),
-            MakeFrameLayout<NZLayoutPtn, AscendC::Std::Int<C0>>(curTileM, curK));
-        auto tensorBL1 = MakeTensor(
-            MakeMemPtr<Location::L1, DType>(bL1ByteOff),
-            MakeFrameLayout<ZNLayoutPtn, AscendC::Std::Int<C0>>(curK, curTileN));
-
-        AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1BufId);
-        auto gmBlockA = gmATensor.Slice(
-            MakeCoord((long)mOff, (long)kOff), MakeShape(curTileM, curK));
-        Copy(MakeCopy(CopyGM2L1{}), tensorAL1, gmBlockA);
-        auto gmBlockB = gmBTensor.Slice(
-            MakeCoord((long)kOff, (long)nOff), MakeShape(curK, curTileN));
-        Copy(MakeCopy(CopyGM2L1{}), tensorBL1, gmBlockB);
-        AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(l1BufId);
-
-        AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(l1BufId);
-        GbProcessL0Loop<DtypeId>(tensorAL1, tensorBL1,
-            curTileM, curTileN, curK, baseK,
-            l1LoopCnt, kL1Iter, kOff, tileKChunk, l0PingPong);
-
-        AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1BufId);
-        l1LoopCnt++;
-    }
-}
-
-template <uint32_t DtypeId, typename GmAT, typename GmBT, typename GmCT>
-__aicore__ inline void GbProcessMNTiles(
-    const GmAT& gmATensor, const GmBT& gmBTensor, const GmCT& gmCTensor,
-    uint32_t mStart, uint32_t mEnd, uint32_t nStart, uint32_t nEnd,
-    uint32_t tileM, uint32_t tileN,
-    uint32_t K, uint32_t tileKChunk, uint32_t baseK, uint32_t kL1Iter)
-{
-    for (uint32_t mOff = mStart; mOff < mEnd; mOff += tileM) {
-        uint32_t curTileM = Min<uint32_t>(tileM, mEnd - mOff);
-        for (uint32_t nOff = nStart; nOff < nEnd; nOff += tileN) {
-            uint32_t curTileN = Min<uint32_t>(tileN, nEnd - nOff);
-
-            AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(PIPE_FLAG);
-            uint64_t l1LoopCnt = 0;
-            uint64_t l0PingPong = 0;
-
-            GbProcessKL1Loop<DtypeId>(gmATensor, gmBTensor,
-                mOff, nOff, curTileM, curTileN,
-                K, tileKChunk, baseK, kL1Iter, l0PingPong, l1LoopCnt);
-
-            AscendC::SetFlag<AscendC::HardEvent::M_FIX>(PIPE_FLAG);
-            AscendC::WaitFlag<AscendC::HardEvent::M_FIX>(PIPE_FLAG);
-
-            auto tensorL0C = MakeTensor(
-                MakeMemPtr<Location::L0C, float>(0),
-                MakeFrameLayout<NZLayoutPtn, AscendC::Std::Int<GEMM_BATCHED_L0C_C0>>(
-                    curTileM, curTileN));
-            auto gmBlockC = gmCTensor.Slice(
-                MakeCoord((long)mOff, (long)nOff), MakeShape(curTileM, curTileN));
-            MakeCopy(CopyL0C2GM{}).Call(gmBlockC, tensorL0C, FixpipeParams{FINAL_ACCUMULATION});
-            AscendC::SetFlag<AscendC::HardEvent::FIX_M>(PIPE_FLAG);
-        }
-    }
-}
-
-template <class LayoutA, class LayoutB, uint32_t DtypeId>
-__aicore__ inline void GbProcessOneTask(
-    __gm__ uint64_t* aPtrArr, __gm__ uint64_t* bPtrArr, __gm__ uint64_t* cPtrArr,
-    uint32_t taskId, const GemmBatchedGemmTilingData& tiling,
-    uint32_t baseK, uint32_t kL1Iter)
-{
-    using DType = typename GbDtypeTraits<DtypeId>::type;
-    const uint32_t M = tiling.m;
-    const uint32_t N = tiling.n;
-    const uint32_t K = tiling.k;
-    const uint32_t mBlocks = tiling.mBlocks;
-    const uint32_t nBlocks = tiling.nBlocks;
-    const uint32_t singleCoreM = tiling.singleCoreM;
-    const uint32_t singleCoreN = tiling.singleCoreN;
-    const uint32_t tileM = tiling.tileM;
-    const uint32_t tileN = tiling.tileN;
-    const uint32_t tileKChunk = tiling.tileKChunk;
-    const uint32_t lda = tiling.lda;
-    const uint32_t ldb = tiling.ldb;
-    const uint32_t ldc = tiling.ldc;
-
-    uint32_t batchIdx = taskId / (mBlocks * nBlocks);
-    uint32_t mnTask = taskId % (mBlocks * nBlocks);
-    uint32_t mBlockIdx = mnTask / nBlocks;
-    uint32_t nBlockIdx = mnTask % nBlocks;
-    if (mBlockIdx % 2 == 1) {
-        nBlockIdx = nBlocks - 1 - nBlockIdx;
-    }
-
-    __gm__ DType* aGm = reinterpret_cast<__gm__ DType*>(aPtrArr[batchIdx]);
-    __gm__ DType* bGm = reinterpret_cast<__gm__ DType*>(bPtrArr[batchIdx]);
-    __gm__ float* cGm = reinterpret_cast<__gm__ float*>(cPtrArr[batchIdx]);
-
-    auto gmATensor = MakeTensor(
-        MakeMemPtr<Location::GM>(aGm),
-        MakeGmLayout<DType>(LayoutA{}, M, K, lda));
-    auto gmBTensor = MakeTensor(
-        MakeMemPtr<Location::GM>(bGm),
-        MakeGmLayout<DType>(LayoutB{}, K, N, ldb));
-    auto gmCTensor = MakeTensor(
-        MakeMemPtr<Location::GM>(cGm),
-        MakeGmLayout<DType>(NDExtLayoutPtn{}, M, N, ldc));
-
-    uint32_t mStart = mBlockIdx * singleCoreM;
-    uint32_t nStart = nBlockIdx * singleCoreN;
-    uint32_t mEnd = Min<uint32_t>(mStart + singleCoreM, M);
-    uint32_t nEnd = Min<uint32_t>(nStart + singleCoreN, N);
-
-    GbProcessMNTiles<DtypeId>(gmATensor, gmBTensor, gmCTensor,
-        mStart, mEnd, nStart, nEnd, tileM, tileN,
-        K, tileKChunk, baseK, kL1Iter);
-}
+#include "gemm_batched_cube_impl.h"
 
 template <class LayoutA, class LayoutB, uint32_t DtypeId>
 __aicore__ inline void GbProcessOneStridedTask(
@@ -289,81 +38,24 @@ __aicore__ inline void GbProcessOneStridedTask(
     uint64_t strideC, uint32_t taskId, const GemmBatchedGemmTilingData& tiling, uint32_t baseK, uint32_t kL1Iter)
 {
     using DType = typename GbDtypeTraits<DtypeId>::type;
-    const uint32_t M = tiling.m;
-    const uint32_t N = tiling.n;
-    const uint32_t K = tiling.k;
-    const uint32_t mBlocks = tiling.mBlocks;
-    const uint32_t nBlocks = tiling.nBlocks;
-    const uint32_t singleCoreM = tiling.singleCoreM;
-    const uint32_t singleCoreN = tiling.singleCoreN;
+    const GbTaskCoordinates task = GbResolveTaskCoordinates(taskId, tiling);
+    const GbTaskBounds bounds = GbResolveTaskBounds(task, tiling);
+    __gm__ DType* aGm = reinterpret_cast<__gm__ DType*>(aBase) + static_cast<uint64_t>(task.batch) * strideA;
+    __gm__ DType* bGm = reinterpret_cast<__gm__ DType*>(bBase) + static_cast<uint64_t>(task.batch) * strideB;
+    __gm__ float* cGm = reinterpret_cast<__gm__ float*>(cBase) + static_cast<uint64_t>(task.batch) * strideC;
 
-    uint32_t batchIdx = taskId / (mBlocks * nBlocks);
-    uint32_t mnTask = taskId % (mBlocks * nBlocks);
-    uint32_t mBlockIdx = mnTask / nBlocks;
-    uint32_t nBlockIdx = mnTask % nBlocks;
-    if (mBlockIdx % 2 == 1) {
-        nBlockIdx = nBlocks - 1 - nBlockIdx;
-    }
-
-    __gm__ DType* aGm = reinterpret_cast<__gm__ DType*>(aBase) + static_cast<uint64_t>(batchIdx) * strideA;
-    __gm__ DType* bGm = reinterpret_cast<__gm__ DType*>(bBase) + static_cast<uint64_t>(batchIdx) * strideB;
-    __gm__ float* cGm = reinterpret_cast<__gm__ float*>(cBase) + static_cast<uint64_t>(batchIdx) * strideC;
-
-    auto gmATensor = MakeTensor(MakeMemPtr<Location::GM>(aGm), MakeGmLayout<DType>(LayoutA{}, M, K, tiling.lda));
-    auto gmBTensor = MakeTensor(MakeMemPtr<Location::GM>(bGm), MakeGmLayout<DType>(LayoutB{}, K, N, tiling.ldb));
-    auto gmCTensor = MakeTensor(MakeMemPtr<Location::GM>(cGm), MakeGmLayout<DType>(NDExtLayoutPtn{}, M, N, tiling.ldc));
-
-    uint32_t mStart = mBlockIdx * singleCoreM;
-    uint32_t nStart = nBlockIdx * singleCoreN;
-    uint32_t mEnd = Min<uint32_t>(mStart + singleCoreM, M);
-    uint32_t nEnd = Min<uint32_t>(nStart + singleCoreN, N);
+    auto gmATensor = AscendC::Te::MakeTensor(
+        AscendC::Te::MakeMemPtr<AscendC::Te::Location::GM>(aGm),
+        MakeGmLayout<DType>(LayoutA{}, tiling.m, tiling.k, tiling.lda));
+    auto gmBTensor = AscendC::Te::MakeTensor(
+        AscendC::Te::MakeMemPtr<AscendC::Te::Location::GM>(bGm),
+        MakeGmLayout<DType>(LayoutB{}, tiling.k, tiling.n, tiling.ldb));
+    auto gmCTensor = AscendC::Te::MakeTensor(
+        AscendC::Te::MakeMemPtr<AscendC::Te::Location::GM>(cGm),
+        MakeGmLayout<DType>(AscendC::Te::NDExtLayoutPtn{}, tiling.m, tiling.n, tiling.ldc));
     GbProcessMNTiles<DtypeId>(
-        gmATensor, gmBTensor, gmCTensor, mStart, mEnd, nStart, nEnd, tiling.tileM, tiling.tileN, K, tiling.tileKChunk,
-        baseK, kL1Iter);
-}
-
-template <class LayoutA, class LayoutB, uint32_t DtypeId>
-__aicore__ inline void gemm_batched_gemm_kernel_impl(
-    __gm__ uint8_t* aarray, __gm__ uint8_t* barray, __gm__ uint8_t* carray,
-    GemmBatchedGemmTilingData tiling)
-{
-    AscendC::InitSocState();
-    using DType = typename GbDtypeTraits<DtypeId>::type;
-
-    const uint32_t totalTasks = tiling.totalTasks;
-    const uint32_t baseK = (sizeof(DType) == sizeof(float))
-        ? GEMM_BATCHED_FP32_L0_BASE_K : GEMM_BATCHED_FP16_L0_BASE_K;
-    const uint32_t K = tiling.k;
-    const uint32_t tileKChunk = tiling.tileKChunk;
-    const uint32_t kL1Iter = (K + tileKChunk - 1) / tileKChunk;
-
-    __gm__ uint64_t* aPtrArr = reinterpret_cast<__gm__ uint64_t*>(aarray);
-    __gm__ uint64_t* bPtrArr = reinterpret_cast<__gm__ uint64_t*>(barray);
-    __gm__ uint64_t* cPtrArr = reinterpret_cast<__gm__ uint64_t*>(carray);
-
-    if constexpr (DtypeId == 0) {
-        AscendC::SetHF32Mode(AscendC::HF32Mode::DISABLE);
-    }
-
-    AscendC::SetMMRowMajor();
-    AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(0);
-    AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(1);
-    AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(0);
-    AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(1);
-    AscendC::SetFlag<AscendC::HardEvent::FIX_M>(PIPE_FLAG);
-
-    for (uint32_t taskId = AscendC::GetBlockIdx(); taskId < totalTasks;
-         taskId += AscendC::GetBlockNum()) {
-        GbProcessOneTask<LayoutA, LayoutB, DtypeId>(
-            aPtrArr, bPtrArr, cPtrArr, taskId, tiling, baseK, kL1Iter);
-    }
-
-    AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(0);
-    AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(1);
-    AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(0);
-    AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(1);
-    AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(PIPE_FLAG);
-    AscendC::SetMMColumnMajor();
+        gmATensor, gmBTensor, gmCTensor, bounds.mStart, bounds.mEnd, bounds.nStart, bounds.nEnd, tiling.tileM,
+        tiling.tileN, tiling.k, tiling.tileKChunk, baseK, kL1Iter);
 }
 
 template <class LayoutA, class LayoutB, uint32_t DtypeId>
@@ -371,101 +63,111 @@ __aicore__ inline void gemm_batched_strided_gemm_kernel_impl(
     __gm__ uint8_t* a, __gm__ uint8_t* b, __gm__ uint8_t* c, __gm__ uint8_t* infoArray, uint64_t strideA,
     uint64_t strideB, uint64_t strideC, GemmBatchedGemmTilingData tiling)
 {
-    AscendC::InitSocState();
+    GbInitializeCubePipeline<DtypeId>();
     using DType = typename GbDtypeTraits<DtypeId>::type;
     const uint32_t baseK = (sizeof(DType) == sizeof(float)) ? GEMM_BATCHED_FP32_L0_BASE_K : GEMM_BATCHED_FP16_L0_BASE_K;
     const uint32_t kL1Iter = (tiling.k + tiling.tileKChunk - 1) / tiling.tileKChunk;
 
-    if constexpr (DtypeId == 0) {
-        AscendC::SetHF32Mode(AscendC::HF32Mode::DISABLE);
-    }
-    AscendC::SetMMRowMajor();
-    AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(0);
-    AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(1);
-    AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(0);
-    AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(1);
-    AscendC::SetFlag<AscendC::HardEvent::FIX_M>(PIPE_FLAG);
     AscendC::GlobalTensor<int> statuses;
     statuses.SetGlobalBuffer(reinterpret_cast<__gm__ int*>(infoArray));
 
     for (uint32_t taskId = AscendC::GetBlockIdx(); taskId < tiling.totalTasks; taskId += AscendC::GetBlockNum()) {
-        uint32_t batchIdx = taskId / (tiling.mBlocks * tiling.nBlocks);
-        if (statuses.GetValue(batchIdx) != 0) {
+        const GbTaskCoordinates task = GbResolveTaskCoordinates(taskId, tiling);
+        if (statuses.GetValue(task.batch) != 0) {
             continue;
         }
         GbProcessOneStridedTask<LayoutA, LayoutB, DtypeId>(
             a, b, c, strideA, strideB, strideC, taskId, tiling, baseK, kL1Iter);
     }
 
-    AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(0);
-    AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(1);
-    AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(0);
-    AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(1);
-    AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(PIPE_FLAG);
-    AscendC::SetMMColumnMajor();
+    GbFinalizeCubePipeline();
 }
 
 // ── extern "C" kernel entry points for cube GEMM ──
-#define GEMM_BATCHED_GEMM_KERNEL_ENTRY(FUNC_NAME, LAYOUT_A, LAYOUT_B, DTYPE_ID) \
-extern "C" __global__ __aicore__ __cube__ void FUNC_NAME( \
-    __gm__ uint8_t* aarray, __gm__ uint8_t* barray, __gm__ uint8_t* carray, \
-    GemmBatchedGemmTilingData tiling) \
-{ \
-    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY); \
-    gemm_batched_gemm_kernel_impl<LAYOUT_A, LAYOUT_B, DTYPE_ID>(aarray, barray, carray, tiling); \
-}
+#define GEMM_BATCHED_GEMM_KERNEL_ENTRY(FUNC_NAME, LAYOUT_A, LAYOUT_B, DTYPE_ID)                                   \
+    extern "C" __global__ __aicore__ __cube__ void FUNC_NAME(                                                     \
+        __gm__ uint8_t* aarray, __gm__ uint8_t* barray, __gm__ uint8_t* carray, GemmBatchedGemmTilingData tiling) \
+    {                                                                                                             \
+        KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);                                                           \
+        gemm_batched_gemm_kernel_impl<LAYOUT_A, LAYOUT_B, DTYPE_ID>(aarray, barray, carray, tiling);              \
+    }
 
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_fp32_nn, NDExtLayoutPtn, NDExtLayoutPtn, 0)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_fp32_nt, NDExtLayoutPtn, DNExtLayoutPtn, 0)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_fp32_tn, DNExtLayoutPtn, NDExtLayoutPtn, 0)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_fp32_tt, DNExtLayoutPtn, DNExtLayoutPtn, 0)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_fp16_nn, NDExtLayoutPtn, NDExtLayoutPtn, 1)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_fp16_nt, NDExtLayoutPtn, DNExtLayoutPtn, 1)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_fp16_tn, DNExtLayoutPtn, NDExtLayoutPtn, 1)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_fp16_tt, DNExtLayoutPtn, DNExtLayoutPtn, 1)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_bf16_nn, NDExtLayoutPtn, NDExtLayoutPtn, 2)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_bf16_nt, NDExtLayoutPtn, DNExtLayoutPtn, 2)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_bf16_tn, DNExtLayoutPtn, NDExtLayoutPtn, 2)
-GEMM_BATCHED_GEMM_KERNEL_ENTRY(gemm_batched_gemm_kernel_bf16_tt, DNExtLayoutPtn, DNExtLayoutPtn, 2)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_fp32_nn, AscendC::Te::NDExtLayoutPtn, AscendC::Te::NDExtLayoutPtn, 0)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_fp32_nt, AscendC::Te::NDExtLayoutPtn, AscendC::Te::DNExtLayoutPtn, 0)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_fp32_tn, AscendC::Te::DNExtLayoutPtn, AscendC::Te::NDExtLayoutPtn, 0)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_fp32_tt, AscendC::Te::DNExtLayoutPtn, AscendC::Te::DNExtLayoutPtn, 0)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_fp16_nn, AscendC::Te::NDExtLayoutPtn, AscendC::Te::NDExtLayoutPtn, 1)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_fp16_nt, AscendC::Te::NDExtLayoutPtn, AscendC::Te::DNExtLayoutPtn, 1)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_fp16_tn, AscendC::Te::DNExtLayoutPtn, AscendC::Te::NDExtLayoutPtn, 1)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_fp16_tt, AscendC::Te::DNExtLayoutPtn, AscendC::Te::DNExtLayoutPtn, 1)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_bf16_nn, AscendC::Te::NDExtLayoutPtn, AscendC::Te::NDExtLayoutPtn, 2)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_bf16_nt, AscendC::Te::NDExtLayoutPtn, AscendC::Te::DNExtLayoutPtn, 2)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_bf16_tn, AscendC::Te::DNExtLayoutPtn, AscendC::Te::NDExtLayoutPtn, 2)
+GEMM_BATCHED_GEMM_KERNEL_ENTRY(
+    gemm_batched_gemm_kernel_bf16_tt, AscendC::Te::DNExtLayoutPtn, AscendC::Te::DNExtLayoutPtn, 2)
 
 extern "C" __global__ __aicore__ __cube__ void cgetri_strided_gemm_kernel_fp32_nn(
     __gm__ uint8_t* a, __gm__ uint8_t* b, __gm__ uint8_t* c, __gm__ uint8_t* infoArray, uint64_t strideA,
     uint64_t strideB, uint64_t strideC, GemmBatchedGemmTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIC_ONLY);
-    gemm_batched_strided_gemm_kernel_impl<NDExtLayoutPtn, NDExtLayoutPtn, 0>(
+    gemm_batched_strided_gemm_kernel_impl<AscendC::Te::NDExtLayoutPtn, AscendC::Te::NDExtLayoutPtn, 0>(
         a, b, c, infoArray, strideA, strideB, strideC, tiling);
 }
 
 // ── Kernel 1 launcher ──
-#define DEFINE_GEMM_DTYPE_LAUNCHER(LAUNCHER_NAME, KERNEL_PREFIX) \
-static inline void LAUNCHER_NAME(uint32_t numBlocks, void* stream, \
-    uint8_t* a, uint8_t* b, uint8_t* carray, const GemmBatchedGemmTilingData& tilingData) \
-{ \
-    bool isTransA = tilingData.isTransA != 0; \
-    bool isTransB = tilingData.isTransB != 0; \
-    if (isTransA && isTransB) { KERNEL_PREFIX##_tt<<<numBlocks, nullptr, stream>>>(a, b, carray, tilingData); } \
-    else if (isTransA) { KERNEL_PREFIX##_tn<<<numBlocks, nullptr, stream>>>(a, b, carray, tilingData); } \
-    else if (isTransB) { KERNEL_PREFIX##_nt<<<numBlocks, nullptr, stream>>>(a, b, carray, tilingData); } \
-    else { KERNEL_PREFIX##_nn<<<numBlocks, nullptr, stream>>>(a, b, carray, tilingData); } \
-}
+#define DEFINE_GEMM_DTYPE_LAUNCHER(LAUNCHER_NAME, KERNEL_PREFIX)                          \
+    static inline void LAUNCHER_NAME(                                                     \
+        uint32_t numBlocks, void* stream, uint8_t* a, uint8_t* b, uint8_t* carray,        \
+        const GemmBatchedGemmTilingData& tilingData)                                      \
+    {                                                                                     \
+        bool isTransA = tilingData.isTransA != 0;                                         \
+        bool isTransB = tilingData.isTransB != 0;                                         \
+        if (isTransA && isTransB) {                                                       \
+            KERNEL_PREFIX##_tt<<<numBlocks, nullptr, stream>>>(a, b, carray, tilingData); \
+        } else if (isTransA) {                                                            \
+            KERNEL_PREFIX##_tn<<<numBlocks, nullptr, stream>>>(a, b, carray, tilingData); \
+        } else if (isTransB) {                                                            \
+            KERNEL_PREFIX##_nt<<<numBlocks, nullptr, stream>>>(a, b, carray, tilingData); \
+        } else {                                                                          \
+            KERNEL_PREFIX##_nn<<<numBlocks, nullptr, stream>>>(a, b, carray, tilingData); \
+        }                                                                                 \
+    }
 
 DEFINE_GEMM_DTYPE_LAUNCHER(LaunchGemmFp32, gemm_batched_gemm_kernel_fp32)
 DEFINE_GEMM_DTYPE_LAUNCHER(LaunchGemmFp16, gemm_batched_gemm_kernel_fp16)
 DEFINE_GEMM_DTYPE_LAUNCHER(LaunchGemmBf16, gemm_batched_gemm_kernel_bf16)
 #undef DEFINE_GEMM_DTYPE_LAUNCHER
 
-void gemm_batched_gemm_kernel_do(uint32_t numBlocks, void* stream,
-    const uint8_t* aarray, const uint8_t* barray, uint8_t* carray,
+void gemm_batched_gemm_kernel_do(
+    uint32_t numBlocks, void* stream, const uint8_t* aarray, const uint8_t* barray, uint8_t* carray,
     const GemmBatchedGemmTilingData& tilingData)
 {
     uint8_t* a = const_cast<uint8_t*>(aarray);
     uint8_t* b = const_cast<uint8_t*>(barray);
     switch (tilingData.dtypeCase) {
-        case GEMM_BATCHED_DTYPE_FP32: LaunchGemmFp32(numBlocks, stream, a, b, carray, tilingData); break;
-        case GEMM_BATCHED_DTYPE_FP16: LaunchGemmFp16(numBlocks, stream, a, b, carray, tilingData); break;
-        case GEMM_BATCHED_DTYPE_BF16: LaunchGemmBf16(numBlocks, stream, a, b, carray, tilingData); break;
-        default: break;
+        case GEMM_BATCHED_DTYPE_FP32:
+            LaunchGemmFp32(numBlocks, stream, a, b, carray, tilingData);
+            break;
+        case GEMM_BATCHED_DTYPE_FP16:
+            LaunchGemmFp16(numBlocks, stream, a, b, carray, tilingData);
+            break;
+        case GEMM_BATCHED_DTYPE_BF16:
+            LaunchGemmBf16(numBlocks, stream, a, b, carray, tilingData);
+            break;
+        default:
+            break;
     }
 }
 
@@ -483,16 +185,20 @@ void cgetri_strided_gemm_kernel_do(
 // ============================================================================
 
 template <typename DstType, typename SrcType>
-struct GbIsSameType { static constexpr bool value = false; };
+struct GbIsSameType {
+    static constexpr bool value = false;
+};
 template <typename T>
-struct GbIsSameType<T, T> { static constexpr bool value = true; };
+struct GbIsSameType<T, T> {
+    static constexpr bool value = true;
+};
 
 constexpr int32_t GB_AB_TILE = 256;
 constexpr uint32_t GB_ALIGN_BYTES = GEMM_BATCHED_UB_ALIGN_BYTES;
 
 template <typename T>
-__aicore__ inline void GbAlignedCRead(AscendC::LocalTensor<T>& dst,
-    AscendC::GlobalTensor<T>& src, uint64_t cOffset, uint32_t cnt)
+__aicore__ inline void GbAlignedCRead(
+    AscendC::LocalTensor<T>& dst, AscendC::GlobalTensor<T>& src, uint64_t cOffset, uint32_t cnt)
 {
     AscendC::DataCopyPadExtParams<T> padParams{false, 0, 0, 0};
     AscendC::DataCopyExtParams copyParams{1, static_cast<uint32_t>(cnt * sizeof(T)), 0, 0, 0};
@@ -500,8 +206,8 @@ __aicore__ inline void GbAlignedCRead(AscendC::LocalTensor<T>& dst,
 }
 
 template <typename T>
-__aicore__ inline void GbAlignedCWrite(AscendC::GlobalTensor<T>& dst,
-    AscendC::LocalTensor<T>& result, uint64_t cOffset, uint32_t cnt)
+__aicore__ inline void GbAlignedCWrite(
+    AscendC::GlobalTensor<T>& dst, AscendC::LocalTensor<T>& result, uint64_t cOffset, uint32_t cnt)
 {
     AscendC::DataCopyExtParams copyParams{1, static_cast<uint32_t>(cnt * sizeof(T)), 0, 0, 0};
     AscendC::DataCopyPad(dst[cOffset], result, copyParams);
@@ -515,8 +221,13 @@ __aicore__ inline void GbComputeColRange(int64_t totalCols, int64_t& startCol, i
         int64_t colsPerCore = (totalCols + blockNum - 1) / blockNum;
         startCol = static_cast<int64_t>(blockIdx) * colsPerCore;
         endCol = startCol + colsPerCore;
-        if (endCol > totalCols) { endCol = totalCols; }
-        if (startCol >= totalCols) { startCol = 0; endCol = 0; }
+        if (endCol > totalCols) {
+            endCol = totalCols;
+        }
+        if (startCol >= totalCols) {
+            startCol = 0;
+            endCol = 0;
+        }
     } else {
         startCol = 0;
         endCol = totalCols;
@@ -524,10 +235,11 @@ __aicore__ inline void GbComputeColRange(int64_t totalCols, int64_t& startCol, i
 }
 
 template <typename Op>
-__aicore__ inline void GbIterateColTiles(Op& op, int64_t startCol, int64_t endCol,
-    int32_t n, int32_t m)
+__aicore__ inline void GbIterateColTiles(Op& op, int64_t startCol, int64_t endCol, int32_t n, int32_t m)
 {
-    if (startCol >= endCol) { return; }
+    if (startCol >= endCol) {
+        return;
+    }
     int32_t prevBatch = -1;
     for (int64_t globalCol = startCol; globalCol < endCol; globalCol++) {
         int32_t batchIdx = static_cast<int32_t>(globalCol / n);
@@ -542,7 +254,9 @@ __aicore__ inline void GbIterateColTiles(Op& op, int64_t startCol, int64_t endCo
         int32_t rowOffset = 0;
         while (rowOffset < m) {
             int32_t count = m - rowOffset;
-            if (count > GB_AB_TILE) { count = GB_AB_TILE; }
+            if (count > GB_AB_TILE) {
+                count = GB_AB_TILE;
+            }
             op.ProcessTile(col, rowOffset, count);
             rowOffset += count;
         }
@@ -559,8 +273,8 @@ protected:
     static constexpr bool IS_FP32 = GbIsSameType<CType, float>::value;
     static constexpr uint32_t C_ELEM_SIZE = GbDtypeTraits<DtypeId>::elemSize;
     static constexpr uint32_t ALIGN_ELEMS = GB_ALIGN_BYTES / sizeof(CType);
-    static constexpr AscendC::RoundMode OUTPUT_ROUND = (DtypeId == 1)
-        ? AscendC::RoundMode::CAST_ROUND : AscendC::RoundMode::CAST_RINT;
+    static constexpr AscendC::RoundMode OUTPUT_ROUND =
+        (DtypeId == 1) ? AscendC::RoundMode::CAST_ROUND : AscendC::RoundMode::CAST_RINT;
 
     int32_t m_ = 0;
     int32_t n_ = 0;
@@ -570,10 +284,7 @@ protected:
     int64_t endCol_ = 0;
     __gm__ uint64_t* cPtrArr_ = nullptr;
 
-    __aicore__ inline void InitColRange()
-    {
-        GbComputeColRange(totalCols_, startCol_, endCol_);
-    }
+    __aicore__ inline void InitColRange() { GbComputeColRange(totalCols_, startCol_, endCol_); }
 
     __aicore__ inline __gm__ CType* GetCGmBatch(int32_t batchIdx)
     {
@@ -581,10 +292,7 @@ protected:
     }
 
 public:
-    __aicore__ inline void Process()
-    {
-        GbIterateColTiles(static_cast<Derived&>(*this), startCol_, endCol_, n_, m_);
-    }
+    __aicore__ inline void Process() { GbIterateColTiles(static_cast<Derived&>(*this), startCol_, endCol_, n_, m_); }
 };
 
 template <uint32_t DtypeId>
@@ -593,8 +301,8 @@ class GemmBatchedAlphaBetaOp : public GemmBatchedColOpBase<GemmBatchedAlphaBetaO
     using CType = typename Base::CType;
 
 public:
-    __aicore__ inline void Init(__gm__ uint8_t* tempAB, __gm__ uint8_t* carray,
-                                GemmBatchedAlphaBetaTilingData tiling, AscendC::TPipe* pipe)
+    __aicore__ inline void Init(
+        __gm__ uint8_t* tempAB, __gm__ uint8_t* carray, GemmBatchedAlphaBetaTilingData tiling, AscendC::TPipe* pipe)
     {
         pipe_ = pipe;
         this->m_ = tiling.m;
@@ -632,10 +340,8 @@ public:
         cBufTotalElems_ = static_cast<uint64_t>(this->ldc_) * this->n_;
         cOrigGlobal_.SetGlobalBuffer(cGmBatch, cBufTotalElems_);
         cOutGlobal_.SetGlobalBuffer(cGmBatch, cBufTotalElems_);
-        __gm__ float* tempBatchBase = tempBase_ +
-            static_cast<uint64_t>(batchIdx) * this->n_ * tempRowStride_;
-        tempGlobal_.SetGlobalBuffer(tempBatchBase,
-            static_cast<uint64_t>(tempRowStride_) * this->n_);
+        __gm__ float* tempBatchBase = tempBase_ + static_cast<uint64_t>(batchIdx) * this->n_ * tempRowStride_;
+        tempGlobal_.SetGlobalBuffer(tempBatchBase, static_cast<uint64_t>(tempRowStride_) * this->n_);
     }
 
     __aicore__ inline void ProcessTile(int32_t col, int32_t rowOffset, int32_t count)
@@ -660,8 +366,7 @@ public:
         tempQue_.FreeTensor(tempLocal);
     }
 
-    __aicore__ inline void ProcessTileFp32(
-        AscendC::LocalTensor<float>& tempLocal, uint32_t cnt, uint64_t cOffset)
+    __aicore__ inline void ProcessTileFp32(AscendC::LocalTensor<float>& tempLocal, uint32_t cnt, uint64_t cOffset)
     {
         AscendC::LocalTensor<float> result = outQue_.AllocTensor<float>();
         AscendC::Muls(result, tempLocal, alpha_, cnt);
@@ -685,8 +390,7 @@ public:
         outQue_.FreeTensor(outReady);
     }
 
-    __aicore__ inline void ProcessTileNonFp32(
-        AscendC::LocalTensor<float>& tempLocal, uint32_t cnt, uint64_t cOffset)
+    __aicore__ inline void ProcessTileNonFp32(AscendC::LocalTensor<float>& tempLocal, uint32_t cnt, uint64_t cOffset)
     {
         AscendC::LocalTensor<float> result = resultQue_.AllocTensor<float>();
         AscendC::Muls(result, tempLocal, alpha_, cnt);
@@ -740,24 +444,23 @@ private:
 };
 
 // ── extern "C" kernel entry points for alpha/beta post-process ──
-#define GEMM_BATCHED_AB_KERNEL_ENTRY(FUNC_NAME, DTYPE_ID) \
-extern "C" __global__ __aicore__ void FUNC_NAME( \
-    __gm__ uint8_t* tempAB, __gm__ uint8_t* carray, \
-    GemmBatchedAlphaBetaTilingData tiling) \
-{ \
-    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY); \
-    AscendC::TPipe pipe; \
-    GemmBatchedAlphaBetaOp<DTYPE_ID> op; \
-    op.Init(tempAB, carray, tiling, &pipe); \
-    op.Process(); \
-}
+#define GEMM_BATCHED_AB_KERNEL_ENTRY(FUNC_NAME, DTYPE_ID)                                      \
+    extern "C" __global__ __aicore__ void FUNC_NAME(                                           \
+        __gm__ uint8_t* tempAB, __gm__ uint8_t* carray, GemmBatchedAlphaBetaTilingData tiling) \
+    {                                                                                          \
+        KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);                                        \
+        AscendC::TPipe pipe;                                                                   \
+        GemmBatchedAlphaBetaOp<DTYPE_ID> op;                                                   \
+        op.Init(tempAB, carray, tiling, &pipe);                                                \
+        op.Process();                                                                          \
+    }
 
 GEMM_BATCHED_AB_KERNEL_ENTRY(gemm_batched_alpha_beta_kernel_fp32, 0)
 GEMM_BATCHED_AB_KERNEL_ENTRY(gemm_batched_alpha_beta_kernel_fp16, 1)
 GEMM_BATCHED_AB_KERNEL_ENTRY(gemm_batched_alpha_beta_kernel_bf16, 2)
 
-void gemm_batched_alpha_beta_kernel_do(uint32_t numBlocks, void* stream,
-    const uint8_t* tempAB, uint8_t* carray,
+void gemm_batched_alpha_beta_kernel_do(
+    uint32_t numBlocks, void* stream, const uint8_t* tempAB, uint8_t* carray,
     const GemmBatchedAlphaBetaTilingData& tilingData)
 {
     uint8_t* tempABPtr = const_cast<uint8_t*>(tempAB);
@@ -778,9 +481,9 @@ template <uint32_t DtypeId>
 class GemmBatchedEarlyExitOp : public GemmBatchedColOpBase<GemmBatchedEarlyExitOp<DtypeId>, DtypeId> {
     using Base = GemmBatchedColOpBase<GemmBatchedEarlyExitOp<DtypeId>, DtypeId>;
     using CType = typename Base::CType;
+
 public:
-    __aicore__ inline void Init(__gm__ uint8_t* carray, GemmBatchedAlphaBetaTilingData tiling,
-                                AscendC::TPipe* pipe)
+    __aicore__ inline void Init(__gm__ uint8_t* carray, GemmBatchedAlphaBetaTilingData tiling, AscendC::TPipe* pipe)
     {
         pipe_ = pipe;
         this->m_ = tiling.m;
@@ -852,23 +555,22 @@ private:
 };
 
 // ── extern "C" kernel entry points for early-exit ──
-#define GEMM_BATCHED_EE_KERNEL_ENTRY(FUNC_NAME, DTYPE_ID) \
-extern "C" __global__ __aicore__ void FUNC_NAME( \
-    __gm__ uint8_t* carray, GemmBatchedAlphaBetaTilingData tiling) \
-{ \
-    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY); \
-    AscendC::TPipe pipe; \
-    GemmBatchedEarlyExitOp<DTYPE_ID> op; \
-    op.Init(carray, tiling, &pipe); \
-    op.Process(); \
-}
+#define GEMM_BATCHED_EE_KERNEL_ENTRY(FUNC_NAME, DTYPE_ID)                                                          \
+    extern "C" __global__ __aicore__ void FUNC_NAME(__gm__ uint8_t* carray, GemmBatchedAlphaBetaTilingData tiling) \
+    {                                                                                                              \
+        KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);                                                            \
+        AscendC::TPipe pipe;                                                                                       \
+        GemmBatchedEarlyExitOp<DTYPE_ID> op;                                                                       \
+        op.Init(carray, tiling, &pipe);                                                                            \
+        op.Process();                                                                                              \
+    }
 
 GEMM_BATCHED_EE_KERNEL_ENTRY(gemm_batched_early_exit_kernel_fp32, 0)
 GEMM_BATCHED_EE_KERNEL_ENTRY(gemm_batched_early_exit_kernel_fp16, 1)
 GEMM_BATCHED_EE_KERNEL_ENTRY(gemm_batched_early_exit_kernel_bf16, 2)
 
-void gemm_batched_early_exit_kernel_do(uint32_t numBlocks, void* stream,
-    uint8_t* carray, const GemmBatchedAlphaBetaTilingData& tilingData)
+void gemm_batched_early_exit_kernel_do(
+    uint32_t numBlocks, void* stream, uint8_t* carray, const GemmBatchedAlphaBetaTilingData& tilingData)
 {
     if (tilingData.dtypeCase == GEMM_BATCHED_DTYPE_FP32) {
         gemm_batched_early_exit_kernel_fp32<<<numBlocks, nullptr, stream>>>(carray, tilingData);
@@ -902,50 +604,44 @@ constexpr uint32_t CGEMM_BATCHED_ALIGN = GEMM_BATCHED_UB_ALIGN_BYTES;
 // Pattern: Scalar SetValue base group (8 int32 = 32B) + Adds vector extension.
 // Uses int32_t for Adds (uint32_t not supported), then caller reinterprets as uint32_t.
 __aicore__ inline void GbBuildGatherOffsetTable(
-    AscendC::LocalTensor<int32_t>& evenOff,
-    AscendC::LocalTensor<int32_t>& oddOff,
-    uint32_t count)
+    AscendC::LocalTensor<int32_t>& evenOff, AscendC::LocalTensor<int32_t>& oddOff, uint32_t count)
 {
-    constexpr uint32_t VEC_GROUP = 8;                          // 8 × int32 = 32B (Adds alignment)
+    constexpr uint32_t VEC_GROUP = 8;                                   // 8 × int32 = 32B (Adds alignment)
     constexpr int32_t STRIDE = 2 * static_cast<int32_t>(sizeof(float)); // = 8
     for (uint32_t i = 0; i < VEC_GROUP; i++) {
         evenOff.SetValue(i, static_cast<int32_t>(i) * STRIDE);
     }
     uint32_t numGroups = count / VEC_GROUP;
     for (uint32_t g = 1; g < numGroups; g++) {
-        AscendC::Adds(evenOff[g * VEC_GROUP], evenOff,
-            static_cast<int32_t>(g * VEC_GROUP) * STRIDE, static_cast<int32_t>(VEC_GROUP));
+        AscendC::Adds(
+            evenOff[g * VEC_GROUP], evenOff, static_cast<int32_t>(g * VEC_GROUP) * STRIDE,
+            static_cast<int32_t>(VEC_GROUP));
     }
-    AscendC::Adds(oddOff, evenOff, static_cast<int32_t>(sizeof(float)),
-        static_cast<int32_t>(count));
+    AscendC::Adds(oddOff, evenOff, static_cast<int32_t>(sizeof(float)), static_cast<int32_t>(count));
     AscendC::PipeBarrier<PIPE_ALL>();
 }
 
 __aicore__ inline void GbInitGatherOffsetBuffer(
-    AscendC::TPipe* pipe,
-    AscendC::TBuf<AscendC::TPosition::VECCALC>& idxBuf,
-    AscendC::LocalTensor<uint32_t>& evenOff,
+    AscendC::TPipe* pipe, AscendC::TBuf<AscendC::TPosition::VECCALC>& idxBuf, AscendC::LocalTensor<uint32_t>& evenOff,
     AscendC::LocalTensor<uint32_t>& oddOff)
 {
     uint32_t idxBufSize = 2 * CGEMM_BATCHED_TILE * sizeof(uint32_t) + CGEMM_BATCHED_ALIGN;
     pipe->InitBuffer(idxBuf, idxBufSize);
     {
         auto evenOffI32 = idxBuf.GetWithOffset<int32_t>(CGEMM_BATCHED_TILE, 0);
-        auto oddOffI32 = idxBuf.GetWithOffset<int32_t>(CGEMM_BATCHED_TILE,
-            CGEMM_BATCHED_TILE * sizeof(uint32_t));
+        auto oddOffI32 = idxBuf.GetWithOffset<int32_t>(CGEMM_BATCHED_TILE, CGEMM_BATCHED_TILE * sizeof(uint32_t));
         GbBuildGatherOffsetTable(evenOffI32, oddOffI32, CGEMM_BATCHED_TILE);
     }
     evenOff = idxBuf.GetWithOffset<uint32_t>(CGEMM_BATCHED_TILE, 0);
-    oddOff = idxBuf.GetWithOffset<uint32_t>(CGEMM_BATCHED_TILE,
-        CGEMM_BATCHED_TILE * sizeof(uint32_t));
+    oddOff = idxBuf.GetWithOffset<uint32_t>(CGEMM_BATCHED_TILE, CGEMM_BATCHED_TILE * sizeof(uint32_t));
 }
 
 // Column-wise deinterleave: splits interleaved complex matrix into real/imag.
 class CgemmBatchedDeinterleaveColOp {
 public:
-    __aicore__ inline void Init(__gm__ uint8_t* srcArray, __gm__ uint8_t* realArray,
-                                __gm__ uint8_t* imagArray, CgemmBatchedDeinterleaveTilingData tiling,
-                                AscendC::TPipe* pipe)
+    __aicore__ inline void Init(
+        __gm__ uint8_t* srcArray, __gm__ uint8_t* realArray, __gm__ uint8_t* imagArray,
+        CgemmBatchedDeinterleaveTilingData tiling, AscendC::TPipe* pipe)
     {
         pipe_ = pipe;
         physRows_ = tiling.m;
@@ -968,10 +664,7 @@ public:
         GbComputeColRange(totalCols_, startCol_, endCol_);
     }
 
-    __aicore__ inline void Process()
-    {
-        GbIterateColTiles(*this, startCol_, endCol_, physCols_, physRows_);
-    }
+    __aicore__ inline void Process() { GbIterateColTiles(*this, startCol_, endCol_, physCols_, physRows_); }
 
     __aicore__ inline void OnBatchEnter(int32_t batchIdx)
     {
@@ -1061,10 +754,9 @@ extern "C" __global__ __aicore__ void cgemm_batched_deinterleave_col_kernel(
 // ============================================================================
 class CgemmBatchedCombineOp {
 public:
-    __aicore__ inline void Init(__gm__ uint8_t* t1Array, __gm__ uint8_t* t2Array,
-                                __gm__ uint8_t* t3Array, __gm__ uint8_t* t4Array,
-                                __gm__ uint8_t* carray,
-                                CgemmBatchedCombineTilingData tiling, AscendC::TPipe* pipe)
+    __aicore__ inline void Init(
+        __gm__ uint8_t* t1Array, __gm__ uint8_t* t2Array, __gm__ uint8_t* t3Array, __gm__ uint8_t* t4Array,
+        __gm__ uint8_t* carray, CgemmBatchedCombineTilingData tiling, AscendC::TPipe* pipe)
     {
         pipe_ = pipe;
         m_ = tiling.m;
@@ -1101,10 +793,7 @@ public:
         GbComputeColRange(totalCols_, startCol_, endCol_);
     }
 
-    __aicore__ inline void Process()
-    {
-        GbIterateColTiles(*this, startCol_, endCol_, n_, m_);
-    }
+    __aicore__ inline void Process() { GbIterateColTiles(*this, startCol_, endCol_, n_, m_); }
 
     __aicore__ inline void OnBatchEnter(int32_t batchIdx)
     {
@@ -1123,13 +812,14 @@ public:
     }
 
     __aicore__ inline void ApplyBeta(
-        AscendC::LocalTensor<float>& cr, AscendC::LocalTensor<float>& ci,
-        uint32_t cnt, uint64_t cFloatOffset, AscendC::DataCopyPadExtParams<float>& pad)
+        AscendC::LocalTensor<float>& cr, AscendC::LocalTensor<float>& ci, uint32_t cnt, uint64_t cFloatOffset,
+        AscendC::DataCopyPadExtParams<float>& pad)
     {
         AscendC::LocalTensor<float> cOrig = cOrigQue_.AllocTensor<float>();
         AscendC::DataCopyExtParams cParams{1, static_cast<uint32_t>(cnt * 2 * sizeof(float)), 0, 0, 0};
         AscendC::DataCopyPad(cOrig, cFloatGlobal_[cFloatOffset], cParams, pad);
-        cOrigQue_.EnQue(cOrig); cOrig = cOrigQue_.DeQue<float>();
+        cOrigQue_.EnQue(cOrig);
+        cOrig = cOrigQue_.DeQue<float>();
 
         AscendC::LocalTensor<float> coR = prQue_.AllocTensor<float>();
         AscendC::LocalTensor<float> coI = piQue_.AllocTensor<float>();
@@ -1148,8 +838,26 @@ public:
         AscendC::Muls(sI, coR, betaI_, cnt);
         AscendC::Sub(cr, cr, sR, cnt);
         AscendC::Add(ci, ci, sI, cnt);
-        t1Que_.FreeTensor(sR); t2Que_.FreeTensor(sI);
-        prQue_.FreeTensor(coR); piQue_.FreeTensor(coI);
+        t1Que_.FreeTensor(sR);
+        t2Que_.FreeTensor(sI);
+        prQue_.FreeTensor(coR);
+        piQue_.FreeTensor(coI);
+    }
+
+    __aicore__ inline void StoreOutput(
+        AscendC::LocalTensor<float>& cr, AscendC::LocalTensor<float>& ci, uint32_t cnt, uint64_t cFloatOffset)
+    {
+        AscendC::LocalTensor<float> out = outQue_.AllocTensor<float>();
+        AscendC::Scatter(out, cr, evenOff_, 0U, cnt);
+        AscendC::Scatter(out, ci, oddOff_, 0U, cnt);
+        AscendC::PipeBarrier<PIPE_ALL>();
+        crQue_.FreeTensor(cr);
+        ciQue_.FreeTensor(ci);
+
+        outQue_.EnQue(out);
+        AscendC::LocalTensor<float> outReady = outQue_.DeQue<float>();
+        GbAlignedCWrite(cFloatGlobal_, outReady, cFloatOffset, cnt * 2);
+        outQue_.FreeTensor(outReady);
     }
 
     __aicore__ inline void ProcessTile(int32_t col, int32_t rowOffset, int32_t count)
@@ -1163,26 +871,32 @@ public:
 
         AscendC::LocalTensor<float> t1 = t1Que_.AllocTensor<float>();
         GbAlignedCRead(t1, t1Global_, tempOffset, cnt);
-        t1Que_.EnQue(t1); t1 = t1Que_.DeQue<float>();
+        t1Que_.EnQue(t1);
+        t1 = t1Que_.DeQue<float>();
 
         AscendC::LocalTensor<float> t2 = t2Que_.AllocTensor<float>();
         GbAlignedCRead(t2, t2Global_, tempOffset, cnt);
-        t2Que_.EnQue(t2); t2 = t2Que_.DeQue<float>();
+        t2Que_.EnQue(t2);
+        t2 = t2Que_.DeQue<float>();
 
         AscendC::LocalTensor<float> t3 = t3Que_.AllocTensor<float>();
         GbAlignedCRead(t3, t3Global_, tempOffset, cnt);
-        t3Que_.EnQue(t3); t3 = t3Que_.DeQue<float>();
+        t3Que_.EnQue(t3);
+        t3 = t3Que_.DeQue<float>();
 
         AscendC::LocalTensor<float> t4 = t4Que_.AllocTensor<float>();
         GbAlignedCRead(t4, t4Global_, tempOffset, cnt);
-        t4Que_.EnQue(t4); t4 = t4Que_.DeQue<float>();
+        t4Que_.EnQue(t4);
+        t4 = t4Que_.DeQue<float>();
 
         AscendC::LocalTensor<float> pr = prQue_.AllocTensor<float>();
         AscendC::Sub(pr, t1, t2, cnt);
         AscendC::LocalTensor<float> pi = piQue_.AllocTensor<float>();
         AscendC::Add(pi, t3, t4, cnt);
-        t1Que_.FreeTensor(t1); t2Que_.FreeTensor(t2);
-        t3Que_.FreeTensor(t3); t4Que_.FreeTensor(t4);
+        t1Que_.FreeTensor(t1);
+        t2Que_.FreeTensor(t2);
+        t3Que_.FreeTensor(t3);
+        t4Que_.FreeTensor(t4);
 
         AscendC::LocalTensor<float> cr = crQue_.AllocTensor<float>();
         AscendC::LocalTensor<float> ci = ciQue_.AllocTensor<float>();
@@ -1193,22 +907,14 @@ public:
         AscendC::Muls(ci, pi, alphaR_, cnt);
         AscendC::Muls(tmp, pr, alphaI_, cnt);
         AscendC::Add(ci, ci, tmp, cnt);
-        prQue_.FreeTensor(tmp); prQue_.FreeTensor(pr); piQue_.FreeTensor(pi);
+        prQue_.FreeTensor(tmp);
+        prQue_.FreeTensor(pr);
+        piQue_.FreeTensor(pi);
 
         if (hasBeta_) {
             ApplyBeta(cr, ci, cnt, cFloatOffset, pad);
         }
-
-        AscendC::LocalTensor<float> out = outQue_.AllocTensor<float>();
-        AscendC::Scatter(out, cr, evenOff_, 0U, cnt);
-        AscendC::Scatter(out, ci, oddOff_, 0U, cnt);
-        AscendC::PipeBarrier<PIPE_ALL>();
-        crQue_.FreeTensor(cr); ciQue_.FreeTensor(ci);
-
-        outQue_.EnQue(out);
-        AscendC::LocalTensor<float> outReady = outQue_.DeQue<float>();
-        GbAlignedCWrite(cFloatGlobal_, outReady, cFloatOffset, cnt * 2);
-        outQue_.FreeTensor(outReady);
+        StoreOutput(cr, ci, cnt, cFloatOffset);
     }
 
 private:
@@ -1252,8 +958,7 @@ private:
 };
 
 extern "C" __global__ __aicore__ void cgemm_batched_combine_kernel(
-    __gm__ uint8_t* t1Array, __gm__ uint8_t* t2Array,
-    __gm__ uint8_t* t3Array, __gm__ uint8_t* t4Array,
+    __gm__ uint8_t* t1Array, __gm__ uint8_t* t2Array, __gm__ uint8_t* t3Array, __gm__ uint8_t* t4Array,
     __gm__ uint8_t* carray, CgemmBatchedCombineTilingData tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
@@ -1263,18 +968,16 @@ extern "C" __global__ __aicore__ void cgemm_batched_combine_kernel(
     op.Process();
 }
 
-void cgemm_batched_deinterleave_do(uint32_t numBlocks, void* stream,
-    uint8_t* srcArray, uint8_t* realArray, uint8_t* imagArray,
+void cgemm_batched_deinterleave_do(
+    uint32_t numBlocks, void* stream, uint8_t* srcArray, uint8_t* realArray, uint8_t* imagArray,
     const CgemmBatchedDeinterleaveTilingData& tiling)
 {
-    cgemm_batched_deinterleave_col_kernel<<<numBlocks, nullptr, stream>>>(
-        srcArray, realArray, imagArray, tiling);
+    cgemm_batched_deinterleave_col_kernel<<<numBlocks, nullptr, stream>>>(srcArray, realArray, imagArray, tiling);
 }
 
-void cgemm_batched_combine_do(uint32_t numBlocks, void* stream,
-    uint8_t* t1Array, uint8_t* t2Array, uint8_t* t3Array, uint8_t* t4Array,
+void cgemm_batched_combine_do(
+    uint32_t numBlocks, void* stream, uint8_t* t1Array, uint8_t* t2Array, uint8_t* t3Array, uint8_t* t4Array,
     uint8_t* carray, const CgemmBatchedCombineTilingData& tiling)
 {
-    cgemm_batched_combine_kernel<<<numBlocks, nullptr, stream>>>(
-        t1Array, t2Array, t3Array, t4Array, carray, tiling);
+    cgemm_batched_combine_kernel<<<numBlocks, nullptr, stream>>>(t1Array, t2Array, t3Array, t4Array, carray, tiling);
 }

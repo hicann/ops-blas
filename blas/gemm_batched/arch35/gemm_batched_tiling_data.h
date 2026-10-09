@@ -20,7 +20,7 @@ constexpr uint32_t GEMM_BATCHED_L1_BUF_NUM = 2;
 constexpr uint32_t GEMM_BATCHED_L1_BUF_MASK = GEMM_BATCHED_L1_BUF_NUM - 1;
 constexpr uint32_t GEMM_BATCHED_DEFAULT_TILE_M = 128;
 constexpr uint32_t GEMM_BATCHED_DEFAULT_TILE_N = 128;
-constexpr uint32_t GEMM_BATCHED_DEFAULT_TILE_K_CHUNK = 256;
+constexpr uint32_t GEMM_BATCHED_DEFAULT_TILE_K_CHUNK = 128;
 constexpr uint32_t GEMM_BATCHED_BASE_M = 16;
 constexpr uint32_t GEMM_BATCHED_BASE_N = 16;
 // L1 (arch35 DAV_3510) is partitioned into 2 independent banks of 256 KB each.
@@ -61,6 +61,7 @@ struct GemmBatchedGemmTilingData {
     uint32_t batchCount;
     uint32_t totalTasks;
     int32_t dtypeCase;
+    uint32_t balancedSplit;
 };
 
 struct GemmBatchedAlphaBetaTilingData {
@@ -86,11 +87,11 @@ struct GemmBatchedAlphaBetaTilingData {
 // Layout: complex element [i][j] stored at (i*ld + j) as aclblasComplex.
 // Output: realMat[i*ld + j], imagMat[i*ld + j] as float.
 struct CgemmBatchedDeinterleaveTilingData {
-    int32_t m;            // physical rows of the matrix
-    int32_t k;            // physical columns of the matrix
-    int32_t lda;          // leading dimension (in complex elements)
+    int32_t m;           // physical rows of the matrix
+    int32_t k;           // physical columns of the matrix
+    int32_t lda;         // leading dimension (in complex elements)
     int32_t batchCount;
-    int32_t isConjugate;  // 1 if imaginary part should be negated (for conj-transpose C)
+    int32_t isConjugate; // 1 if imaginary part should be negated (for conj-transpose C)
     int32_t usedAivCoreNum;
 };
 
@@ -104,14 +105,75 @@ struct CgemmBatchedDeinterleaveTilingData {
 struct CgemmBatchedCombineTilingData {
     int32_t m;
     int32_t n;
-    int32_t ldc;          // leading dimension of C (in complex elements)
-    int32_t tempRowStride;// stride of T1..T4 (= ceilAlign(m, L0C_C0))
+    int32_t ldc;           // leading dimension of C (in complex elements)
+    int32_t tempRowStride; // stride of T1..T4 (= ceilAlign(m, L0C_C0))
     float alphaReal;
     float alphaImag;
     float betaReal;
     float betaImag;
-    int32_t hasBeta;      // 1 if (betaReal!=0 || betaImag!=0)
+    int32_t hasBeta; // 1 if (betaReal!=0 || betaImag!=0)
     int32_t batchCount;
     int32_t usedAivCoreNum;
-    int64_t totalCols;    // batchCount * n
+    int64_t totalCols; // batchCount * n
+};
+
+// Direct SIMT complex accumulation for skinny logical outputs.  Keeping the
+// complex multiply-add intact avoids the cancellation introduced by the 4M
+// decomposition when each batch contains only a few output values.
+struct CgemmBatchedDirectTilingData {
+    int32_t m;
+    int32_t n;
+    int32_t k;
+    int32_t lda;
+    int32_t ldb;
+    int32_t ldc;
+    int32_t transA; // 0: N, 1: T, 2: conjugate transpose
+    int32_t transB; // 0: N, 1: T, 2: conjugate transpose
+    int32_t batchCount;
+    float alphaReal;
+    float alphaImag;
+    float betaReal;
+    float betaImag;
+};
+
+// Fast path for the benchmark's compact N/N, alpha=1, beta=0 cases.
+// A complex (m x k) is expanded into a strict-FP32 real matrix (2m x 2k):
+//   [ ar -ai ]
+//   [ ai  ar ]
+// while interleaved B is already a real (2k x n) matrix.  One real GEMM then
+// writes the interleaved (2m x n) complex result directly.
+struct CgemmBatchedRealifyATilingData {
+    int32_t m;
+    int32_t k;
+    int32_t lda;
+    int32_t batchCount;
+    uint32_t dataOffsetBytes; // 0 selects the legacy one-pointer-array layout
+};
+
+struct CgemmBatchedSplitKPointerTilingData {
+    uint32_t batchCount;
+    uint32_t alignedPtrBytes;
+    uint64_t aOffsetBytes;
+    uint64_t bOffsetBytes;
+    uint64_t tempDataOffsetBytes;
+    uint64_t tempPerBatchBytes;
+};
+// Generic packer used by the one-real-GEMM path when either operand is
+// transposed/conjugate-transposed.  It materializes R(op(A)) as (2m x 2k)
+// and the interleaved op(B) as a real (2k x n) matrix.
+struct CgemmBatchedRealifyGenericTilingData {
+    int32_t m;
+    int32_t n;
+    int32_t k;
+    int32_t lda;
+    int32_t ldb;
+    int32_t transA;
+    int32_t transB;
+    int32_t batchCount;
+    int32_t packA;
+    int32_t packB;
+    int32_t chunkedSpatial;
+    int32_t tileTransA;
+    int32_t tileTransB;
+    int32_t transposeTile;
 };
