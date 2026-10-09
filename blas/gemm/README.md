@@ -2,7 +2,7 @@
 
 ## 算子概述
 
-aclblasSgemm / aclblasCgemm 算子实现了通用矩阵乘法，核心运算为 C = alpha * op(A) * op(B) + beta * C。aclblasSgemm 支持单精度（FP32）数据类型，aclblasCgemm 支持复数单精度（Complex32）数据类型，采用 BLAS 标准列主序存储。
+aclblasSgemm / aclblasCgemm 算子实现了通用矩阵乘法，核心运算为 C = alpha * op(A) * op(B) + beta * C。aclblasSgemm 支持单精度（FP32）数据类型，aclblasCgemm 支持复数单精度（COMPLEX64，每个复数由两个 FP32 分量组成）数据类型，采用 BLAS 标准列主序存储。
 
 数学表达式：
 
@@ -20,7 +20,7 @@ C = alpha * op(A) * op(B) + beta * C
 | 接口名 | 功能简述 |
 |--------|---------|
 | aclblasSgemm | 单精度（FP32）通用矩阵乘法，支持矩阵转置和 alpha/beta 缩放 |
-| aclblasCgemm | 复数单精度（Complex32）通用矩阵乘法，支持矩阵转置和 alpha/beta 缩放 |
+| aclblasCgemm | 复数单精度（COMPLEX64）通用矩阵乘法，支持矩阵转置和 alpha/beta 缩放 |
 
 ## 算子执行接口
 
@@ -292,6 +292,15 @@ result C (column-major):
 - Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
 - Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
 
+#### Ascend 950PR 实现说明
+
+- 实现目录：`blas/gemm/arch35/`
+- 调用方式：通过 `aclblasHandle_t` 绑定 stream，直接下发 Ascend C Kernel
+- 数据类型：`aclblasComplex`（单精度复数，实部和虚部均为 FP32）
+- 存储格式：BLAS 列主序，支持 `N`、`T`、`C` 全部转置组合
+- 自测目录：`test/gemm/cgemm/arch35/`
+- 精度测试：`./build/test/gemm/cgemm/cgemm_test`
+
 #### 函数原型
 
 ```cpp
@@ -309,12 +318,12 @@ aclblasStatus_t aclblasCgemm(aclblasHandle_t handle, aclblasOperation_t transa, 
 | n | 输入 | int | op(B) 和 C 的列数，N >= 0，Host 内存 |
 | k | 输入 | int | op(A) 的列数和 op(B) 的行数，K >= 0，Host 内存 |
 | alpha | 输入 | const aclblasComplex* | 标量 alpha 指针，不可为 nullptr，Host 内存 |
-| A | 输入 | const aclblasComplex* | 矩阵 A 的设备内存指针，Complex32，列主序；当 K > 0 且 alpha != 0 时不可为 nullptr，Device 内存 |
+| A | 输入 | const aclblasComplex* | 矩阵 A 的设备内存指针，COMPLEX64，列主序；当 K > 0 且 alpha != 0 时不可为 nullptr，Device 内存 |
 | lda | 输入 | int | 矩阵 A 的主维度（列主序），transA=N 时 lda >= max(1, M)，transA=T/C 时 lda >= max(1, K)，Host 内存 |
-| B | 输入 | const aclblasComplex* | 矩阵 B 的设备内存指针，Complex32，列主序；当 K > 0 且 alpha != 0 时不可为 nullptr，Device 内存 |
+| B | 输入 | const aclblasComplex* | 矩阵 B 的设备内存指针，COMPLEX64，列主序；当 K > 0 且 alpha != 0 时不可为 nullptr，Device 内存 |
 | ldb | 输入 | int | 矩阵 B 的主维度（列主序），transB=N 时 ldb >= max(1, K)，transB=T/C 时 ldb >= max(1, N)，Host 内存 |
 | beta | 输入 | const aclblasComplex* | 标量 beta 指针，不可为 nullptr，Host 内存 |
-| C | 输入/输出 | aclblasComplex* | 矩阵 C 的设备内存指针，Complex32，列主序；当 K > 0 或 beta != 0 时不可为 nullptr，Device 内存 |
+| C | 输入/输出 | aclblasComplex* | 矩阵 C 的设备内存指针，COMPLEX64，列主序；当 K > 0 或 beta != 0 时不可为 nullptr，Device 内存 |
 | ldc | 输入 | int | 矩阵 C 的主维度（列主序），ldc >= max(1, M)，Host 内存 |
 
 #### 约束说明

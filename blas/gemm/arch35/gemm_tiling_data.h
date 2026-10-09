@@ -45,4 +45,8 @@ struct GemmTilingData {
     float alphaImag;
     float betaReal;
     float betaImag;
+    // Cgemm extension fields are appended to preserve existing field offsets
+    int32_t cgemmKPartitions;
+    int32_t cgemmKSpan;
+    int32_t cgemmThreeProducts;
 };
