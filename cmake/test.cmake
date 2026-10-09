@@ -217,7 +217,7 @@ function(_ops_blas_ensure_refblas_found)
         find_path(REFBLAS_INCLUDE_DIR cblas.h
             PATHS /usr/local/include /usr/include /usr/include/x86_64-linux-gnu
                   ${HOMEBREW_PREFIX}/include)
-        find_library(REFBLAS_LIB NAMES blas
+        find_library(REFBLAS_LIB NAMES openblas blas
             PATHS /usr/local/lib /usr/lib /usr/lib/x86_64-linux-gnu
                   ${HOMEBREW_PREFIX}/lib
             PATH_SUFFIXES blas)

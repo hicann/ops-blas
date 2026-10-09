@@ -52,6 +52,8 @@ protected:
             return true;
         if (std::isnan(outVal) && std::isnan(goldVal))
             return true;
+        if (std::isinf(outVal) && std::isinf(goldVal))
+            return true;
         return false;
     }
 
@@ -157,12 +159,13 @@ public:
     {}
 
 protected:
-    // Delegates to base class; INF mismatches handled in processElement
     bool shouldSkip(float outVal, float goldVal) override { return PrecisionStrategy::shouldSkip(outVal, goldVal); }
 
     void processElement(float outVal, float goldVal) override
     {
-        // INF or NaN: hard failure
+        if ((std::isnan(outVal) && std::isnan(goldVal)) || (std::isinf(outVal) && std::isinf(goldVal))) {
+            return;
+        }
         if (std::isinf(outVal) || std::isinf(goldVal) || std::isnan(outVal) || std::isnan(goldVal)) {
             mismatchCount_++;
             return;
