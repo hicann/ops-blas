@@ -199,14 +199,15 @@ int main()
 
 #### 产品支持情况
 
-- Ascend 950PR / Ascend 950DT：不支持
-- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：支持
-- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
+- Ascend 950PR：支持
+- Ascend 950DT：不支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
 
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, aclblasComplex* x, const int64_t incx, float* result);
+aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, float* result);
 ```
 
 #### 参数说明
@@ -214,16 +215,25 @@ aclblasStatus_t aclblasScnrm2(aclblasHandle_t handle, const int64_t n, aclblasCo
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，内部携带 stream，Host 内存 |
-| n | 输入 | int64_t | 复数元素个数（kernel 内部处理 2\*n 个 float 元素），Host 内存 |
-| x | 输入 | aclblasComplex\* | 复数向量（交错实部/虚部存储，实际为 2\*n 个 float），Device 内存 |
-| incx | 输入 | int64_t | x 中连续元素之间的步长（仅支持 incx == 1），Host 内存 |
+| n | 输入 | int | 复数元素个数（kernel 内部处理 2\*n 个 float 元素），Host 内存 |
+| x | 输入 | const aclblasComplex\* | 复数向量（交错实部/虚部存储，实际为 2\*n 个 float），Device 内存 |
+| incx | 输入 | int | x 中连续元素之间的步长，支持正负步长，Host 内存 |
 | result | 输出 | float\* | 复数向量的欧几里得范数（FP32 结果），Device 内存 |
 
 #### 约束说明
 
-- n >= 0
-- incx == 1（arch22 仅支持此值）
+- n <= 0 时 quick return，result 写 0.0f
 - incx != 0
+
+Ascend 950PR 的补充约束与执行行为：
+
+- handle 和 result 不可为空；n > 0 时 x 不可为空，incx 不可为 INT32_MIN。
+- 正维度计算使用 handle 绑定的 stream，读取结果前应调用 `aclrtSynchronizeStream`。
+- 连续大向量优先使用 `aclnnNorm`；描述符创建、工作区查询或执行失败时记录错误并尝试自定义 kernel。
+- `aclnnNorm` 工作区不足时回退到自定义 kernel，不会在未执行计算时返回成功；自定义 kernel 工作区也不足时返回 `ACLBLAS_STATUS_ALLOC_FAILED`。
+- 自定义 kernel 采用缩放平方和归约，避免有限输入在中间平方时溢出或下溢；Inf/NaN 单独传播。
+- `aclnnNorm` 之后在同一 stream 上检查结果，对零值、极小值和溢出结果进行缩放归约重算，无需 Host 同步。
+- n <= 0 的 quick return 使用 Host 到 Device 的零值拷贝，不启动计算 kernel。
 
 #### 调用示例
 

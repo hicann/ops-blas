@@ -111,6 +111,40 @@ set_source_files_properties(
 )
 
 set(_OPS_BLAS_ASC_ROOT "${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/asc")
+
+# Compatibility headers from asc-devkit!5818, generated in the build tree.
+set(_OPS_BLAS_TENSOR_COMPAT_ROOT "")
+if("arch35" IN_LIST SOC_ARCH_DIRS AND EXISTS "${_OPS_BLAS_ASC_ROOT}/include/utils/base/sys_macros.h")
+  set(_OPS_BLAS_TENSOR_COMPAT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/generated/tensor_api_sdk_compat")
+  foreach(_compat_name utils_impl.h utils_type.h)
+    set(_compat_relative "impl/c_api/instr_impl/npu_arch_2201/utils_impl/${_compat_name}")
+    set(_compat_source "${OPTENSOR_INCLUDE_DIR}/tensor_api/${_compat_relative}")
+    set(_compat_output "${_OPS_BLAS_TENSOR_COMPAT_ROOT}/${_compat_relative}")
+    if(NOT EXISTS "${_compat_source}")
+      message(FATAL_ERROR "Expected pinned tensor_api header is missing: ${_compat_source}")
+    endif()
+    file(READ "${_compat_source}" _compat_original)
+    string(REPLACE "#include \"impl/utils/sys_macros.h\""
+                   "#include \"utils/base/sys_macros.h\""
+                   _compat_patched "${_compat_original}")
+    if(_compat_patched STREQUAL _compat_original)
+      string(FIND "${_compat_original}" "#include \"utils/base/sys_macros.h\"" _compat_public)
+      if(_compat_public EQUAL -1)
+        message(FATAL_ERROR "Unexpected tensor_api include layout: ${_compat_source}")
+      endif()
+    endif()
+    get_filename_component(_compat_output_dir "${_compat_output}" DIRECTORY)
+    file(MAKE_DIRECTORY "${_compat_output_dir}")
+    set(_compat_existing "")
+    if(EXISTS "${_compat_output}")
+      file(READ "${_compat_output}" _compat_existing)
+    endif()
+    if(NOT _compat_existing STREQUAL _compat_patched)
+      file(WRITE "${_compat_output}" "${_compat_patched}")
+    endif()
+  endforeach()
+  message(STATUS "Using build-local tensor_api SDK include compatibility headers (asc-devkit!5818)")
+endif()
 target_include_directories(${OPS_BLASLT} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/op_common/
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base/
@@ -125,6 +159,7 @@ target_include_directories(${OPS_BLASLT} PRIVATE
 # SHELL: prefix prevents CMake from stripping the second -iquote (CMake's
 # Makefile generator treats -iquote as a single-arg flag and drops duplicates).
 target_compile_options(${OPS_BLASLT} PRIVATE
+    "$<$<AND:$<COMPILE_LANGUAGE:ASC>,$<BOOL:${_OPS_BLAS_TENSOR_COMPAT_ROOT}>>:SHELL:-iquote \"${_OPS_BLAS_TENSOR_COMPAT_ROOT}\">"
     $<$<COMPILE_LANGUAGE:ASC>:SHELL:-iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api -iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api/include -DIMPL_TENSOR_API_UTILS_INT_IMPL_H>
 )
 
@@ -233,12 +268,17 @@ target_link_libraries(
   ${OPS_BLAS}
   PRIVATE tiling_api platform c_sec ascendc_runtime ascendcl runtime register)
 
+if("${CMAKE_CURRENT_SOURCE_DIR}/blas/nrm2/arch35/scnrm2_host.cpp" IN_LIST ALL_BLAS_SRC_FILES)
+  target_link_libraries(${OPS_BLAS} PRIVATE opapi nnopbase)
+endif()
+
 target_compile_definitions(${OPS_BLAS} PRIVATE
   ASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR}
   ASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR})
 
 target_compile_options(${OPS_BLAS} PRIVATE
     $<$<COMPILE_LANGUAGE:ASC>:--npu-arch=${NPU_ARCH} ${ASC_WARN_SUPPRESS} -DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
+    "$<$<AND:$<COMPILE_LANGUAGE:ASC>,$<BOOL:${_OPS_BLAS_TENSOR_COMPAT_ROOT}>>:SHELL:-iquote \"${_OPS_BLAS_TENSOR_COMPAT_ROOT}\">"
     $<$<COMPILE_LANGUAGE:ASC>:SHELL:-iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api -iquote ${OPTENSOR_INCLUDE_DIR}/tensor_api/include -DIMPL_TENSOR_API_UTILS_INT_IMPL_H>
     $<$<COMPILE_LANGUAGE:CXX>:-DASC_DEVKIT_MAJOR=${ASC_DEVKIT_MAJOR} -DASC_DEVKIT_MINOR=${ASC_DEVKIT_MINOR}>
     ${_ASC_TENSOR_API_COMPAT_OPTION}
