@@ -87,3 +87,4 @@ log/
 # Local model config (generated from template)
 agent/agents/model_config.json
 operators/
+outbox/

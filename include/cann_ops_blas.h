@@ -197,6 +197,7 @@ aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float* x, int 
 
 aclblasStatus_t aclblasIsamax(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
 aclblasStatus_t aclblasIsamin(aclblasHandle_t handle, int n, const float* x, int incx, int* result);
+aclblasStatus_t aclblasIcamin(aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, int* result);
 
 aclblasStatus_t aclblasCsrot(
     aclblasHandle_t handle, int n, aclblasComplex* x, int incx, aclblasComplex* y,
