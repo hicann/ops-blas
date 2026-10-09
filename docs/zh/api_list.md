@@ -860,6 +860,7 @@ Level 2 接口在矩阵与向量之间进行运算，典型操作包括通用矩
 | [aclblasStbmv](../../blas/tbmv/README.md) | 单精度三角带状矩阵-向量乘法（标准接口） |
 | [aclblasStpmv](../../blas/tpmv/README.md) | 单精度三角压缩矩阵-向量乘法（标准接口） |
 | [aclblasStpsv](../../blas/tpsv/README.md) | 单精度三角 packed 矩阵求解 |
+| [aclblasCtpsv](../../blas/tpsv/README.md) | 单精度复数三角 packed 矩阵求解 |
 | [aclblasStpttr](../../blas/tpttr/README.md) | 单精度压缩三角矩阵展开为常规矩阵 |
 | [aclblasStrmv](../../blas/trmv/README.md) | 实数三角矩阵-向量乘法 |
 | [aclblasCtrmv](../../blas/trmv/README.md) | 复数三角矩阵-向量乘法 |

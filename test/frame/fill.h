@@ -43,7 +43,7 @@ constexpr float kBlasSentinel = -999.0f;
 // ─────────────────────────────────────────────────────────────────────────────
 
 struct BlasFillMode {
-    enum Method { M_NULLPTR, M_INDEX, M_RANDOM, M_VALUE } method = M_INDEX;
+    enum Method { M_NULLPTR, M_INDEX, M_RANDOM, M_GAUSS, M_VALUE } method = M_INDEX;
     enum Pattern { P_NORM, P_UPPER, P_LOWER, P_DIAG, P_ALTER, P_EXTREME, P_ILLCOND, P_BANDED } pattern = P_NORM;
     float val1 = 1.0f;
     float val2 = 1.0f;
@@ -57,7 +57,7 @@ private:
     static const std::map<std::string, Method>& methodMap()
     {
         static const std::map<std::string, Method> m = {
-            {"NULLPTR", M_NULLPTR}, {"INDEX", M_INDEX}, {"RANDOM", M_RANDOM}, {"VALUE", M_VALUE}};
+            {"NULLPTR", M_NULLPTR}, {"INDEX", M_INDEX}, {"RANDOM", M_RANDOM}, {"GAUSS", M_GAUSS}, {"VALUE", M_VALUE}};
         return m;
     }
 
@@ -145,7 +145,7 @@ private:
             return;
 
         static const std::map<Method, std::pair<float, float>> defaults = {
-            {M_INDEX, {1.0f, 1.0f}}, {M_RANDOM, {1.0f, 1.0f}}, {M_VALUE, {0.0f, 0.0f}}};
+            {M_INDEX, {1.0f, 1.0f}}, {M_RANDOM, {1.0f, 1.0f}}, {M_GAUSS, {5.0f, 2.0f}}, {M_VALUE, {0.0f, 0.0f}}};
         auto dIt = defaults.find(method);
         if (dIt != defaults.end()) {
             val1 = dIt->second.first;
@@ -218,6 +218,28 @@ public:
     float at(size_t) override { return dist_(rng_); }
 };
 
+// 正态分布：μ ∈ [-muHi, muHi]、σ ∈ [0.1, sigHi] 由 rng 随机采样一次，随后所有元素同分布生成；
+// 元素值截断到 [-muHi, muHi]（与均匀分布值域一致），避免正态尾部大值导致三角求解 ill-conditioned
+// （对齐生态精度标准 test_case_generation.md「值域控制在 [-5,5]，避免结果超出 32×ULP 硬上限」）。
+class GaussGenerator : public ValueGenerator {
+    std::mt19937& rng_;
+    std::normal_distribution<float> dist_;
+    float muHi_;
+
+public:
+    GaussGenerator(std::mt19937& rng, float muHi, float sigHi) : rng_(rng), dist_(0.0f, 1.0f), muHi_(muHi)
+    {
+        std::uniform_real_distribution<float> muDist(-muHi, muHi);
+        std::uniform_real_distribution<float> sigDist(0.1f, sigHi);
+        dist_.param(std::normal_distribution<float>::param_type(muDist(rng), sigDist(rng)));
+    }
+    float at(size_t) override
+    {
+        float v = dist_(rng_);
+        return std::min(std::max(v, -muHi_), muHi_);
+    }
+};
+
 class AlterGenerator : public ValueGenerator {
 public:
     float at(size_t i) override { return (i % 2 == 0) ? static_cast<float>(i + 1) : -static_cast<float>(i + 1); }
@@ -259,7 +281,13 @@ inline std::unique_ptr<ValueGenerator> createGenerator(const BlasFillMode& mode,
                  float hi = (m.val2 < 0.0f) ? FLT_MAX : m.val2;
                  return std::make_unique<RandomGenerator>(r, lo, hi);
              }},
-        };
+            {BlasFillMode::M_GAUSS,
+             [](const BlasFillMode& m, std::mt19937& r) {
+                 float muHi = (m.val1 > 0.0f) ? m.val1 : 5.0f;   // μ 半宽，默认 5（μ∈[-5,5]）
+                 float sigHi = (m.val2 >= 0.1f) ? m.val2 : 2.0f; // σ 上限，默认 2（σ∈[0.1,2]）
+                 return std::make_unique<GaussGenerator>(r, muHi, sigHi);
+             }},
+    };
 
     auto mIt = methodGens.find(mode.method);
     if (mIt != methodGens.end())
@@ -462,7 +490,7 @@ inline void FillStructuredMatrix(
                          d[i + static_cast<size_t>(j) * lda] = dist(r) * scale;
                  }
              }},
-        };
+    };
 
     auto it = layoutMap.find(pattern);
     if (it != layoutMap.end())
@@ -600,8 +628,8 @@ enum class BlasLapackMatrixType {
 
 namespace detail {
 
-inline void fillRandomNonsingular(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
-                                  std::uniform_real_distribution<float>& dist01)
+inline void fillRandomNonsingular(
+    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist01)
 {
     for (int j = 0; j < n; j++) {
         for (int i = 0; i < n; i++)
@@ -616,8 +644,8 @@ inline void fillIdentity(std::vector<float>& mat, int n, int lda)
         mat[j * lda + j] = 1.0f;
 }
 
-inline void fillDiagonallyDominant(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
-                                   std::uniform_real_distribution<float>& dist01)
+inline void fillDiagonallyDominant(
+    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist01)
 {
     for (int j = 0; j < n; j++) {
         for (int i = 0; i < n; i++)
@@ -655,16 +683,16 @@ inline void fillTriangular(std::vector<float>& mat, int n, int lda, std::mt19937
     }
 }
 
-inline void fillSingularZeroCol(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
-                                std::uniform_real_distribution<float>& dist01)
+inline void fillSingularZeroCol(
+    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist01)
 {
     fillRandomNonsingular(mat, n, lda, rng, dist01);
     for (int i = 0; i < n; i++)
         mat[0 * lda + i] = 0.0f;
 }
 
-inline void fillSingularDependentRow(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
-                                     std::uniform_real_distribution<float>& dist01)
+inline void fillSingularDependentRow(
+    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist01)
 {
     fillRandomNonsingular(mat, n, lda, rng, dist01);
     int depRow = std::min(n - 1, 2);
@@ -673,8 +701,9 @@ inline void fillSingularDependentRow(std::vector<float>& mat, int n, int lda, st
             mat[j * lda + depRow] = 2.0f * mat[j * lda + 0];
 }
 
-inline void fillMixed(std::vector<float>& mat, int n, int lda, std::mt19937& rng,
-                      std::uniform_real_distribution<float>& dist01, int batchIdx)
+inline void fillMixed(
+    std::vector<float>& mat, int n, int lda, std::mt19937& rng, std::uniform_real_distribution<float>& dist01,
+    int batchIdx)
 {
     fillRandomNonsingular(mat, n, lda, rng, dist01);
     if (batchIdx % 2 == 1)
@@ -881,8 +910,7 @@ inline std::pair<std::vector<std::vector<float>>, std::vector<const float*>> Mak
 //   the real/imag ranges identical while avoiding degenerate correlation.
 // ─────────────────────────────────────────────────────────────────────────────
 
-inline std::vector<aclblasComplex> makeBlasComplexMatrix(
-    int m, int n, int lda, const BlasFillMode& fill, uint32_t seed)
+inline std::vector<aclblasComplex> makeBlasComplexMatrix(int m, int n, int lda, const BlasFillMode& fill, uint32_t seed)
 {
     if (fill.method == BlasFillMode::M_NULLPTR || m <= 0 || n <= 0 || lda <= 0) {
         return {};
