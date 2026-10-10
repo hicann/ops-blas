@@ -15,6 +15,7 @@ result = sum(|x[i]|) for i = 0 to n-1
 | 接口名 | 功能简述 |
 |--------|---------|
 | aclblasSasum | 实数向量绝对值之和 |
+| aclblasScasum | 复数（complex64）向量绝对值分量之和（新算子，950PR 支持） |
 
 ## 算子执行接口
 
@@ -41,8 +42,6 @@ aclblasStatus_t aclblasSasum(aclblasHandle_t handle, int n, const float *x, int 
 | x | 输入 | const float*（FP32） | float 向量，包含 n 个元素，Device 内存 |
 | incx | 输入 | int | x 中连续元素之间的步长，Host 内存 |
 | result | 输出 | float*（FP32） | 向量元素绝对值之和，Device 内存 |
-
-#### 约束说明
 
 - n <= 0 或 incx <= 0 时，result 被置为 0 并返回成功
 
@@ -186,3 +185,75 @@ int main()
     return 0;
 }
 ```
+
+**aclblasScasum 调用示例：**
+
+```cpp
+#include <cstdio>
+#include <memory>
+#include <vector>
+
+#include "acl/acl.h"
+#include "cann_ops_blas.h"
+
+int aclblasScasumTestDemo()
+{
+    aclblasHandle_t handle = nullptr;
+    aclblasStatus_t ret = aclblasCreate(&handle);
+    if (ret != ACLBLAS_STATUS_SUCCESS) return ret;
+
+    aclrtStream stream = nullptr;
+    aclrtCreateStream(&stream);
+    aclblasSetStream(handle, stream);
+
+    int n = 16; int incx = 1;
+    std::vector<aclblasComplex> xHostData(n);
+    for (int k = 0; k < n; ++k) {
+        xHostData[k].real = static_cast<float>(k + 1);
+        xHostData[k].imag = static_cast<float>(-(k + 1));
+    }
+    size_t xBytes = n * sizeof(aclblasComplex);
+
+    aclblasComplex* dX = nullptr;
+    float* dR = nullptr;
+    aclrtMalloc(reinterpret_cast<void**>(&dX), xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMalloc(reinterpret_cast<void**>(&dR), sizeof(float), ACL_MEM_MALLOC_HUGE_FIRST);
+    aclrtMemcpy(dX, xBytes, xHostData.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+
+    ret = aclblasScasum(handle, n, dX, incx, dR);
+
+    float result = 0.0f;
+    aclrtSynchronizeStream(stream);
+    aclrtMemcpy(&result, sizeof(float), dR, sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
+    printf("scasum result: %f\n", result);
+
+    aclrtFree(dX); aclrtFree(dR); aclrtDestroyStream(stream); aclblasDestroy(handle);
+    return ACL_SUCCESS;
+}
+```
+
+### aclblasScasum
+
+#### 产品支持情况
+
+- Ascend 950PR / Ascend 950DT：支持
+- Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
+- Atlas A2 训练系列产品 / Atlas A2 推理系列产品：不支持
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasScasum(aclblasHandle_t handle, int n, const aclblasComplex *x, int incx, float *result)
+```
+
+#### 参数说明
+
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，携带 stream，Host 内存 |
+| n | 输入 | int | 复数向量元素个数，Host 内存 |
+| x | 输入 | const aclblasComplex*（COMPLEX64） | 复数向量，实部虚部交错存储，包含 n 个元素，Device 内存 |
+| incx | 输入 | int | x 中相邻复数元素之间的步长（以复数元素为单位），Host 内存 |
+| result | 输出 | float*（FP32） | 各元素绝对值分量之和 Σ(\|Re\|+\|Im\|)，Device 内存 |
+
+- n <= 0 或 incx <= 0 时，result 被置为 0 并返回成功

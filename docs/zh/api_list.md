@@ -810,6 +810,7 @@ Level 1 接口在向量之间进行运算，典型操作包括向量缩放（sca
 | 接口名 | 说明 |
 |---|---|
 | [aclblasSasum](../../blas/asum/README.md) | 实数向量绝对值之和 |
+| [aclblasScasum](../../blas/asum/README.md) | 复数（complex64）向量绝对值分量之和（Ascend 950PR 支持） |
 | [aclblasSaxpy](../../blas/axpy/README.md) | 单精度浮点 AXPY（y = αx + y） |
 | [aclblasCaxpy](../../blas/axpy/README.md) | 复数 AXPY |
 | [aclblasCdgmm](../../blas/dgmm/README.md) | 行主序单精度复数对角矩阵左乘 |
