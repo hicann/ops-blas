@@ -206,14 +206,14 @@ int main()
 
 #### 产品支持情况
 
-- Ascend 950PR / Ascend 950DT：不支持
+- Ascend 950PR / Ascend 950DT：支持
 - Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
 - Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
 
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCdotu(aclblasHandle_t handle, const int64_t n, const aclblasComplex* x, const int64_t incx, const aclblasComplex* y, const int64_t incy, aclblasComplex* result);
+aclblasStatus_t aclblasCdotu(aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, const aclblasComplex* y, int incy, aclblasComplex* result);
 ```
 
 #### 参数说明
@@ -221,19 +221,33 @@ aclblasStatus_t aclblasCdotu(aclblasHandle_t handle, const int64_t n, const aclb
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，内部携带 stream 和 workspace，Host 内存 |
-| n | 输入 | int64_t | 复数向量元素个数，n >= 0，Host 内存 |
-| x | 输入 | const aclblasComplex*（复数 FP32） | 复数向量，包含 n 个 aclblasComplex 元素，Device 内存 |
-| incx | 输入 | int64_t | 向量 x 的步长（复数元素单位），当前仅支持 incx = 1，Host 内存 |
-| y | 输入 | const aclblasComplex*（复数 FP32） | 复数向量，包含 n 个 aclblasComplex 元素，Device 内存 |
-| incy | 输入 | int64_t | 向量 y 的步长（复数元素单位），当前仅支持 incy = 1，Host 内存 |
+| n | 输入 | int | 复数向量元素个数，n >= 0，Host 内存 |
+| x | 输入 | const aclblasComplex*（复数 FP32） | 复数向量，物理长度 1+(n-1)*\|incx\|，Device 内存，本算子对 x 不取共轭 |
+| incx | 输入 | int | 向量 x 的步长（复数元素单位），可正可负，incx != 0，Host 内存 |
+| y | 输入 | const aclblasComplex*（复数 FP32） | 复数向量，物理长度 1+(n-1)*\|incy\|，Device 内存 |
+| incy | 输入 | int | 向量 y 的步长（复数元素单位），可正可负，incy != 0，Host 内存 |
 | result | 输出 | aclblasComplex*（复数 FP32） | 复数点积结果，包含 1 个 aclblasComplex 元素，Device 内存 |
 
 #### 约束说明
 
-- n >= 0；n == 0 时直接返回成功，result 置 0
-- incx != 0，incy != 0
-- 当前实现仅支持 incx = 1 且 incy = 1，非单位步长尚未支持
-- n > 0 时，x、y、result 不能为 nullptr
+> aclblasCdotu 的约束随架构实现不同而有所差异，请按目标产品对应阅读：
+
+**Ascend 950PR / Ascend 950DT（arch35 实现）**
+
+- handle 为 nullptr 时返回 ACLBLAS_STATUS_HANDLE_IS_NULLPTR
+- n >= 0；n == 0 时直接返回成功，result 置 (0, 0)
+- incx == 0 或 incy == 0 时返回 ACLBLAS_STATUS_INVALID_VALUE；支持任意非零步长（含负步长，负步长语义对齐 Netlib cdotu，不视为 no-op）
+- result 不能为 nullptr（任意 n，含 n == 0）；n > 0 时，x、y 不能为 nullptr
+- incx == 1 且 incy == 1 时，x、y 的 Device 基地址必须 16 字节对齐（由 aclrtMalloc 分配的缓冲区天然满足；不得传入 8 字节对齐的内部指针，如 base + 1 个复数元素），否则返回 ACLBLAS_STATUS_INVALID_VALUE
+- 复数乘法语义：result = Σ(x[k] × y[j])，k = 1+(i-1)*incx，j = 1+(i-1)*incy（无共轭）
+- 归约累加顺序不保证跨次一致（无确定性计算要求）
+
+**Atlas A2 训练系列产品 / Atlas A2 推理系列产品（arch22 实现）**
+
+- handle 为 nullptr 时返回 ACLBLAS_STATUS_NOT_INITIALIZED
+- n <= 0 时视为空操作，向 result 写 (0, 0) 后返回成功
+- 仅支持 incx == 1 且 incy == 1，非单位步长返回 ACLBLAS_STATUS_INVALID_VALUE（不支持负步长）
+- result 不能为 nullptr；x、y 在 n > 0 时不能为 nullptr（为空返回 ACLBLAS_STATUS_INVALID_VALUE）
 
 
 #### 调用示例
@@ -320,9 +334,9 @@ int aclblasCdotuTest(AclContext& ctx)
               return blasRet);
 
     // 2. 准备 Host 数据
-    int64_t n = 4;  // 复数元素个数
-    int64_t incx = 1;
-    int64_t incy = 1;
+    int n = 4;  // 复数元素个数
+    int incx = 1;
+    int incy = 1;
     // x = [1+0.5i, 2+1i, 3+1.5i, 4+2i]
     std::vector<aclblasComplex> hX = {{1.0f, 0.5f}, {2.0f, 1.0f}, {3.0f, 1.5f}, {4.0f, 2.0f}};
     // y = [3+2i, 1+0.5i, 2+1i, 1+3i]
@@ -394,7 +408,7 @@ int main()
 #### 函数原型
 
 ```cpp
-aclblasStatus_t aclblasCdotc(aclblasHandle_t handle, const int64_t n, const aclblasComplex* x, const int64_t incx, const aclblasComplex* y, const int64_t incy, aclblasComplex* result);
+aclblasStatus_t aclblasCdotc(aclblasHandle_t handle, int n, const aclblasComplex* x, int incx, const aclblasComplex* y, int incy, aclblasComplex* result);
 ```
 
 #### 参数说明
@@ -402,11 +416,11 @@ aclblasStatus_t aclblasCdotc(aclblasHandle_t handle, const int64_t n, const aclb
 | 参数名 | 输入/输出 | 参数类型 | 说明 |
 |--------|----------|---------|------|
 | handle | 输入 | aclblasHandle_t | ops-blas 库上下文句柄，内部携带 stream 和 workspace，Host 内存 |
-| n | 输入 | int64_t | 复数向量元素个数，n >= 0，Host 内存 |
+| n | 输入 | int | 复数向量元素个数，n >= 0，Host 内存 |
 | x | 输入 | const aclblasComplex*（复数 FP32） | 复数向量，包含 n 个 aclblasComplex 元素，Device 内存 |
-| incx | 输入 | int64_t | 向量 x 的步长（复数元素单位），当前仅支持 incx = 1，Host 内存 |
+| incx | 输入 | int | 向量 x 的步长（复数元素单位），当前仅支持 incx = 1，Host 内存 |
 | y | 输入 | const aclblasComplex*（复数 FP32） | 复数向量，包含 n 个 aclblasComplex 元素，Device 内存 |
-| incy | 输入 | int64_t | 向量 y 的步长（复数元素单位），当前仅支持 incy = 1，Host 内存 |
+| incy | 输入 | int | 向量 y 的步长（复数元素单位），当前仅支持 incy = 1，Host 内存 |
 | result | 输出 | aclblasComplex*（复数 FP32） | 复数点积结果，包含 1 个 aclblasComplex 元素，Device 内存 |
 
 #### 约束说明
