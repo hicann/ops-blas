@@ -22,6 +22,9 @@ struct TpsvParam : public BlasTestParamBase {
     aclblasDiagType_t diag = ACLBLAS_NON_UNIT;
     int n = 0;
     int incx = 1;
+    // Optional fill tokens (see test/frame/fill.h). Defaults keep older CSVs working.
+    std::string apFill = "RANDOM";
+    std::string xFill = "RANDOM";
 
     TpsvParam(const csv_map& map) : BlasTestParamBase(map)
     {
@@ -30,6 +33,7 @@ struct TpsvParam : public BlasTestParamBase {
         diag = parseDiagType(ReadMap(map, "diag", "NON_UNIT"));
         n = parseInt(ReadMap(map, "n", "0"));
         incx = parseInt(ReadMap(map, "incx", "1"));
+        apFill = ReadMap(map, "ap_fill", "RANDOM");
+        xFill = ReadMap(map, "x_fill", "RANDOM");
     }
 };
-
