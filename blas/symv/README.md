@@ -15,6 +15,7 @@ y = alpha * A * x + beta * y
 | 接口名 | 功能简述 |
 |--------|---------|
 | aclblasSsymv | 单精度对称矩阵-向量乘法 |
+| aclblasCsymv | 单精度复数对称矩阵-向量乘法 |
 
 ## 算子执行接口
 
@@ -211,3 +212,40 @@ int main()
     return 0;
 }
 ```
+
+### aclblasCsymv
+
+#### 产品支持情况
+
+- Ascend 950PR：支持
+- 其他产品：不支持
+
+#### 函数原型
+
+```cpp
+aclblasStatus_t aclblasCsymv(aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const aclblasComplex* alpha, const aclblasComplex* A, int lda, const aclblasComplex* x, int incx, const aclblasComplex* beta, aclblasComplex* y, int incy)
+```
+
+#### 参数说明
+
+| 参数名 | 输入/输出 | 参数类型 | 说明 |
+|--------|----------|---------|------|
+| handle | 输入 | aclblasHandle_t | ops-blas 上下文句柄，携带执行 stream，Host 内存 |
+| uplo | 输入 | aclblasFillMode_t | `ACLBLAS_UPPER` 使用 A 的上三角，`ACLBLAS_LOWER` 使用 A 的下三角；未存储部分按对称关系读取且不取共轭，Host 内存 |
+| n | 输入 | int | A 的行列数以及 x、y 的逻辑长度，n >= 0，Host 内存 |
+| alpha | 输入 | const aclblasComplex* | 复数乘数，Host/Device 内存，不可为空 |
+| A | 输入 | const aclblasComplex* | lda x n 的列主序复数对称矩阵；alpha 非零时需有效，Device 内存 |
+| lda | 输入 | int | A 的前导维度，lda >= max(1, n)，Host 内存 |
+| x | 输入 | const aclblasComplex* | 逻辑长度为 n 的复数向量；alpha 非零时需有效，Device 内存 |
+| incx | 输入 | int | x 的元素步长，支持正负值且不能为 0，Host 内存 |
+| beta | 输入 | const aclblasComplex* | 复数乘数，Host/Device 内存，不可为空；beta 为零时不读取 y 的原值 |
+| y | 输入/输出 | aclblasComplex* | 逻辑长度为 n 的复数向量，原地写回，Device 内存 |
+| incy | 输入 | int | y 的元素步长，支持正负值且不能为 0，Host 内存 |
+
+#### 约束说明
+
+- 计算 `y = alpha * A * x + beta * y`，A 满足 `A = A^T`，不是厄米特矩阵。
+- n 为 0 时直接返回成功，不访问 alpha、beta、A、x、y。
+- alpha 为 `(0, 0)` 且 beta 为 `(1, 0)` 时直接返回成功且不写 y。
+- alpha 为 `(0, 0)` 时不读取 A 和 x；beta 为 `(0, 0)` 时不读取 y 的输入值。
+- uplo 非法时返回 `ACLBLAS_STATUS_INVALID_ENUM`；其他非法数值或必要空指针返回 `ACLBLAS_STATUS_INVALID_VALUE`。

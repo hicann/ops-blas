@@ -245,6 +245,15 @@ set_source_files_properties(
     PROPERTIES LANGUAGE ASC
 )
 
+if(SOC_VERSION_LOWER MATCHES "^ascend950")
+    # CSYMV's register-tiled hot loops need optimization even though this project
+    # intentionally defaults to a Debug build for the remaining operators.
+    set_source_files_properties(
+        "${CMAKE_CURRENT_LIST_DIR}/blas/symv/arch35/csymv_kernel.cpp"
+        PROPERTIES COMPILE_OPTIONS "-O3;-DNDEBUG"
+    )
+endif()
+
 target_include_directories(${OPS_BLAS} PRIVATE
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/op_common/
     ${ASCEND_CANN_PACKAGE_PATH}/pkg_inc/base/
