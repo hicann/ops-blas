@@ -8,40 +8,39 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CHER2K_PARAM_H
-#define CHER2K_PARAM_H
+#pragma once
 
-#include <string>
 #include <algorithm>
+#include <string>
 
 #include "cann_ops_blas.h"
 #include "csv_loader.h"
 
-// Parameter struct for aclblasCher2k (complex<float> Hermitian rank-2k update).
-//
-// Against CsyrkParam, following the BLAS CHER2K spec:
-//   - there are two input matrices, so the CSV carries b_fill and ldb as well;
-//   - alpha is complex but beta is *real* (a single CSV column), because a complex
-//     beta would not preserve the Hermitian property of C;
-//   - trans takes N or C (conjugate transpose), not T.
 struct Cher2kParam : public BlasTestParamBase {
     aclblasFillMode_t uplo = ACLBLAS_UPPER;
     aclblasOperation_t trans = ACLBLAS_OP_N;
     int n = 0;
     int k = 0;
-    aclblasComplex alpha = {1.0f, 0.0f};
-    BlasFillMode aFill = BlasFillMode("RANDOM_NORM_1");
-    int lda = 0;
-    BlasFillMode bFill = BlasFillMode("RANDOM_NORM_1");
-    int ldb = 0;
+    float alphaReal = 1.0f;
+    float alphaImag = 0.0f;
     float beta = 0.0f;
-    BlasFillMode cFill = BlasFillMode("VALUE_NORM_0");
-    int ldc = 0;
+    bool nullAlpha = false;
+    bool nullBeta = false;
     bool nullA = false;
     bool nullB = false;
     bool nullC = false;
-    bool nullAlpha = false;
-    bool nullBeta = false;
+    int lda = 1;
+    int ldb = 1;
+    int ldc = 1;
+    BlasFillMode fillA = BlasFillMode("RANDOM_NORM_5_5");
+    BlasFillMode fillB = BlasFillMode("RANDOM_NORM_5_5");
+    BlasFillMode fillC = BlasFillMode("RANDOM_NORM_5_5");
+
+    static int ParseLd(const csv_map& map, const char* key, int defaultValue)
+    {
+        const std::string value = ReadMap(map, key, "");
+        return value.empty() ? defaultValue : parseInt(value);
+    }
 
     explicit Cher2kParam(const csv_map& map) : BlasTestParamBase(map)
     {
@@ -50,28 +49,25 @@ struct Cher2kParam : public BlasTestParamBase {
         n = parseInt(ReadMap(map, "n", "0"));
         k = parseInt(ReadMap(map, "k", "0"));
 
-        alpha.real = parseFloat(ReadMap(map, "alpha_re", "1.0"));
-        alpha.imag = parseFloat(ReadMap(map, "alpha_im", "0.0"));
+        const std::string alphaRealString = ReadMap(map, "alpha_real", "1");
+        nullAlpha = alphaRealString == "null" || alphaRealString == "nullptr";
+        alphaReal = nullAlpha ? 0.0f : parseFloat(alphaRealString, 1.0f);
+        alphaImag = parseFloat(ReadMap(map, "alpha_imag", "0"), 0.0f);
 
-        // Default lda/ldb (column-major); A and B share the same logical shape:
-        //   trans=N   -> (n x k), ld >= max(1, n)
-        //   trans=C   -> (k x n), ld >= max(1, k)
-        int defaultLd = (trans == ACLBLAS_OP_N) ? std::max(1, n) : std::max(1, k);
-        aFill = BlasFillMode(ReadMap(map, "a_fill", "RANDOM_NORM_1"));
-        lda = parseInt(ReadMap(map, "lda", std::to_string(defaultLd)));
-        bFill = BlasFillMode(ReadMap(map, "b_fill", "RANDOM_NORM_1"));
-        ldb = parseInt(ReadMap(map, "ldb", std::to_string(defaultLd)));
+        const std::string betaString = ReadMap(map, "beta", "0");
+        nullBeta = betaString == "null" || betaString == "nullptr";
+        beta = nullBeta ? 0.0f : parseFloat(betaString, 0.0f);
 
-        beta = parseFloat(ReadMap(map, "beta", "0.0"));
-        cFill = BlasFillMode(ReadMap(map, "c_fill", "VALUE_NORM_0"));
-        ldc = parseInt(ReadMap(map, "ldc", std::to_string(std::max(1, n))));
+        fillA = BlasFillMode(ReadMap(map, "a_fill", "RANDOM_NORM_5_5"));
+        fillB = BlasFillMode(ReadMap(map, "b_fill", "RANDOM_NORM_5_5"));
+        fillC = BlasFillMode(ReadMap(map, "c_fill", "RANDOM_NORM_5_5"));
+        const int defaultLd = trans == ACLBLAS_OP_N ? std::max(1, n) : std::max(1, k);
+        lda = ParseLd(map, "lda", defaultLd);
+        ldb = ParseLd(map, "ldb", defaultLd);
+        ldc = ParseLd(map, "ldc", std::max(1, n));
 
-        nullA = (ReadMap(map, "nullA", "0") == "1");
-        nullB = (ReadMap(map, "nullB", "0") == "1");
-        nullC = (ReadMap(map, "nullC", "0") == "1");
-        nullAlpha = (ReadMap(map, "nullAlpha", "0") == "1");
-        nullBeta = (ReadMap(map, "nullBeta", "0") == "1");
+        nullA = ReadMap(map, "nullA", "0") == "1";
+        nullB = ReadMap(map, "nullB", "0") == "1";
+        nullC = ReadMap(map, "nullC", "0") == "1";
     }
 };
-
-#endif // CHER2K_PARAM_H

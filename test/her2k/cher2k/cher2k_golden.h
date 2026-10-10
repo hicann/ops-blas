@@ -8,97 +8,85 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CHER2K_GOLDEN_H
-#define CHER2K_GOLDEN_H
+#pragma once
 
 #include <algorithm>
 
 #include "cann_ops_blas.h"
 #include "cblas_compat.h"
-#include "cblas_threaded.h"
 
-// Sentinel: all validations passed, proceed to compute.
-static const int CHER2K_CPU_VALID_OK = 0x7FFFFFFF;
-
-static bool Cher2kIsValidUplo(aclblasFillMode_t uplo) { return uplo == ACLBLAS_UPPER || uplo == ACLBLAS_LOWER; }
-
-// CHER2K forms A*B^H, so the conjugate transpose is the meaningful option; a plain
-// transpose would break the Hermitian property of C and is rejected.
-static bool Cher2kIsValidTrans(aclblasOperation_t trans) { return trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_C; }
-
-// Parameter validation aligned with the NPU implementation, including the order:
-// enum legality and leading dimensions come before the n == 0 quick return,
-// pointers after it.
-static int ValidateCher2kCpuParams(
-    aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k, int lda, int ldb, int ldc,
-    const aclblasComplex* alpha, const float* beta, const aclblasComplex* A, const aclblasComplex* B,
-    const aclblasComplex* C)
+inline aclblasStatus_t ValidateCher2kCpuEnums(aclblasFillMode_t uplo, aclblasOperation_t trans)
 {
-    if (handle == nullptr) {
-        return static_cast<int>(ACLBLAS_STATUS_HANDLE_IS_NULLPTR);
-    }
-    if (!Cher2kIsValidUplo(uplo)) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_ENUM);
-    }
-    if (!Cher2kIsValidTrans(trans)) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_ENUM);
-    }
-    if (n < 0 || k < 0) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
-    }
-    bool isTrans = (trans != ACLBLAS_OP_N);
-    int minLd = isTrans ? std::max(1, k) : std::max(1, n);
-    if (lda < minLd || ldb < minLd) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
-    }
-    if (ldc < std::max(1, n)) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
-    }
-    if (n == 0) {
-        return static_cast<int>(ACLBLAS_STATUS_SUCCESS);
-    }
-    if (alpha == nullptr || beta == nullptr) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
-    }
-    if ((A == nullptr || B == nullptr) && n > 0 && k > 0) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
-    }
-    if (C == nullptr && n > 0) {
-        return static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE);
-    }
-    return CHER2K_CPU_VALID_OK;
+    if (uplo != ACLBLAS_UPPER && uplo != ACLBLAS_LOWER)
+        return ACLBLAS_STATUS_INVALID_ENUM;
+    if (trans == ACLBLAS_OP_T)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    return trans == ACLBLAS_OP_N || trans == ACLBLAS_OP_C ? ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_INVALID_ENUM;
 }
 
-// CPU golden for aclblasCher2k. Signature mirrors the NPU API exactly so the test
-// harness can swap NPU/CPU calls one-for-one. Validation precedes the cblas call
-// because CBLAS would crash on null pointers.
-//
-// alpha is complex and passed by pointer; beta is a real scalar passed by value,
-// which is how CBLAS declares cblas_cher2k. aclblasComplex = {float real; float
-// imag} is binary-compatible with OpenBLAS's complex layout, so the casts below
-// are pure reinterprets.
-inline aclblasStatus_t aclblasCher2k_cpu(
-    aclblasHandle handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k, const aclblasComplex* alpha,
-    const aclblasComplex* A, int lda, const aclblasComplex* B, int ldb, const float* beta, aclblasComplex* C, int ldc)
+inline aclblasStatus_t ValidateCher2kCpuShape(aclblasOperation_t trans, int n, int k, int lda, int ldb, int ldc)
 {
-    int st = ValidateCher2kCpuParams(handle, uplo, trans, n, k, lda, ldb, ldc, alpha, beta, A, B, C);
-    if (st != CHER2K_CPU_VALID_OK) {
-        return static_cast<aclblasStatus_t>(st);
+    if (n < 0 || k < 0)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    const int minLd = trans == ACLBLAS_OP_N ? std::max(1, n) : std::max(1, k);
+    return lda >= minLd && ldb >= minLd && ldc >= std::max(1, n) ? ACLBLAS_STATUS_SUCCESS :
+                                                                   ACLBLAS_STATUS_INVALID_VALUE;
+}
+
+inline aclblasStatus_t ValidateCher2kCpuPointers(
+    int n, int k, const aclblasComplex* alpha, const aclblasComplex* a, const aclblasComplex* b, const float* beta,
+    aclblasComplex* c)
+{
+    if (alpha == nullptr || beta == nullptr)
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    const bool noProduct = k == 0 || (alpha->real == 0.0f && alpha->imag == 0.0f);
+    if (n > 0 && c == nullptr && !(noProduct && *beta == 0.0f))
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    return n > 0 && k > 0 && (a == nullptr || b == nullptr) ? ACLBLAS_STATUS_INVALID_VALUE : ACLBLAS_STATUS_SUCCESS;
+}
+
+inline aclblasStatus_t ValidateCher2kCpu(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k, const aclblasComplex* alpha,
+    const aclblasComplex* a, int lda, const aclblasComplex* b, int ldb, const float* beta, aclblasComplex* c, int ldc)
+{
+    if (handle == nullptr)
+        return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
+    aclblasStatus_t status = ValidateCher2kCpuEnums(uplo, trans);
+    if (status != ACLBLAS_STATUS_SUCCESS)
+        return status;
+    status = ValidateCher2kCpuShape(trans, n, k, lda, ldb, ldc);
+    return status == ACLBLAS_STATUS_SUCCESS ? ValidateCher2kCpuPointers(n, k, alpha, a, b, beta, c) : status;
+}
+
+inline void Cher2kScaleTriangle(aclblasFillMode_t uplo, int n, float beta, aclblasComplex* c, int ldc)
+{
+    for (int col = 0; col < n; ++col) {
+        const int rowBegin = uplo == ACLBLAS_UPPER ? 0 : col;
+        const int rowEnd = uplo == ACLBLAS_UPPER ? col : n - 1;
+        for (int row = rowBegin; row <= rowEnd; ++row) {
+            const size_t index = static_cast<size_t>(row) + static_cast<size_t>(col) * ldc;
+            c[index].real = beta == 0.0f ? 0.0f : beta * c[index].real;
+            c[index].imag = row == col ? 0.0f : (beta == 0.0f ? 0.0f : beta * c[index].imag);
+        }
     }
+}
 
-    CBLAS_TRANSPOSE cblasTrans = (trans == ACLBLAS_OP_N) ? CblasNoTrans : CblasConjTrans;
-
-    // Cher2kThreaded splits the output into column panels across threads. Unlike
-    // the other rank-k goldens it is not bit-identical to cblas_cher2k: the two
-    // rank-k terms are issued as two GEMM calls rather than one fused pass, which
-    // moves results by a few ULP (~3e-7 relative, against the 2^-10 relative
-    // tolerance the checks use). See cblas_threaded.h.
-    blas_test::Cher2kThreaded(
-        ToCblasUplo(uplo), cblasTrans, n, k, reinterpret_cast<const float*>(alpha),
-        reinterpret_cast<const float*>(A), lda, reinterpret_cast<const float*>(B), ldb, *beta,
-        reinterpret_cast<float*>(C), ldc);
-
+inline aclblasStatus_t aclblasCher2k_cpu(
+    aclblasHandle_t handle, aclblasFillMode_t uplo, aclblasOperation_t trans, int n, int k, const aclblasComplex* alpha,
+    const aclblasComplex* a, int lda, const aclblasComplex* b, int ldb, const float* beta, aclblasComplex* c, int ldc)
+{
+    const aclblasStatus_t status = ValidateCher2kCpu(handle, uplo, trans, n, k, alpha, a, lda, b, ldb, beta, c, ldc);
+    if (status != ACLBLAS_STATUS_SUCCESS || n == 0)
+        return status;
+    if (k == 0 || (alpha->real == 0.0f && alpha->imag == 0.0f)) {
+        if (*beta == 1.0f || c == nullptr)
+            return ACLBLAS_STATUS_SUCCESS;
+        Cher2kScaleTriangle(uplo, n, *beta, c, ldc);
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    cblas_cher2k(
+        CblasColMajor, ToCblasUplo(uplo), trans == ACLBLAS_OP_N ? CblasNoTrans : CblasConjTrans, n, k,
+        static_cast<const void*>(alpha), static_cast<const void*>(a), lda, static_cast<const void*>(b), ldb, *beta,
+        static_cast<void*>(c), ldc);
     return ACLBLAS_STATUS_SUCCESS;
 }
-
-#endif // CHER2K_GOLDEN_H

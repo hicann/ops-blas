@@ -34,7 +34,14 @@ if [ $# -lt 1 ]; then
     exit 1
 fi
 
-pr_filelist=$1
+if [ "$1" = "--files" ]; then
+    shift
+    pr_filelist=$(mktemp)
+    trap 'rm -f "$pr_filelist"' EXIT
+    printf '%s\n' "$@" > "$pr_filelist"
+else
+    pr_filelist=$1
+fi
 
 if [ ! -f "$pr_filelist" ]; then
     echo "Error: File $pr_filelist not found"

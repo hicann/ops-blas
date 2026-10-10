@@ -152,7 +152,13 @@ echo ""
 echo "[OAT] Running compliance scan..."
 
 set +e
-eval "$_OAT_CMD" >/dev/null 2>&1
+if [ -f "$_OAT_XML" ]; then
+    "$_PYTHON" -m oat -mode s -s "$REPO_ROOT" -r "$OAT_REPORT_DIR" \
+        -n "$REPO_NAME" -w 1 -f "$FILE_LIST" -oatconfig "$_OAT_XML"
+else
+    "$_PYTHON" -m oat -mode s -s "$REPO_ROOT" -r "$OAT_REPORT_DIR" \
+        -n "$REPO_NAME" -w 1 -f "$FILE_LIST"
+fi
 _OAT_RC=$?
 set -e
 
@@ -240,8 +246,7 @@ _SECTION_LIC=$(_extract_section "$REPORT_FILE" "License Header Invalid Total Cou
     echo "==================================="
 } > "$RESULT_FILE"
 
-# Clean up full plain report (keep only result.txt)
-rm -f "$REPORT_FILE"
+# Preserve the full audit report alongside its summary for review.
 
 # ---------------------------------------------------------------------------
 # 8. Block commit if issues found

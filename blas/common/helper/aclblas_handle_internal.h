@@ -55,6 +55,19 @@ struct _aclblas_handle {
 
     /** Size of the last library-managed workspace buffer (preserved across user switches). */
     size_t library_workspace_size = 0;
+
+    // Pointer-location metadata only; scalar values are never cached.  Tiny
+    // Cher2k kernels read device alpha/beta on every launch so in-place scalar
+    // updates retain BLAS semantics without repeated pointer queries.
+    bool cher2k_scalar_location_valid = false;
+    const void* cher2k_scalar_alpha_ptr = nullptr;
+    const void* cher2k_scalar_beta_ptr = nullptr;
+    bool cher2k_scalar_alpha_device = false;
+    bool cher2k_scalar_beta_device = false;
+
+    // Immutable planar-to-AoS gather metadata shared by Cher2k fast paths.
+    // It is initialized lazily on first use and released with the handle.
+    void* cher2k_interleave_offsets = nullptr;
 };
 
 /**
@@ -85,10 +98,14 @@ inline size_t GetEffectiveWorkspaceSize(const _aclblas_handle* h)
 inline bool CheckEffectiveWorkspaceSize(const _aclblas_handle* h, size_t workSize)
 {
     size_t availableBytes = GetEffectiveWorkspaceSize(h);
-    OP_CHECK_IF(availableBytes < workSize, OP_LOGE("aclblasHandle",
-        "workspace required %zu bytes, but only %zu bytes available. "
-        "Please call aclblasSetWorkspace with size >= %zu bytes",
-        workSize, availableBytes, workSize), return false);
+    OP_CHECK_IF(
+        availableBytes < workSize,
+        OP_LOGE(
+            "aclblasHandle",
+            "workspace required %zu bytes, but only %zu bytes available. "
+            "Please call aclblasSetWorkspace with size >= %zu bytes",
+            workSize, availableBytes, workSize),
+        return false);
     return true;
 }
 
@@ -148,8 +165,7 @@ inline aclblasStatus_t ResetToDefaultWorkspace(_aclblas_handle* h)
     h->workspace_size = 0;
     h->workspace_owner = AclblasWorkspaceOwner::Library;
 
-    const size_t allocSize =
-        h->library_workspace_size > 0 ? h->library_workspace_size : ACLBLAS_DEFAULT_WORKSPACE_SIZE;
+    const size_t allocSize = h->library_workspace_size > 0 ? h->library_workspace_size : ACLBLAS_DEFAULT_WORKSPACE_SIZE;
     return AllocateLibraryWorkspace(h, allocSize);
 }
 
@@ -166,9 +182,9 @@ inline aclblasStatus_t EnsureDefaultWorkspace(_aclblas_handle* h, size_t require
     }
     if (h->workspace_owner == AclblasWorkspaceOwner::User) {
         if (requiredSize > h->workspace_size) {
-            OP_LOGE("aclblasHandle",
-                "user workspace too small: required=%zu, available=%zu",
-                requiredSize, h->workspace_size);
+            OP_LOGE(
+                "aclblasHandle", "user workspace too small: required=%zu, available=%zu", requiredSize,
+                h->workspace_size);
             return ACLBLAS_STATUS_ALLOC_FAILED;
         }
         return ACLBLAS_STATUS_SUCCESS;
@@ -179,9 +195,9 @@ inline aclblasStatus_t EnsureDefaultWorkspace(_aclblas_handle* h, size_t require
     }
 
     if (requiredSize > ACLBLAS_MAX_WORKSPACE_SIZE) {
-        OP_LOGE("aclblasHandle",
-            "workspace required %zu bytes exceeds maximum limit %zu bytes",
-            requiredSize, ACLBLAS_MAX_WORKSPACE_SIZE);
+        OP_LOGE(
+            "aclblasHandle", "workspace required %zu bytes exceeds maximum limit %zu bytes", requiredSize,
+            ACLBLAS_MAX_WORKSPACE_SIZE);
         return ACLBLAS_STATUS_ALLOC_FAILED;
     }
 
@@ -191,12 +207,11 @@ inline aclblasStatus_t EnsureDefaultWorkspace(_aclblas_handle* h, size_t require
     }
 
     const size_t doubledSize = h->workspace_size > 0 ? h->workspace_size * 2 : ACLBLAS_DEFAULT_WORKSPACE_SIZE;
-    const size_t newSize =
-        std::min(std::max(requiredSize, doubledSize), ACLBLAS_MAX_WORKSPACE_SIZE);
+    const size_t newSize = std::min(std::max(requiredSize, doubledSize), ACLBLAS_MAX_WORKSPACE_SIZE);
 
-    OP_LOGW("aclblasHandle",
-        "library workspace (%zu bytes) insufficient, expanding to %zu bytes",
-        h->workspace_size, newSize);
+    OP_LOGW(
+        "aclblasHandle", "library workspace (%zu bytes) insufficient, expanding to %zu bytes", h->workspace_size,
+        newSize);
 
     FreeLibraryWorkspace(h);
 

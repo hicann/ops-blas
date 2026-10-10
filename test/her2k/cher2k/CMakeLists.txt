@@ -9,4 +9,6 @@
 # ----------------------------------------------------------------------------------------------------------
 
 # GTest CSV-driven precision ST target (always built when the operator is enabled).
-ops_blas_add_gtest_tests(${OPS_BLAS} cher2k_test)
+if("arch22" IN_LIST SOC_ARCH_DIRS)
+    ops_blas_add_gtest_tests(${OPS_BLAS} cher2k_test)
+endif()

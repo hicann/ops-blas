@@ -8,47 +8,59 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/*!
- * \file cher2k_tiling_data.h
- * \brief CHER2K-specific tiling. Phases 0 and 1 reuse the shared structures in
- *        common/helper/complex_blas3_tiling_data.h.
- */
+#pragma once
 
-#ifndef CHER2K_TILING_DATA_H
-#define CHER2K_TILING_DATA_H
-
+#include <cstddef>
 #include <cstdint>
-#include "common/helper/complex_blas3_tiling_data.h"
 
-// Phase 2: assemble the Hermitian C from both orientations of M = A*B^H.
-//
-//   Mr = Ar*Br^T + Ai*Bi^T          Mi = Ai*Br^T - Ar*Bi^T
-//   C  = alpha*M + conj(alpha)*M^H + beta*C_old        (alpha complex, beta real)
-// expands to
-//   Cr = ar*(Mr + Mr^T) - ai*(Mi + Mi^T) + beta*Cr_old
-//   Ci = ar*(Mi - Mi^T) + ai*(Mr - Mr^T) + beta*Ci_old
-//
-// So the stage needs *both orientations* of Mr and Mi. Unlike CHERK there is no
-// free transpose: with A and B distinct, the fourth product is not the transpose
-// of the third, so Phase 1 computes all four of Mr, Mr^T, Mi, Mi^T.
-//
-// Phase 2 reads the temps with a column-major stride, which transposes them, so
-// the buffer holding Mr^T is the one whose read yields Mr. The host therefore
-// passes each pair swapped; the kernel's parameters are named by what the read
-// *yields*, not by what the buffer holds. This matters because Mr - Mr^T is
-// antisymmetric: getting the pair backwards flips the sign of the imaginary part.
-//
-// C is Hermitian, so the diagonal imaginary part is forced to zero.
-struct Cher2kCombineTilingData {
+struct Cher2kTilingData {
     uint32_t n;
-    uint32_t ldc;           // leading dimension of C, in complex elements
-    uint32_t tempLdc;       // row stride of the four temps, in floats
-    uint32_t uploMode;      // CBLAS3_UPLO_UPPER / CBLAS3_UPLO_LOWER
-    uint32_t skipAlphaTerm; // alpha == 0 or k == 0: skip the alpha term entirely
-    uint32_t isBetaZero;    // beta == 0: do not read C_old
-    float alphaRe;
-    float alphaIm;
-    float betaVal; // beta is real for CHER2K
+    uint32_t k;
+    uint32_t nAligned;
+    uint32_t kAligned;
+    uint32_t lda;
+    uint32_t ldb;
+    uint32_t ldc;
+    uint32_t trans;
+    uint32_t uplo;
+    float alphaReal;
+    float alphaImag;
+    float beta;
+    uint32_t aivCoreNum;
+    uint32_t aicCoreNum;
+    uint32_t computeProduct;
+    uint32_t useThreeM;
+    uint32_t smallPath;
+    uint32_t outputTransposePath;
+    // Chemm-style tile-owned 3M Cube producer.
+    uint32_t sg3MmadPath;
+    // Low-rank OP_N path: Cube emits Hermitian real and transposed-imaginary
+    // planes directly, so the AIV consumer never materializes or mirrors Q.
+    uint32_t directHermitianPath;
+    // Direct-H output contract. OP_N always uses it when directHermitianPath
+    // is selected; OP_C uses one or two 64-wide K panels for selected buckets.
+    uint32_t directOutputPath;
+    // Non-zero when alpha/beta are device pointers.  The host then has no
+    // resolved value and every kernel re-reads the scalars from GM, so the
+    // alphaReal/alphaImag/beta fields above are unused placeholders instead of
+    // the values this call will apply.
+    uint32_t deviceScalars;
 };
 
-#endif // CHER2K_TILING_DATA_H
+static inline size_t CalcCher2kWorkspaceBytes(uint32_t nAligned, uint32_t kAligned, bool useThreeM)
+{
+    const uint64_t nk = static_cast<uint64_t>(nAligned) * kAligned;
+    const uint64_t nn = static_cast<uint64_t>(nAligned) * nAligned;
+    const uint64_t totalFloats = 4ULL * nk + 4ULL * nn + (useThreeM ? nk : 0ULL);
+    const uint64_t bytes = totalFloats * sizeof(float);
+    return static_cast<size_t>((bytes + 31ULL) & ~31ULL);
+}
+
+static inline size_t CalcCher2kSgemm3BatchWorkspaceBytes(uint32_t nAligned, uint32_t kAligned)
+{
+    const uint64_t nk = static_cast<uint64_t>(nAligned) * kAligned;
+    const uint64_t nn = static_cast<uint64_t>(nAligned) * nAligned;
+    // [Ar, Ai, Ar+Ai], [Br, Bi, Br+Bi], [P1, P2, P3].
+    const uint64_t floats = 6ULL * nk + 3ULL * nn;
+    return static_cast<size_t>((floats * sizeof(float) + 31ULL) & ~31ULL);
+}

@@ -8,8 +8,8 @@
 # See LICENSE in the root of the software repository for the full text of the License.
 # ---------------------------------------------------------------------------------------------------------
 repos:
-  - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v16.0.0
+  - repo: https://gitcode.com/pre-commit-clang/mirrors-clang-format
+    rev: v18.1.8
     hooks:
       - id: clang-format
         types_or: [c++, c]
@@ -17,7 +17,16 @@ repos:
     hooks:
       - id: check-pragma-once
         name: Check #pragma once in headers
-        entry: scripts/ci/check_pragma_once.sh
-        language: script
+        entry: bash scripts/ci/check_pragma_once.sh --files
+        language: system
         types_or: [c, c++]
         files: '\.(h|hpp)$'
+      - id: oat-check
+        name: OAT Compliance Check (Python)
+        entry: bash scripts/oat_check.sh
+        language: system
+        pass_filenames: true
+        require_serial: true
+        types: [file]
+        stages: [pre-commit]
+        verbose: true

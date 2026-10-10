@@ -28,7 +28,7 @@ beta 之所以限定为实数，是因为复数 beta 会破坏 C 的 Hermitian �
 #### 产品支持情况
 
 - Atlas A2 训练系列产品 / Atlas A2 推理系列产品：支持
-- Ascend 950PR / Ascend 950DT：不支持
+- Ascend 950PR / Ascend 950DT：使用 [arch35 实现](../herk/README.md#aclblascher2k)，本页描述 arch22
 - Atlas A3 训练系列产品 / Atlas A3 推理系列产品：不支持
 
 #### 函数原型
@@ -46,12 +46,12 @@ aclblasStatus_t aclblasCher2k(aclblasHandle_t handle, aclblasFillMode_t uplo, ac
 | trans | 输入 | aclblasOperation_t | A、B 的转置模式：ACLBLAS_OP_N(111) 不转置或 ACLBLAS_OP_C(113) 共轭转置，Host 内存 |
 | n | 输入 | int | C 矩阵的阶数，n >= 0，Host 内存 |
 | k | 输入 | int | A、B 的第二维度（trans='N' 时），k >= 0，Host 内存 |
-| alpha | 输入 | const aclblasComplex*（复数 FP32） | 复数标量乘数，不可为 nullptr，Device 内存 |
+| alpha | 输入 | const aclblasComplex*（复数 FP32） | 复数标量乘数，不可为 nullptr，Host 或 Device 内存 |
 | A | 输入 | const aclblasComplex*（复数 FP32） | 输入复矩阵，trans='N' 时维度为 N×K，trans='C' 时维度为 K×N，Device 内存 |
 | lda | 输入 | int | A 矩阵的主维，trans='N' 时 lda >= max(1, n)，trans='C' 时 lda >= max(1, k)，Host 内存 |
 | B | 输入 | const aclblasComplex*（复数 FP32） | 输入复矩阵，维度与 A 相同，Device 内存 |
 | ldb | 输入 | int | B 矩阵的主维，下界与 lda 相同，Host 内存 |
-| beta | 输入 | const float*（FP32） | **实数**标量乘数，不可为 nullptr，Device 内存 |
+| beta | 输入 | const float*（FP32） | **实数**标量乘数，不可为 nullptr，Host 或 Device 内存 |
 | C | 输入/输出 | aclblasComplex*（复数 FP32） | N×N Hermitian 复矩阵，输入旧值，输出新值，仅 uplo 指定三角区域被更新，Device 内存 |
 | ldc | 输入 | int | C 矩阵的主维，ldc >= max(1, n)，Host 内存 |
 
@@ -65,12 +65,14 @@ aclblasStatus_t aclblasCher2k(aclblasHandle_t handle, aclblasFillMode_t uplo, ac
 - ldc >= max(1, n)
 - alpha、beta 不可为 nullptr
 - A、B 不可为 nullptr（当 n > 0 且 k > 0 时）
-- C 不可为 nullptr（当 n > 0 时）
+- n>0 时，C 必须非空；唯一例外是零乘积且 beta=0 的无写出 quick return
 - alpha 为复数、beta 为**实数**：复数 beta 会破坏 C 的 Hermitian 性质，故按 BLAS 标准限定为实数
-- 输出 C 满足 Hermitian 性质：C[i][j] = conj(C[j][i])，对角线元素虚部为零
+- 仅更新指定三角，对角线虚部置零。另一三角和 leading-dimension padding 保持原值
 - 当 alpha 为 0（或 k 为 0）且 beta 为 1 时按 BLAS 语义直接返回，C 保持原值不变——**包含其对角线虚部**
 - A、B、C 为列主序 complex64（`aclblasComplex`，即 fp32 实部 + fp32 虚部）存储的 Device 内存
-- 本算子内部会申请库工作区暂存拆分后的实数矩阵与 GEMM 中间结果，容量约为 `32·n²` 字节；当超出 `ACLBLAS_MAX_WORKSPACE_SIZE`（2 GiB，对应 n 约 8151）时返回 `ACLBLAS_STATUS_ALLOC_FAILED` 并在日志中给出所需字节数
+- 工作区大小由对齐后的 n、k 和 kernel 路径共同决定。申请失败或超过 `ACLBLAS_MAX_WORKSPACE_SIZE` 时返回错误，停止 launch
+- kernel 每次调用读取 Device 标量的真实值；同一标量地址更新数值后可复用
+- 默认测试 CSV 含前 50 条用例。`CHER2K_FULL_REGRESSION=1` 读取完整 CSV，性能模式单独读取完整 CSV 中的性能用例
 
 #### 调用示例
 

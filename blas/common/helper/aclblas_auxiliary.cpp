@@ -57,11 +57,14 @@ aclblasStatus_t aclblasDestroy(aclblasHandle_t handle)
 
     const aclblasStatus_t syncStatus = SynchronizeHandleStream(h);
     if (syncStatus != ACLBLAS_STATUS_SUCCESS) {
-        OP_LOGE("aclblasDestroy",
-            "stream synchronization failed before handle destruction.");
+        OP_LOGE("aclblasDestroy", "stream synchronization failed before handle destruction.");
         return ACLBLAS_STATUS_EXECUTION_FAILED;
     }
 
+    if (h->cher2k_interleave_offsets != nullptr) {
+        aclrtFree(h->cher2k_interleave_offsets);
+        h->cher2k_interleave_offsets = nullptr;
+    }
     FreeLibraryWorkspace(h);
 
     h->stream = nullptr;

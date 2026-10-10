@@ -8,50 +8,36 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/*!
- * \file cher2k_kernel.h
- * \brief Kernel launcher signatures for CHER2K on arch22, shared by the host and
- *        the kernel translation unit so that the compiler checks both against one
- *        declaration.
- */
-
-#ifndef CHER2K_ARCH22_KERNEL_H
-#define CHER2K_ARCH22_KERNEL_H
+#pragma once
 
 #include <cstdint>
-#include "common/helper/complex_blas3_tiling_data.h"
 #include "cher2k_tiling_data.h"
 
 #ifndef GM_ADDR
 #define GM_ADDR uint8_t*
 #endif
 
-// Phase 0 (AIV): complex input -> packed real parts. Called twice, once for A and
-// once for B. Shared implementation.
-void cher2k_split_kernel_do(
-    uint32_t blockDim, void* stream, GM_ADDR src, GM_ADDR re, GM_ADDR im, CBlas3SplitTilingData tiling);
+constexpr uint32_t CHER2K_DIRECT_INTERLEAVE_ROWS = 64U;
+constexpr uint32_t CHER2K_DIRECT_INTERLEAVE_COLS = 64U;
+constexpr uint32_t CHER2K_DIRECT_INTERLEAVE_COUNT = CHER2K_DIRECT_INTERLEAVE_ROWS * CHER2K_DIRECT_INTERLEAVE_COLS * 2U;
+constexpr uint32_t CHER2K_SMALL_INTERLEAVE_ROWS = 128U;
+constexpr uint32_t CHER2K_SMALL_INTERLEAVE_COLS = 8U;
+constexpr uint32_t CHER2K_SMALL_INTERLEAVE_OFFSET = CHER2K_DIRECT_INTERLEAVE_COUNT;
+constexpr uint32_t CHER2K_SMALL_INTERLEAVE_COUNT = CHER2K_SMALL_INTERLEAVE_ROWS * CHER2K_SMALL_INTERLEAVE_COLS * 2U;
+constexpr uint32_t CHER2K_TRANSPOSE_OFFSET_ROWS = 32U;
+constexpr uint32_t CHER2K_TRANSPOSE_OFFSET_COLS = 64U;
+constexpr uint32_t CHER2K_TRANSPOSE_OFFSET = CHER2K_SMALL_INTERLEAVE_OFFSET + CHER2K_SMALL_INTERLEAVE_COUNT;
+constexpr uint32_t CHER2K_TRANSPOSE_OFFSET_COUNT = CHER2K_TRANSPOSE_OFFSET_ROWS * CHER2K_TRANSPOSE_OFFSET_COLS;
+constexpr uint32_t CHER2K_TINY_INTERLEAVE_ROWS = 32U;
+constexpr uint32_t CHER2K_TINY_INTERLEAVE_COLS = 1U;
+constexpr uint32_t CHER2K_TINY_INTERLEAVE_OFFSET = CHER2K_TRANSPOSE_OFFSET + CHER2K_TRANSPOSE_OFFSET_COUNT;
+constexpr uint32_t CHER2K_TINY_INTERLEAVE_COUNT = CHER2K_TINY_INTERLEAVE_ROWS * CHER2K_TINY_INTERLEAVE_COLS * 2U;
+constexpr uint32_t CHER2K_POST_TRANSPOSE_ROWS = 64U;
+constexpr uint32_t CHER2K_POST_TRANSPOSE_COLS = 64U;
+constexpr uint32_t CHER2K_POST_TRANSPOSE_OFFSET = CHER2K_TINY_INTERLEAVE_OFFSET + CHER2K_TINY_INTERLEAVE_COUNT;
+constexpr uint32_t CHER2K_POST_TRANSPOSE_COUNT = CHER2K_POST_TRANSPOSE_ROWS * CHER2K_POST_TRANSPOSE_COLS;
+constexpr uint32_t CHER2K_INTERLEAVE_OFFSET_COUNT = CHER2K_POST_TRANSPOSE_OFFSET + CHER2K_POST_TRANSPOSE_COUNT;
 
-// Between the two groups of Phase 1 GEMMs: flip the sign of the packed Bi buffer
-// in place. See NegateBody in the shared header for why.
-void cher2k_negate_kernel_do(uint32_t blockDim, void* stream, GM_ADDR buf, uint32_t count);
-
-// Phase 1 (AIC): one real GEMM. Dispatches on tiling.transMode.
-void cher2k_gemm_kernel_do(
-    uint32_t blockDim, void* stream, GM_ADDR left, GM_ADDR right, GM_ADDR out, CBlas3GemmTilingData tiling);
-
-// Phase 2 (AIV): Hermitian assembly and scaling.
-//
-// The four temp parameters are named by what a column-major read of them
-// *yields*, not by what Phase 1 wrote into them. Because that read transposes,
-// the caller passes the buffer holding Mr^T as `mrSrc` and the one holding Mr as
-// `mrtSrc` (and likewise for the imaginary pair). Getting the pair backwards
-// flips the sign of the imaginary part, which is antisymmetric.
-void cher2k_combine_kernel_do(
-    uint32_t blockDim, void* stream, GM_ADDR mrSrc, GM_ADDR mrtSrc, GM_ADDR miSrc, GM_ADDR mitSrc, GM_ADDR c,
-    Cher2kCombineTilingData tiling);
-
-// The compile-time singleK of the Matmul static tiling, so the host can split K
-// without duplicating the constant.
-uint32_t cher2k_gemm_single_k();
-
-#endif // CHER2K_ARCH22_KERNEL_H
+void cher2k_kernel_do(
+    GM_ADDR a, GM_ADDR b, GM_ADDR c, GM_ADDR workspace, const Cher2kTilingData& tiling, void* stream,
+    bool skipPreprocess = false, GM_ADDR alpha = nullptr, GM_ADDR beta = nullptr, GM_ADDR interleaveOffsets = nullptr);
