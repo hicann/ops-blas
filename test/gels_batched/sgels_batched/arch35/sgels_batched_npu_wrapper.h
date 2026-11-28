@@ -98,7 +98,7 @@ inline aclblasStatus_t buildPtrArrays(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-inline void copyResultsBack(
+inline bool copyResultsBack(
     const std::vector<void*>& dA, const std::vector<void*>& dC, int batchSize, int lda, int n, int ldc, int solRows,
     int nrhs, std::vector<std::vector<float>>& Aout, std::vector<std::vector<float>>& Cout)
 {
@@ -107,12 +107,17 @@ inline void copyResultsBack(
     for (int b = 0; b < batchSize; b++) {
         Aout[b].resize(static_cast<size_t>(lda) * n);
         Cout[b].resize(static_cast<size_t>(ldc) * nrhs);
-        aclrtMemcpy(
-            Aout[b].data(), Aout[b].size() * sizeof(float), dA[b], Aout[b].size() * sizeof(float),
-            ACL_MEMCPY_DEVICE_TO_HOST);
+        size_t aBytes = Aout[b].size() * sizeof(float);
+        aclError aCopyRet = aclrtMemcpy(Aout[b].data(), aBytes, dA[b], aBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        if (aCopyRet != ACL_SUCCESS) {
+            return false;
+        }
         size_t cSolBytes = static_cast<size_t>(ldc) * nrhs * sizeof(float);
-        aclrtMemcpy(Cout[b].data(), cSolBytes, dC[b], cSolBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        if (aclrtMemcpy(Cout[b].data(), cSolBytes, dC[b], cSolBytes, ACL_MEMCPY_DEVICE_TO_HOST) != ACL_SUCCESS) {
+            return false;
+        }
     }
+    return true;
 }
 
 } // namespace gels_npu
@@ -146,9 +151,14 @@ static inline aclblasStatus_t runKernelAndCollect(
     aclblasStatus_t ret = aclblasSgelsBatched(
         handle, trans, m, n, nrhs, static_cast<float* const*>(dAptrs), lda, static_cast<float* const*>(dCptrs), ldc,
         static_cast<int*>(dInfo), batchSize);
-    aclrtSynchronizeStream(stream);
+    // 同步/D2H 失败先以独立标志记录，仅在内核调用成功时映射为 INTERNAL_ERROR，保留具体错误码
+    const bool syncOk = (aclrtSynchronizeStream(stream) == ACL_SUCCESS);
     int infoVal = 0;
-    aclrtMemcpy(&infoVal, sizeof(int), dInfo, sizeof(int), ACL_MEMCPY_DEVICE_TO_HOST);
+    const bool infoCopyOk =
+        (aclrtMemcpy(&infoVal, sizeof(int), dInfo, sizeof(int), ACL_MEMCPY_DEVICE_TO_HOST) == ACL_SUCCESS);
+    if (ret == ACLBLAS_STATUS_SUCCESS && (!syncOk || !infoCopyOk)) {
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
     hostDevInfo = infoVal;
     return ret;
 }
@@ -187,8 +197,11 @@ inline aclblasStatus_t aclblasSgelsBatched_npu(
     aclblasStatus_t ret =
         runKernelAndCollect(handle, trans, m, n, nrhs, lda, ldc, batchSize, dAptrs, dCptrs, dInfo, hostDevInfo);
 
-    gels_npu::copyResultsBack(dA, dC, batchSize, lda, n, ldc, solRows, nrhs, Aout, Cout);
+    const bool copyOk = gels_npu::copyResultsBack(dA, dC, batchSize, lda, n, ldc, solRows, nrhs, Aout, Cout);
     gels_npu::freeAll(dA, dC, dAptrs, dCptrs, dInfo);
+    if (ret == ACLBLAS_STATUS_SUCCESS && !copyOk) {
+        ret = ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
     return ret;
 }
 
@@ -198,4 +211,3 @@ inline aclblasStatus_t aclblasSgelsBatched_npu_error(
 {
     return aclblasSgelsBatched(handle, trans, m, n, nrhs, Aarray, lda, Carray, ldc, devInfo, batchSize);
 }
-
