@@ -166,18 +166,26 @@ static aclblasStatus_t GetriAllocatePivotAndInfo(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
-static void GetriCopyResultsD2H(
+static bool GetriCopyResultsD2H(
     float* const Carray[], int* infoArray, const GetriDeviceBuffers& bufs, int batchSize, size_t cMatBytes,
     size_t infoBytes)
 {
     for (int b = 0; b < batchSize; b++) {
-        if (Carray[b] != nullptr) {
-            aclrtMemcpy(Carray[b], cMatBytes, bufs.dCMatrices[b], cMatBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        if (Carray[b] == nullptr) {
+            continue;
+        }
+        aclError matRet = aclrtMemcpy(Carray[b], cMatBytes, bufs.dCMatrices[b], cMatBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        if (matRet != ACL_SUCCESS) {
+            return false;
         }
     }
     if (infoArray != nullptr) {
-        aclrtMemcpy(infoArray, infoBytes, bufs.dInfo, infoBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        aclError infoRet = aclrtMemcpy(infoArray, infoBytes, bufs.dInfo, infoBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        if (infoRet != ACL_SUCCESS) {
+            return false;
+        }
     }
+    return true;
 }
 
 /**
@@ -222,20 +230,21 @@ inline aclblasStatus_t aclblasSgetriBatched_npu(
     GetriDeviceBuffers bufs;
     aclblasStatus_t status = AllocateAllDeviceBuffers(
         bufs, Aarray, PivotArray, batchSize, aMatBytes, cMatBytes, ptrArrayBytes, pivotBytes, infoBytes);
-    if (status != ACLBLAS_STATUS_SUCCESS)
+    if (status != ACLBLAS_STATUS_SUCCESS) {
         return status;
+    }
 
     aclblasStatus_t ret = aclblasSgetriBatched(
         handle, n, reinterpret_cast<const float* const*>(bufs.dAPtrArray), lda, static_cast<const int*>(bufs.dPivot),
         reinterpret_cast<float* const*>(bufs.dCPtrArray), ldc, static_cast<int*>(bufs.dInfo), batchSize);
 
-    aclrtSynchronizeStream(stream);
-
-    if (ret == ACLBLAS_STATUS_SUCCESS) {
-        GetriCopyResultsD2H(Carray, infoArray, bufs, batchSize, cMatBytes, infoBytes);
+    // 先求同步结果，再仅在 ret 成功时把同步/D2H 失败映射为 INTERNAL_ERROR，保留具体错误码
+    const bool syncOk = (aclrtSynchronizeStream(stream) == ACL_SUCCESS);
+    const bool copyOk = GetriCopyResultsD2H(Carray, infoArray, bufs, batchSize, cMatBytes, infoBytes);
+    if (ret == ACLBLAS_STATUS_SUCCESS && (!syncOk || !copyOk)) {
+        ret = ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
     bufs.Cleanup();
     return ret;
 }
-
