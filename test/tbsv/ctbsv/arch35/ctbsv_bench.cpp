@@ -113,8 +113,13 @@ bool AllocAndCopy(
         xDev = nullptr;
         return false;
     }
-    aclrtMemcpy(aDev, aBytes, aHost.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(xDev, xBytes, xHost.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+    if (aclrtMemcpy(aDev, aBytes, aHost.data(), aBytes, ACL_MEMCPY_HOST_TO_DEVICE) != ACL_SUCCESS ||
+        aclrtMemcpy(xDev, xBytes, xHost.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE) != ACL_SUCCESS) {
+        FreePair(aDev, xDev);
+        aDev = nullptr;
+        xDev = nullptr;
+        return false;
+    }
     return true;
 }
 
