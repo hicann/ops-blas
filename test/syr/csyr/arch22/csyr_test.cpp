@@ -144,7 +144,7 @@ void RunPerfPhase(const CsyrParam& p, aclblasHandle_t handle)
             static_cast<aclblasComplex*>(dA), p.lda);
         ASSERT_EQ(ret, ACLBLAS_STATUS_SUCCESS);
     }
-    aclrtSynchronizeDevice();
+    ASSERT_EQ(aclrtSynchronizeDevice(), ACL_SUCCESS);
     const auto tEnd = std::chrono::steady_clock::now();
 
     const double avgUs = std::chrono::duration<double, std::micro>(tEnd - tBegin).count() / sampleIters;
