@@ -15,6 +15,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import strict_compare
 import verify_performance as verifier
 
 
@@ -166,6 +167,24 @@ class BaselineValidationTest(unittest.TestCase):
                 self.assertTrue(all(row["verdict"] == expected for row in rows))
                 code = verifier.report(rows, self.path, 0, [])
                 self.assertEqual(code, 0 if expected == "PASS" else 1)
+
+
+class StrictCompareCoverageTest(unittest.TestCase):
+    def test_missing_final_baseline(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            log = root / "timings.txt"
+            baseline = root / "baseline.csv"
+            report = root / "out.csv"
+            log.write_text(
+                "[STRICT_PERF] case=TC_PF_1001 n=4 incx=1 samples=100 average_us=10\n"
+                "[STRICT_PERF] case=TC_PF_1002 n=8 incx=1 samples=100 average_us=1000\n",
+                encoding="utf-8",
+            )
+            baseline.write_text("gpu_ms\n0.1\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "TC_PF_1002"):
+                strict_compare.compare_timings(log, baseline, report)
+            self.assertFalse(report.exists())
 
 
 if __name__ == "__main__":
