@@ -28,17 +28,41 @@ inline aclblasStatus_t aclblasCrotg_npu(aclblasHandle_t handle, aclblasComplex* 
     aclrtMalloc(&d_s, sizeof(aclblasComplex), ACL_MEM_MALLOC_HUGE_FIRST);
 
     // 拷贝输入数据 Host -> Device
-    aclrtMemcpy(d_a, sizeof(aclblasComplex), a, sizeof(aclblasComplex), ACL_MEMCPY_HOST_TO_DEVICE);
-    aclrtMemcpy(d_b, sizeof(aclblasComplex), b, sizeof(aclblasComplex), ACL_MEMCPY_HOST_TO_DEVICE);
+    if (aclrtMemcpy(d_a, sizeof(aclblasComplex), a, sizeof(aclblasComplex), ACL_MEMCPY_HOST_TO_DEVICE) !=
+        ACL_SUCCESS) {
+        aclrtFree(d_a);
+        aclrtFree(d_b);
+        aclrtFree(d_c);
+        aclrtFree(d_s);
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+    if (aclrtMemcpy(d_b, sizeof(aclblasComplex), b, sizeof(aclblasComplex), ACL_MEMCPY_HOST_TO_DEVICE) !=
+        ACL_SUCCESS) {
+        aclrtFree(d_a);
+        aclrtFree(d_b);
+        aclrtFree(d_c);
+        aclrtFree(d_s);
+        return ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
 
     // 调用设备端算子
     aclblasStatus_t ret = aclblasCrotg(handle, (aclblasComplex*)d_a, (aclblasComplex*)d_b,
                                        (float*)d_c, (aclblasComplex*)d_s);
 
     // 拷贝结果 Device -> Host (b 为只读输入，不需要拷贝回来)
-    aclrtMemcpy(a, sizeof(aclblasComplex), d_a, sizeof(aclblasComplex), ACL_MEMCPY_DEVICE_TO_HOST);
-    aclrtMemcpy(c, sizeof(float), d_c, sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST);
-    aclrtMemcpy(s, sizeof(aclblasComplex), d_s, sizeof(aclblasComplex), ACL_MEMCPY_DEVICE_TO_HOST);
+    if (aclrtMemcpy(a, sizeof(aclblasComplex), d_a, sizeof(aclblasComplex), ACL_MEMCPY_DEVICE_TO_HOST) !=
+        ACL_SUCCESS) {
+        ret = ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+    if (ret == ACLBLAS_STATUS_SUCCESS &&
+        aclrtMemcpy(c, sizeof(float), d_c, sizeof(float), ACL_MEMCPY_DEVICE_TO_HOST) != ACL_SUCCESS) {
+        ret = ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
+    if (ret == ACLBLAS_STATUS_SUCCESS &&
+        aclrtMemcpy(s, sizeof(aclblasComplex), d_s, sizeof(aclblasComplex), ACL_MEMCPY_DEVICE_TO_HOST) !=
+        ACL_SUCCESS) {
+        ret = ACLBLAS_STATUS_INTERNAL_ERROR;
+    }
 
     // 释放设备内存
     aclrtFree(d_a);
