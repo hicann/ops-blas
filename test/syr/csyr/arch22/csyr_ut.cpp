@@ -151,9 +151,10 @@ void UtRunKernel(aclblasFillMode_t uplo, int n, float alphaRe, float alphaIm,
         static_cast<const aclblasComplex*>(dXOwner.get()), incx, static_cast<aclblasComplex*>(dAOwner.get()), lda);
 
     if (out->status == ACLBLAS_STATUS_SUCCESS && dAOwner.get() != nullptr) {
-        aclrtSynchronizeDevice();
+        ASSERT_EQ(aclrtSynchronizeDevice(), ACL_SUCCESS);
         out->aAfter.resize(aHost.size());
-        aclrtMemcpy(out->aAfter.data(), aBytes, dAOwner.get(), aBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        ASSERT_EQ(
+            aclrtMemcpy(out->aAfter.data(), aBytes, dAOwner.get(), aBytes, ACL_MEMCPY_DEVICE_TO_HOST), ACL_SUCCESS);
     }
 }
 
