@@ -17,10 +17,46 @@
 #include "acl/acl.h"
 #include "cann_ops_blas.h"
 
+static aclblasStatus_t SrotmAllocCopyInputs(
+    const float* x, size_t xBytes, const float* y, size_t yBytes, void** dX, void** dY)
+{
+    if (x != nullptr) {
+        aclError aclRet = aclrtMalloc(dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (aclRet != ACL_SUCCESS) {
+            return ACLBLAS_STATUS_ALLOC_FAILED;
+        }
+        aclRet = aclrtMemcpy(*dX, xBytes, x, xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+        if (aclRet != ACL_SUCCESS) {
+            aclrtFree(*dX);
+            *dX = nullptr;
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+    }
+    if (y != nullptr) {
+        aclError aclRet = aclrtMalloc(dY, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
+        if (aclRet != ACL_SUCCESS) {
+            if (*dX != nullptr) {
+                aclrtFree(*dX);
+                *dX = nullptr;
+            }
+            return ACLBLAS_STATUS_ALLOC_FAILED;
+        }
+        aclRet = aclrtMemcpy(*dY, yBytes, y, yBytes, ACL_MEMCPY_HOST_TO_DEVICE);
+        if (aclRet != ACL_SUCCESS) {
+            if (*dX != nullptr) {
+                aclrtFree(*dX);
+                *dX = nullptr;
+            }
+            aclrtFree(*dY);
+            *dY = nullptr;
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+    }
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
 inline aclblasStatus_t aclblasSrotm_npu(
-    aclblasHandle_t handle,
-    int64_t n, float* x, int64_t incx,
-    float* y, int64_t incy, const float* sparam)
+    aclblasHandle_t handle, int64_t n, float* x, int64_t incx, float* y, int64_t incy, const float* sparam)
 {
     if (handle == nullptr || n <= 0) {
         return aclblasSrotm(handle, n, x, incx, y, incy, sparam);
@@ -36,38 +72,33 @@ inline aclblasStatus_t aclblasSrotm_npu(
 
     void* dX = nullptr;
     void* dY = nullptr;
-    aclError aclRet;
-
-    if (x != nullptr) {
-        aclRet = aclrtMalloc(&dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-        if (aclRet != ACL_SUCCESS) return ACLBLAS_STATUS_ALLOC_FAILED;
-        aclRet = aclrtMemcpy(dX, xBytes, x, xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
-        if (aclRet != ACL_SUCCESS) { aclrtFree(dX); return ACLBLAS_STATUS_INTERNAL_ERROR; }
+    aclblasStatus_t allocRet = SrotmAllocCopyInputs(x, xBytes, y, yBytes, &dX, &dY);
+    if (allocRet != ACLBLAS_STATUS_SUCCESS) {
+        return allocRet;
     }
 
-    if (y != nullptr) {
-        aclRet = aclrtMalloc(&dY, yBytes, ACL_MEM_MALLOC_HUGE_FIRST);
-        if (aclRet != ACL_SUCCESS) { if (dX) aclrtFree(dX); return ACLBLAS_STATUS_ALLOC_FAILED; }
-        aclRet = aclrtMemcpy(dY, yBytes, y, yBytes, ACL_MEMCPY_HOST_TO_DEVICE);
-        if (aclRet != ACL_SUCCESS) { if (dX) aclrtFree(dX); aclrtFree(dY); return ACLBLAS_STATUS_INTERNAL_ERROR; }
-    }
+    aclblasStatus_t ret = aclblasSrotm(handle, n, static_cast<float*>(dX), incx, static_cast<float*>(dY), incy, sparam);
 
-    aclblasStatus_t ret = aclblasSrotm(handle,
-        n, static_cast<float*>(dX), incx,
-        static_cast<float*>(dY), incy, sparam);
-
-    aclrtSynchronizeDevice();
-
+    // x/y 回拷彼此独立执行：任一失败都如实记录，不因 x 失败而跳过 y
+    const bool syncOk = (aclrtSynchronizeDevice() == ACL_SUCCESS);
+    aclError xCopyRet = ACL_SUCCESS;
+    aclError yCopyRet = ACL_SUCCESS;
     if (x != nullptr) {
-        aclrtMemcpy(x, xBytes, dX, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        xCopyRet = aclrtMemcpy(x, xBytes, dX, xBytes, ACL_MEMCPY_DEVICE_TO_HOST);
     }
     if (y != nullptr) {
-        aclrtMemcpy(y, yBytes, dY, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        yCopyRet = aclrtMemcpy(y, yBytes, dY, yBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    }
+    if (ret == ACLBLAS_STATUS_SUCCESS && (!syncOk || xCopyRet != ACL_SUCCESS || yCopyRet != ACL_SUCCESS)) {
+        ret = ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    if (dX) aclrtFree(dX);
-    if (dY) aclrtFree(dY);
+    if (dX != nullptr) {
+        aclrtFree(dX);
+    }
+    if (dY != nullptr) {
+        aclrtFree(dY);
+    }
 
     return ret;
 }
-
