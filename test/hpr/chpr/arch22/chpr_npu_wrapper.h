@@ -48,6 +48,19 @@ static aclblasStatus_t ChprPrepareAlphaDevice(const float* alpha, void** dAlpha,
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+static void ChprFreeAll(void* dAlpha, void* dX, void* dAP)
+{
+    if (dAlpha != nullptr) {
+        aclrtFree(dAlpha);
+    }
+    if (dX != nullptr) {
+        aclrtFree(dX);
+    }
+    if (dAP != nullptr) {
+        aclrtFree(dAP);
+    }
+}
+
 inline aclblasStatus_t aclblasChpr_npu(
     aclblasHandle_t handle, aclblasFillMode_t uplo, int n, const float* alpha, const aclblasComplex* x, int incx,
     aclblasComplex* ap, bool alphaOnDevice = false)
@@ -73,17 +86,14 @@ inline aclblasStatus_t aclblasChpr_npu(
 
     st = ChprAllocCopyToDevice(&dAP, ap, apBytes);
     if (st != ACLBLAS_STATUS_SUCCESS) {
-        if (dX) {
-            aclrtFree(dX);
-        }
+        ChprFreeAll(nullptr, dX, nullptr);
         return st;
     }
 
     if (alphaOnDevice && alpha != nullptr) {
         st = ChprPrepareAlphaDevice(alpha, &dAlpha, &alphaArg);
         if (st != ACLBLAS_STATUS_SUCCESS) {
-            aclrtFree(dX);
-            aclrtFree(dAP);
+            ChprFreeAll(dAlpha, dX, dAP);
             return st;
         }
     }
@@ -91,19 +101,14 @@ inline aclblasStatus_t aclblasChpr_npu(
     aclblasStatus_t ret = aclblasChpr(
         handle, uplo, n, alphaArg, static_cast<const aclblasComplex*>(dX), incx, static_cast<aclblasComplex*>(dAP));
 
-    aclrtSynchronizeDevice();
-    if (ret == ACLBLAS_STATUS_SUCCESS && ap != nullptr) {
-        aclrtMemcpy(ap, apBytes, dAP, apBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+    // 同步/回拷失败先以独立标志记录，仅在内核调用成功时统一映射，保留具体错误码
+    const bool syncOk = (aclrtSynchronizeDevice() == ACL_SUCCESS);
+    const bool apCopyOk =
+        (ap == nullptr || aclrtMemcpy(ap, apBytes, dAP, apBytes, ACL_MEMCPY_DEVICE_TO_HOST) == ACL_SUCCESS);
+    if (ret == ACLBLAS_STATUS_SUCCESS && (!syncOk || !apCopyOk)) {
+        ret = ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
-    if (dAlpha) {
-        aclrtFree(dAlpha);
-    }
-    if (dX) {
-        aclrtFree(dX);
-    }
-    if (dAP) {
-        aclrtFree(dAP);
-    }
+    ChprFreeAll(dAlpha, dX, dAP);
     return ret;
 }
