@@ -270,10 +270,15 @@ static uint32_t RunCgercStrideCase(
         errors = 1;
     } else {
         std::vector<aclblasComplex> sOut(m * ld);
-        aclrtMemcpy(
+        const aclError copyRet = aclrtMemcpy(
             sOut.data(), sA.size() * sizeof(aclblasComplex), sADev, sA.size() * sizeof(aclblasComplex),
             ACL_MEMCPY_DEVICE_TO_HOST);
-        errors = VerifyResult(sOut, sGolden, name);
+        if (copyRet != ACL_SUCCESS) {
+            std::cout << "[Failed] stride case " << name << " D2H copy failed: " << copyRet << std::endl;
+            errors = 1;
+        } else {
+            errors = VerifyResult(sOut, sGolden, name);
+        }
     }
     FreeCgercDevice(sxDev, syDev, sADev);
     return errors;
