@@ -121,7 +121,12 @@ static void TestNormalPath(const ScasumParam& p, aclblasHandle_t handle)
         for (int i = 0; i < 10; i++) {
             aclblasScasum(handle, p.n, dX, p.incx, dR);
         }
-        aclrtSynchronizeDevice();
+        if (aclrtSynchronizeDevice() != ACL_SUCCESS) {
+            printf("[ERROR] aclrtSynchronizeDevice warmup failed\n");
+            aclrtFree(dR);
+            aclrtFree(dX);
+            return;
+        }
 
         // Effective sampling: 100 back-to-back calls + one sync, averaged.
         const int samples = 100;
@@ -129,7 +134,12 @@ static void TestNormalPath(const ScasumParam& p, aclblasHandle_t handle)
         for (int i = 0; i < samples; i++) {
             aclblasScasum(handle, p.n, dX, p.incx, dR);
         }
-        aclrtSynchronizeDevice();
+        if (aclrtSynchronizeDevice() != ACL_SUCCESS) {
+            printf("[ERROR] aclrtSynchronizeDevice sampling failed\n");
+            aclrtFree(dR);
+            aclrtFree(dX);
+            return;
+        }
         auto t1 = std::chrono::high_resolution_clock::now();
         double avgUs = std::chrono::duration<double, std::micro>(t1 - t0).count() / samples;
         printf("[%s] avg_single_us=%.2f\n", p.caseName.c_str(), avgUs);
