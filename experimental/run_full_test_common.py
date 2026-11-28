@@ -59,7 +59,7 @@ def load_cann_env(ascend_home):
     if not os.path.isfile(setenv):
         return base
     with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as fh:
-        fh.write('source "$1" >/dev/null 2>&1; env -0\n')
+        fh.write('source "$1" >/dev/null 2>&1 || exit $?; env -0\n')
         helper = fh.name
     try:
         p = subprocess.run(
@@ -68,7 +68,10 @@ def load_cann_env(ascend_home):
     finally:
         os.unlink(helper)
     if p.returncode != 0:
-        return base
+        raise RuntimeError(
+            f"Failed to source CANN environment from {setenv} "
+            f"(exit code {p.returncode})"
+        )
     env = {}
     for item in p.stdout.split("\0"):
         if "=" in item:
