@@ -82,7 +82,10 @@ uint32_t *CreateCgemvBatchedMask(uint32_t m, uint32_t dtype, uint32_t trans)
     uint32_t maskSize = maxMatNum * ELENUM_LINE_ALIGNED * COMPLEX_ELENUM;
     uint32_t *maskData = nullptr;
 
-    maskData = new uint32_t[maskSize];
+    maskData = new (std::nothrow) uint32_t[maskSize];
+    if (maskData == nullptr) {
+        return nullptr;
+    }
 
     uint32_t realOffset = 0;
     uint32_t imagOffset = maxMatNum * ELENUM_LINE_ALIGNED + eleNumPerRepeat;
