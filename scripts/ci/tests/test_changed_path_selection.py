@@ -69,19 +69,40 @@ class ChangedPathSelectionTests(unittest.TestCase):
                 args = self.run_case([f"test/{family}/{op}/arch35/{op}_test.cpp"])
                 self.assertIn(f"--ops={op},blasLtMatmul", args)
 
-    def test_blaslt_source_changes_fall_back_to_all(self):
+    def test_blaslt_source_changes_select_both_suites(self):
         for path in ("blasLt/api/aclblaslt_transform.cpp",
                      "blasLt/matrix_transform/arch35/matrix_transform_kernel.cpp",
                      "blasLt/common/helper/host_utils.h", "blasLt/internal/types.h",
                      "blasLt/matmul/arch35/matmul.cpp"):
             with self.subTest(path=path):
                 args = self.run_case([path])
-                self.assertNotIn("--ops=", args)
-                self.assertIn("--run --soc=ascend950", args)
+                self.assertIn("--ops=blasLtMatmul,blasLtMatrixTransform", args)
+                self.assertTrue(args.startswith("BUILD_ARGS=--run "))
+                self.assertIn("--soc=ascend950", args.split())
 
-    def test_blaslt_fallback_keeps_default_smoke_and_is_order_independent(self):
+    def test_blaslt_and_normal_source_changes_keep_all_selected_suites(self):
         paths = ["test/gemm_ex/arch35/gemm_ex_test.cpp",
-                 "blasLt/api/aclblaslt_transform.cpp"]
+                 "blasLt/api/aclblaslt_transform.cpp",
+                 "blasLt/matmul/arch35/matmul.cpp"]
+        for ordered in (paths, paths[::-1]):
+            with self.subTest(paths=ordered):
+                args = self.run_case(ordered, smoke=True)
+                ops_arg = next(arg for arg in args.split() if arg.startswith("--ops="))
+                self.assertCountEqual(ops_arg.split("=", 1)[1].split(","),
+                                      ["gemm_ex", "blasLtMatmul", "blasLtMatrixTransform"])
+                self.assertIn("--smoke", args)
+
+    def test_other_blaslt_paths_keep_full_fallback(self):
+        for path in ("blasLt/CMakeLists.txt", "blasLt/new_family/kernel.cpp",
+                     "blasLt/matmul_extra/kernel.cpp"):
+            with self.subTest(path=path):
+                args = self.run_case([path], smoke=True)
+                self.assertNotIn("--ops=", args)
+                self.assertIn("--smoke", args)
+
+    def test_blaslt_selection_keeps_shared_blas_full_fallback(self):
+        paths = ["blasLt/api/aclblaslt_transform.cpp",
+                 "blas/common/helper/host_utils.h"]
         for ordered in (paths, paths[::-1]):
             with self.subTest(paths=ordered):
                 args = self.run_case(ordered, smoke=True)

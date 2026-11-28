@@ -302,16 +302,17 @@ typedef enum aclblasLtMatrixTransformDescAttribute {
  *  ``ACLBLASLT_MATMUL_PREF_MAX_WORKSPACE_BYTES`` defaults to 32MB
  *  (32*1024*1024 bytes). This is a deliberate divergence from cuBLASLt, whose
  *  default is 0 ("no workspace allowed"): aclblasLtMatmulAlgoInit() stamps
- *  every algorithm with ``max_workspace_bytes = 32MB`` and aclblasLtMatmul()
+ *  legacy arch35 algorithms with ``max_workspace_bytes = 32MB`` and aclblasLtMatmul()
  *  validates ``workspaceSizeInBytes`` against that stamp, so inheriting the
  *  cuBLASLt default would make the natural Create()/Init() preference reject
- *  every candidate.
+ *  every candidate. For regular FP16, BF16, FP8 and INT8 on arch35,
+ *  aclblasLtMatmulAlgoCheck() reports the workspace required for the given layouts.
  *
  *  A stored budget of 0 does not uniformly mean "no workspace allowed" either.
- *  The Ascend 950 (arch35) implementation of aclblasLtMatmulAlgoGetHeuristic()
- *  reads a 0 budget as "filtering disabled" (unbounded), whereas cuBLASLt -- and
- *  the Atlas A2/A3 (arch22) implementation of this library -- read 0 as a hard
- *  zero-byte budget. Migration code targeting arch35 that sets 0 in order to
+ *  Ascend 950 FP32 and MXFP heuristics read a 0 budget as "filtering disabled"
+ *  (unbounded). The regular FP16, BF16, FP8 and INT8 heuristics on Ascend 950 and
+ *  Atlas A2/A3 read it as a zero-byte budget. Migration code targeting the legacy
+ *  arch35 paths that sets 0 in order to
  *  obtain a workspace-free algorithm must instead inspect
  *  ``heuristicResultsArray[i].workspaceSize`` and allocate that much before
  *  calling aclblasLtMatmul().
@@ -1191,10 +1192,9 @@ aclblasStatus_t aclblasLtMatmulAlgoGetIds(
  *  details. This order is not a measured or estimated runtime guarantee.
  *
  *  Candidates whose workspace demand exceeds the ``MAX_WORKSPACE_BYTES`` budget
- *  carried by \p pref are skipped. How a 0 budget is read differs per build
- *  target: the Ascend 950 (arch35) implementation treats 0 as "filtering
- *  disabled" (unbounded), while the Atlas A2/A3 (arch22) implementation treats
- *  it as a real zero-byte budget (the cuBLASLt meaning). A NULL \p pref is
+ *  carried by \p pref are skipped. Ascend 950 FP32/MXFP heuristics treat 0 as
+ *  "filtering disabled" (unbounded). Regular FP16, BF16, FP8 and INT8 on Ascend 950
+ *  and the Atlas A2/A3 implementation use a zero-byte budget. A NULL \p pref is
  *  accepted and differs the same way -- arch35 reads it as 0 (unbounded),
  *  arch22 as the 32MB default -- so on arch35 a NULL \p pref is NOT equivalent
  *  to passing a freshly Create()d / Init()d preference. See

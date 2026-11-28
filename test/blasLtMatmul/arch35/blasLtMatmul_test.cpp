@@ -20,6 +20,7 @@
 #include "blasLtMatmul_param.h"
 #include "blasLtMatmul_golden.h"
 #include "blasLtMatmul_npu_wrapper.h"
+#include "blasLtMatmul_regular_test.h"
 
 namespace {
 
@@ -144,6 +145,35 @@ protected:
 
 aclblasLtHandle_t LtMatmulArch35Test::ltHandle_ = nullptr;
 aclrtStream LtMatmulArch35Test::stream_ = nullptr;
+
+TEST_F(LtMatmulArch35Test, RegularFloatingTypesTransposeTailPaddingAndAlias)
+{
+    const aclDataType pairs[][3] = {
+        {ACL_FLOAT16, ACL_FLOAT16, ACL_FLOAT16}, {ACL_BF16, ACL_BF16, ACL_BF16},
+        {ACL_FLOAT8_E4M3FN, ACL_FLOAT8_E4M3FN, ACL_FLOAT16},
+        {ACL_FLOAT8_E5M2, ACL_FLOAT8_E5M2, ACL_FLOAT16},
+        {ACL_FLOAT8_E4M3FN, ACL_FLOAT8_E5M2, ACL_FLOAT16},
+        {ACL_FLOAT8_E5M2, ACL_FLOAT8_E4M3FN, ACL_FLOAT16}};
+    for (const auto& pair : pairs) {
+        for (int trans = 0; trans < 4; ++trans) {
+            lt_regular_test::RunFloat(ltHandle_, stream_, pair[0], pair[1], pair[2], trans & 1, trans & 2,
+                trans & 1);
+        }
+        lt_regular_test::RunFloat(ltHandle_, stream_, pair[0], pair[1], pair[2], false, false, false, true);
+    }
+}
+
+TEST_F(LtMatmulArch35Test, Int8Int32PreservesIntegerScalarsAndOutputs)
+{
+    for (int trans = 0; trans < 4; ++trans) {
+        lt_regular_test::RunInteger(ltHandle_, stream_, trans & 1, trans & 2, trans & 1);
+    }
+}
+
+TEST_F(LtMatmulArch35Test, RegularQueriesAndExecutionRejectUnsupportedParameters)
+{
+    lt_regular_test::RunRejections(ltHandle_, stream_);
+}
 
 namespace {
 

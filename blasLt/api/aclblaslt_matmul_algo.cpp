@@ -22,6 +22,8 @@
 #include "host_utils.h"
 #ifdef OPS_BLASLT_ARCH22
 #include "lt_matmul_host.h"
+#else
+#include "matmul_regular_host.h"
 #endif
 
 #include <algorithm>
@@ -60,6 +62,14 @@ aclblasStatus_t ValidateAlgoInitArgs(
     if (algoId < 0) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
+#ifndef OPS_BLASLT_ARCH22
+    const auto regular = GetRegularMatmulType(Atype, Btype, Ctype, Dtype);
+    if (regular != LtRegularMatmulType::NONE) {
+        return HasRegularMatmulPrecision(regular, computeType, scaleType) &&
+            (algoId == 0 || static_cast<uint32_t>(algoId) == DEFAULT_ALGO_ID) ?
+            ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+#endif
     if (!CheckComputeTypeCompatibility(computeType, Atype, Btype) || IsGatedOffMxPair(Atype, Btype)) {
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     }
@@ -508,6 +518,51 @@ aclblasStatus_t FillAlgoCheckResult(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+#ifndef OPS_BLASLT_ARCH22
+aclblasStatus_t CheckRegularQuery(
+    LtRegularMatmulType type, const aclblasLtMatmulDescImpl* desc, const aclblasLtMatrixLayoutImpl* a,
+    const aclblasLtMatrixLayoutImpl* b, const aclblasLtMatrixLayoutImpl* c, const aclblasLtMatrixLayoutImpl* d)
+{
+    if (!HasRegularMatmulScalars(desc, type) || !HasSupportedTransposeModes(desc) ||
+        desc->epilogue != ACLBLASLT_EPILOGUE_DEFAULT) {
+        return ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+    if (d->rows == 0 || d->cols == 0) {
+        return ACLBLAS_STATUS_SUCCESS;
+    }
+    const uint64_t k = desc->transA == ACLBLAS_OP_N ? a->cols : a->rows;
+    if (k == 0 || !IsMatmulLayoutValid(desc, a, b, c, d, d->rows, d->cols, k)) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
+    return HasRowMajorLayouts(a, b, c, d) && CanTileRegularMatmulLayouts(type, desc, a, b, c, d) ?
+        ACLBLAS_STATUS_SUCCESS : ACLBLAS_STATUS_NOT_SUPPORTED;
+}
+
+aclblasStatus_t GetRegularHeuristic(
+    LtRegularMatmulType type, const aclblasLtMatmulDescImpl* desc, const aclblasLtMatrixLayoutImpl* a,
+    const aclblasLtMatrixLayoutImpl* b, const aclblasLtMatrixLayoutImpl* c, const aclblasLtMatrixLayoutImpl* d,
+    bool hasPreference, size_t maxWorkspace, aclblasLtMatmulHeuristicResult_t* result, int* count)
+{
+    const auto status = CheckRegularQuery(type, desc, a, b, c, d);
+    if (status != ACLBLAS_STATUS_SUCCESS) {
+        return status;
+    }
+    const size_t bytes = RegularMatmulWorkspaceSize(d->rows, d->cols);
+    if (hasPreference && bytes > maxWorkspace) {
+        return ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+    AlgoCandidate candidate;
+    candidate.algoId = DEFAULT_ALGO_ID;
+    candidate.workspaceSize = bytes;
+    const auto algo = BuildAlgoFromCandidate(candidate);
+    const auto fillStatus = FillAlgoCheckResult(algo, bytes, result);
+    if (fillStatus == ACLBLAS_STATUS_SUCCESS) {
+        *count = 1;
+    }
+    return fillStatus;
+}
+#endif
+
 // ── AlgoCheck Stage helpers（每个 helper 各自打日志，主体只剩 Stage 调用与早退）──
 
 // Stage 0: name the first null argument precisely instead of
@@ -660,6 +715,56 @@ aclblasStatus_t CheckMatrixSemantics(
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+aclblasStatus_t CheckLegacyAlgoWorkload(
+    const aclblasLtMatmulDescImpl* desc, const aclblasLtMatrixLayoutImpl* ALayout,
+    const aclblasLtMatrixLayoutImpl* BLayout, const aclblasLtMatrixLayoutImpl* CLayout,
+    const aclblasLtMatrixLayoutImpl* DLayout, const aclblasLtMatmulAlgo_t& algo, const PackedAlgo& packed,
+    aclblasLtMatmulHeuristicResult_t* result)
+{
+    const aclblasStatus_t scalarStatus = CheckScalarSemantics(desc);
+    if (scalarStatus != ACLBLAS_STATUS_SUCCESS) {
+        return scalarStatus;
+    }
+
+    const uint64_t m = DLayout->rows;
+    const uint64_t n = DLayout->cols;
+    const uint64_t k = (desc->transA == ACLBLAS_OP_N) ? ALayout->cols : ALayout->rows;
+
+    AclBlasLt::LoggerManager::GetInstance().Log(
+        ACLBLASLT_LOG_MASK_TRACE, "aclblasLtMatmulAlgoCheck", "m=%lu, n=%lu, k=%lu", static_cast<unsigned long>(m),
+        static_cast<unsigned long>(n), static_cast<unsigned long>(k));
+
+    // No-op: m==0 or n==0 is an empty workload; succeed early (placed
+    // before layout/dtype/order/MXFP checks, matching aclblasLtMatmul) with workspaceSize
+    // forced to 0 — CalculateWorkspaceForAscend's RELU/GELU add-on would report 64KB for m=0,
+    // which misrepresents a no-op.
+    if (m == 0U || n == 0U) {
+        return FillAlgoCheckResult(algo, 0, result);
+    }
+
+    const aclblasStatus_t matrixStatus = CheckMatrixSemantics(desc, ALayout, BLayout, CLayout, DLayout, m, n, k);
+    if (matrixStatus != ACLBLAS_STATUS_SUCCESS) {
+        return matrixStatus;
+    }
+
+    // Stage 4: all checks passed — fill result. splitK comes from
+    // the decoded PackedAlgo blob field (packed.splitK), never re-derived from the algoId.
+    // The reported workspaceSize is the amount the caller should allocate:
+    // max(intrinsic demand, algo.max_workspace_bytes). The intrinsic part (split-K staging +
+    // epilogue bias, same source as FillHeuristicResults / BuildRankedCandidates) alone can be
+    // 0 for the default algo, while aclblasLtMatmul() separately validates
+    // ``workspaceSizeInBytes >= algo.max_workspace_bytes`` (AlgoInit stamps
+    // DEFAULT_WORKSPACE_SIZE = 32MB), so reporting only the intrinsic demand made the natural
+    // "alloc(result->workspaceSize) then run Matmul" flow fail with INVALID_VALUE. Taking the
+    // max matches AlgoGetHeuristic's behaviour (BuildAlgoFromCandidate stamps
+    // max_workspace_bytes = intrinsic) and cuBLASLt, whose AlgoCheck reports the allocatable
+    // amount. The raw-product staging surcharge (RequiredRawWorkspace, matmul_engine.cpp)
+    // still depends on runtime alpha/beta and C/D buffer overlap, which are invisible here.
+    const size_t intrinsic = CalculateWorkspaceForAscend(m, n, packed.splitK, desc->epilogue);
+    const size_t workspaceSize = intrinsic > algo.max_workspace_bytes ? intrinsic : algo.max_workspace_bytes;
+    return FillAlgoCheckResult(algo, workspaceSize, result);
+}
+
 } // namespace
 
 extern "C" {
@@ -699,7 +804,8 @@ aclblasStatus_t aclblasLtMatmulAlgoInit(
     if (!MemcpySSucceeds(algo->data, sizeof(algo->data), &packed, sizeof(packed))) {
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
-    algo->max_workspace_bytes = DEFAULT_WORKSPACE_SIZE;
+    algo->max_workspace_bytes = GetRegularMatmulType(Atype, Btype, Ctype, Dtype) == LtRegularMatmulType::NONE ?
+        DEFAULT_WORKSPACE_SIZE : 0;
 
     return ACLBLAS_STATUS_SUCCESS;
 #endif
@@ -849,7 +955,15 @@ aclblasStatus_t aclblasLtMatmulAlgoGetIds(
     }
     return ACLBLAS_STATUS_SUCCESS;
 #else
-    (void)scaleType;
+    const auto regular = GetRegularMatmulType(Atype, Btype, Ctype, Dtype);
+    if (regular != LtRegularMatmulType::NONE) {
+        if (!HasRegularMatmulPrecision(regular, computeType, scaleType)) {
+            return ACLBLAS_STATUS_NOT_SUPPORTED;
+        }
+        algoIdsArray[0] = static_cast<int>(DEFAULT_ALGO_ID);
+        *returnAlgoCount = 1;
+        return ACLBLAS_STATUS_SUCCESS;
+    }
     if (!CheckComputeTypeCompatibility(computeType, Atype, Btype) || IsGatedOffMxPair(Atype, Btype)) {
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     }
@@ -950,6 +1064,13 @@ aclblasStatus_t aclblasLtMatmulAlgoGetHeuristic(
     const uint64_t m = D->rows;
     const uint64_t n = D->cols;
 
+    auto* C = reinterpret_cast<aclblasLtMatrixLayoutImpl*>(Cdesc);
+    const auto regular = GetRegularMatmulType(A->type, B->type, C->type, D->type);
+    if (regular != LtRegularMatmulType::NONE) {
+        return GetRegularHeuristic(regular, desc, A, B, C, D, preference != nullptr, maxWorkspace,
+            &heuristicResultsArray[0], returnAlgoCount);
+    }
+
     const aclblasStatus_t typeStatus = ValidateHeuristicTypePair(heuristicResultsArray, A, B, D, desc);
     if (typeStatus != ACLBLAS_STATUS_SUCCESS) {
         return typeStatus;
@@ -1039,48 +1160,22 @@ aclblasStatus_t aclblasLtMatmulAlgoCheck(
     auto* DLayout = reinterpret_cast<aclblasLtMatrixLayoutImpl*>(Ddesc);
     auto* desc = reinterpret_cast<aclblasLtMatmulDescImpl*>(operationDesc);
 
-    const aclblasStatus_t scalarStatus = CheckScalarSemantics(desc);
-    if (scalarStatus != ACLBLAS_STATUS_SUCCESS) {
-        return scalarStatus;
+#ifndef OPS_BLASLT_ARCH22
+    const auto regular = GetRegularMatmulType(ALayout->type, BLayout->type, CLayout->type, DLayout->type);
+    if (regular != LtRegularMatmulType::NONE) {
+        if (!IsDefaultRegularMatmulAlgo(*algo)) {
+            return ACLBLAS_STATUS_NOT_SUPPORTED;
+        }
+        const auto status = CheckRegularQuery(regular, desc, ALayout, BLayout, CLayout, DLayout);
+        if (status != ACLBLAS_STATUS_SUCCESS) {
+            return status;
+        }
+        const size_t bytes = RegularMatmulWorkspaceSize(DLayout->rows, DLayout->cols);
+        return FillAlgoCheckResult(*algo, std::max(bytes, algo->max_workspace_bytes), result);
     }
+#endif
 
-    const uint64_t m = DLayout->rows;
-    const uint64_t n = DLayout->cols;
-    const uint64_t k = (desc->transA == ACLBLAS_OP_N) ? ALayout->cols : ALayout->rows;
-
-    AclBlasLt::LoggerManager::GetInstance().Log(
-        ACLBLASLT_LOG_MASK_TRACE, "aclblasLtMatmulAlgoCheck", "m=%lu, n=%lu, k=%lu", static_cast<unsigned long>(m),
-        static_cast<unsigned long>(n), static_cast<unsigned long>(k));
-
-    // No-op: m==0 or n==0 is an empty workload; succeed early (placed
-    // before layout/dtype/order/MXFP checks, matching aclblasLtMatmul) with workspaceSize
-    // forced to 0 — CalculateWorkspaceForAscend's RELU/GELU add-on would report 64KB for m=0,
-    // which misrepresents a no-op.
-    if (m == 0U || n == 0U) {
-        return FillAlgoCheckResult(*algo, 0, result);
-    }
-
-    const aclblasStatus_t matrixStatus = CheckMatrixSemantics(desc, ALayout, BLayout, CLayout, DLayout, m, n, k);
-    if (matrixStatus != ACLBLAS_STATUS_SUCCESS) {
-        return matrixStatus;
-    }
-
-    // Stage 4: all checks passed — fill result. splitK comes from
-    // the decoded PackedAlgo blob field (packed.splitK), never re-derived from the algoId.
-    // The reported workspaceSize is the amount the caller should allocate:
-    // max(intrinsic demand, algo->max_workspace_bytes). The intrinsic part (split-K staging +
-    // epilogue bias, same source as FillHeuristicResults / BuildRankedCandidates) alone can be
-    // 0 for the default algo, while aclblasLtMatmul() separately validates
-    // ``workspaceSizeInBytes >= algo->max_workspace_bytes`` (AlgoInit stamps
-    // DEFAULT_WORKSPACE_SIZE = 32MB), so reporting only the intrinsic demand made the natural
-    // "alloc(result->workspaceSize) then run Matmul" flow fail with INVALID_VALUE. Taking the
-    // max matches AlgoGetHeuristic's behaviour (BuildAlgoFromCandidate stamps
-    // max_workspace_bytes = intrinsic) and cuBLASLt, whose AlgoCheck reports the allocatable
-    // amount. The raw-product staging surcharge (RequiredRawWorkspace, matmul_engine.cpp)
-    // still depends on runtime alpha/beta and C/D buffer overlap, which are invisible here.
-    const size_t intrinsic = CalculateWorkspaceForAscend(m, n, packed.splitK, desc->epilogue);
-    const size_t workspaceSize = intrinsic > algo->max_workspace_bytes ? intrinsic : algo->max_workspace_bytes;
-    return FillAlgoCheckResult(*algo, workspaceSize, result);
+    return CheckLegacyAlgoWorkload(desc, ALayout, BLayout, CLayout, DLayout, *algo, packed, result);
 }
 
 } // extern "C"

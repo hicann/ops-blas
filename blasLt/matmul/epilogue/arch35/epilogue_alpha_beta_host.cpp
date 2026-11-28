@@ -50,7 +50,13 @@ uint32_t GetVectorCoreCount()
     return static_cast<uint32_t>(vecCoreNum);
 }
 
-uint8_t ToEpilogueDtype(aclDataType dtype) { return (dtype == ACL_BF16) ? 1U : 0U; }
+uint8_t ToEpilogueDtype(aclDataType dtype)
+{
+    if (dtype == ACL_FLOAT16) {
+        return EPILOGUE_DTYPE_FP16;
+    }
+    return (dtype == ACL_BF16) ? 1U : 0U;
+}
 
 } // namespace
 

@@ -28,6 +28,7 @@ aclblasStatus_t MatmulLaunch(const MatmulProblem& problem) { return LtMatmul22La
 #include "matmul_fp32_host.h"
 #include "matmul_fp32_kernel.h"
 #include "matmul_fp32_tiling_data.h"
+#include "matmul_regular_host.h"
 // The MXFP8/MXFP4 subtrees are compiled into libops_blasLt.so only when the CMake capability
 // gate ENABLE_BLASLT_MXFP8 is on (blasLt/CMakeLists.txt excludes the whole subtrees otherwise);
 // the top-level CMakeLists mirrors that gate into a same-named compile definition. Keep the
@@ -164,6 +165,15 @@ aclblasStatus_t LaunchEpilogue(const MatmulProblem& problem, void* dRawAddr, boo
     return ACLBLAS_STATUS_SUCCESS;
 }
 
+aclblasStatus_t LaunchRegularMatmul(const MatmulProblem& problem, LtRegularMatmulType type)
+{
+    if (problem.devicePointerMode || problem.scaleA != nullptr || problem.scaleB != nullptr ||
+        (problem.algo != nullptr && !IsDefaultRegularMatmulAlgo(*problem.algo))) {
+        return ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+    return MatmulRegularLaunch(problem, type);
+}
+
 } // namespace
 
 aclblasStatus_t MatmulLaunch(const MatmulProblem& problem)
@@ -171,6 +181,11 @@ aclblasStatus_t MatmulLaunch(const MatmulProblem& problem)
     if (problem.orderA != ACLBLASLT_ORDER_ROW || problem.orderB != ACLBLASLT_ORDER_ROW ||
         problem.orderC != ACLBLASLT_ORDER_ROW || problem.orderD != ACLBLASLT_ORDER_ROW) {
         return ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+
+    const auto regular = GetRegularMatmulType(problem.dtypeA, problem.dtypeB, problem.dtypeC, problem.dtypeD);
+    if (regular != LtRegularMatmulType::NONE) {
+        return LaunchRegularMatmul(problem, regular);
     }
 
     const uint64_t k = problem.k;

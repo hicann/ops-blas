@@ -2,7 +2,7 @@
 
 ## 算子概述
 
-LtMatmul 算子实现了 BLAS Lt 通用矩阵乘法，核心运算为 D = alpha * op(A) * op(B) + beta * C。其中 A、B 为输入矩阵，C 为累加矩阵，D 为输出矩阵，alpha 和 beta 为标量。Atlas A2/A3 支持 FP32，op(A)/op(B) 支持 N/T/C，实数共轭转置 C 按 T 执行；Ascend 950PR/950DT 支持 N/T，以及 FP32、MXFP8（E4M3FN）、MXFP4（E2M1）输入组合和对应的 FP32/BF16 输出。
+LtMatmul 算子实现了 BLAS Lt 通用矩阵乘法，核心运算为 D = alpha * op(A) * op(B) + beta * C。其中 A、B 为输入矩阵，C 为累加矩阵，D 为输出矩阵，alpha 和 beta 为标量。Atlas A2/A3 支持 FP32，op(A)/op(B) 支持 N/T/C，实数共轭转置 C 按 T 执行；Ascend 950PR/950DT 支持 N/T，以及 FP32、FP16、BF16、普通 FP8、INT8 和 MXFP8/MXFP4 路径。
 
 数学表达式：
 
@@ -14,7 +14,7 @@ D = alpha * op(A) * op(B) + beta * C
 
 | 接口名 | 功能简述 |
 |--------|---------|
-| aclblasLtMatmul | 通用矩阵乘法（支持 FP32 / MXFP8 / MXFP4 路径） |
+| aclblasLtMatmul | 通用矩阵乘法 |
 
 ## 算子执行接口
 
@@ -35,11 +35,11 @@ D = alpha * op(A) * op(B) + beta * C
 
 | 项目 | Atlas A2/A3（arch22） | Ascend 950PR/950DT（arch35） |
 |---|---|---|
-| 输入/输出类型 | A/B/C/D 均为 FP32，`ACLBLAS_COMPUTE_32F` | FP32 及下文规定的 MXFP8/MXFP4 组合 |
+| 输入/输出类型 | A/B/C/D 均为 FP32，`ACLBLAS_COMPUTE_32F` | FP32、下方普通类型表及 MXFP8/MXFP4 组合 |
 | 布局与 batch | ROW，单 batch，无 batch stride | ROW，单 batch，无 batch stride |
 | 转置 | N/T/C；FP32 实数的 C 按 T 执行 | N/T；C 返回 `ACLBLAS_STATUS_NOT_SUPPORTED` |
-| 标量 pointerMode | FP32 HOST；DEVICE 返回 `ACLBLAS_STATUS_INVALID_VALUE` | FP32 HOST；DEVICE 返回 `ACLBLAS_STATUS_NOT_SUPPORTED` |
-| 非 FP32 scaleType | `ACLBLAS_STATUS_NOT_SUPPORTED` | `ACLBLAS_STATUS_INVALID_VALUE` |
+| 标量 pointerMode | FP32 HOST；DEVICE 返回 `ACLBLAS_STATUS_INVALID_VALUE` | 原有 FP32/MX 路径支持 HOST/DEVICE；新增普通类型仅支持 HOST |
+| 非 FP32 scaleType | `ACLBLAS_STATUS_NOT_SUPPORTED` | INT8 路径使用 INT32；其余路径使用 FP32 |
 | 空矩阵（m=0 或 n=0）+ 非法描述符 | 空矩阵 no-op 先于布局/类型/枚举校验短路成功（issue #835 补充声明；见[arch22 算子说明](../blas/lt_matmul/README.md)的校验顺序） | 标量校验（转置/epilogue/scaleType）先于 no-op，非法描述符返回对应错误码 |
 | `MatrixLayoutCreate(..., ld=0)` 后读取 LD | 返回原始值 0，执行 ROW 计划时按 `max(1, cols)` 解析 | 创建时归一为 rows，读取返回 rows |
 
@@ -60,16 +60,16 @@ aclblasStatus_t aclblasLtMatmul(aclblasLtHandle_t lightHandle, aclblasLtMatmulDe
 |--------|----------|---------|------|
 | lightHandle | 输入 | aclblasLtHandle_t | aclBLASLt 库上下文句柄，由 `aclblasLtCreate` 创建，不可为 NULL，否则返回 `ACLBLAS_STATUS_NOT_INITIALIZED`，Host 内存 |
 | computeDesc | 输入 | aclblasLtMatmulDesc_t | 矩阵乘法描述符，设置 transA/transB、epilogue、scale 指针等属性，不可为 NULL，Host 内存 |
-| alpha | 输入 | const void*（FP32） | 用于乘法的 float 标量指针，不可为 NULL；由 pointerMode 指定 Host/Device，arch22 仅支持 Host |
+| alpha | 输入 | const void* | 缩放标量指针，不可为 NULL；INT8 路径为 Host INT32，其他路径为 FP32，pointerMode 支持域见上表 |
 | A | 输入 | const void* | 输入矩阵 A，数据类型由 Adesc 指定，m>0 且 n>0 时不可为 NULL，Device 内存 |
 | Adesc | 输入 | aclblasLtMatrixLayout_t | 矩阵 A 的 layout 描述符（rows/cols/ld/order/dtype），Host 内存 |
 | B | 输入 | const void* | 输入矩阵 B，数据类型由 Bdesc 指定，m>0 且 n>0 时不可为 NULL，Device 内存 |
 | Bdesc | 输入 | aclblasLtMatrixLayout_t | 矩阵 B 的 layout 描述符，Host 内存 |
-| beta | 输入 | const void*（FP32） | 用于累加的 float 标量指针，不可为 NULL，beta=0 时 C 可不参与计算；arch22 仅支持 Host |
+| beta | 输入 | const void* | 类型及存储位置与 alpha 一致，不可为 NULL；beta=0 时 C 可不参与计算 |
 | C | 输入 | const void* | 累加矩阵 C，beta=0 时可为 NULL，Device 内存 |
 | Cdesc | 输入 | aclblasLtMatrixLayout_t | 矩阵 C 的 layout 描述符，Host 内存 |
 | D | 输出 | void* | 输出矩阵 D，维度 m x n，m>0 且 n>0 时不可为 NULL，Device 内存 |
-| Ddesc | 输入 | aclblasLtMatrixLayout_t | 矩阵 D 的 layout 描述符，指定输出数据类型（FP32 或 BF16），Host 内存 |
+| Ddesc | 输入 | aclblasLtMatrixLayout_t | 矩阵 D 的 layout 描述符，指定输出数据类型，Host 内存 |
 | algo | 输入 | const aclblasLtMatmulAlgo_t* | 算法描述符，可为 NULL（使用默认算法），Host 内存 |
 | workspace | 输入 | void* | 工作空间内存，可为 NULL，非 NULL 时需 16B 对齐，Device 内存 |
 | workspaceSizeInBytes | 输入 | size_t | 工作空间大小（字节），Host 内存 |
@@ -79,11 +79,7 @@ aclblasStatus_t aclblasLtMatmul(aclblasLtHandle_t lightHandle, aclblasLtMatmulDe
 
 - M、N、K >= 0；M=0 或 N=0 时为空操作，直接返回 `ACLBLAS_STATUS_SUCCESS`
 - Atlas A2/A3 的 A/B/C/D 均为 FP32；以下 MXFP8/MXFP4 与 BF16 输出约束仅适用于 Ascend 950PR/950DT
-- dtypeA / dtypeB 须为同类型组合：FP32×FP32、MXFP8×MXFP8、MXFP4×MXFP4；其他组合返回 `ACLBLAS_STATUS_NOT_SUPPORTED`
-- MXFP8 路径的 FP8 位型当前仅支持 E4M3FN（FP8_E5M2 输入返回 `ACLBLAS_STATUS_NOT_SUPPORTED`，不会静默按 E4M3 解码）
-- dtypeC 当前固定为 FP32
-- dtypeD 支持 FP32 或 BF16；MXFP8/MXFP4 路径支持 FP32 或 BF16 输出，FP32 路径输出 FP32
-- computeType 当前仅支持 `ACLBLAS_COMPUTE_32F`
+- 原有 FP32 路径保持不变。MXFP8 路径仅支持 E4M3FN 输入、BF16 输出；MXFP4 支持 E2M1 输入、FP32/BF16 输出。上述路径的 C 为 FP32/BF16
 - transA / transB 支持 `ACLBLAS_OP_N`（不转置）、`ACLBLAS_OP_T`（转置）；Atlas A2/A3 还支持 `ACLBLAS_OP_C`，其 FP32 实数计算与 T 等价
 - MXFP8/MXFP4 路径要求 K 为 32 的整数倍，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
 - order 必须显式设为 `ACLBLASLT_ORDER_ROW`（layout 描述符的默认值为 `ACLBLASLT_ORDER_COL`，A/B/C/D 任一未设置为 ROW 均返回 `ACLBLAS_STATUS_NOT_SUPPORTED`，不再静默按行主序解释）；非零 lda / ldb / ldc / ldd 须 >= 矩阵物理列数，零值约定见架构支持表；MXFP4 的 ld 为逻辑元素 leading dim（2 个 FP4 元素打包为 1 字节）
@@ -91,6 +87,32 @@ aclblasStatus_t aclblasLtMatmul(aclblasLtHandle_t lightHandle, aclblasLtMatmulDe
 - MXFP8/MXFP4 路径须通过 computeDesc 设置 scaleA / scaleB（`ACLBLASLT_MATMUL_DESC_A/B_SCALE_POINTER`），E8M0 格式，按 K 方向每 32 元素一组，不可为 NULL
 - algo 可为 NULL，使用默认算法
 - workspace 非 NULL 时需 16B 对齐；algo 非 NULL 时 workspaceSizeInBytes 须 >= algo->max_workspace_bytes
+
+Ascend 950 普通类型组合（不使用块缩放）：
+
+| A | B | C/D | computeType | alpha/beta |
+|---|---|---|---|---|
+| FP16 | FP16 | FP16 | ACLBLAS_COMPUTE_32F | Host FP32 |
+| BF16 | BF16 | BF16 | ACLBLAS_COMPUTE_32F | Host FP32 |
+| E4M3FN / E5M2 | E4M3FN / E5M2（四种组合） | FP16 | ACLBLAS_COMPUTE_32F | Host FP32 |
+| INT8 | INT8 | INT32 | ACLBLAS_COMPUTE_32I | Host INT32 |
+
+普通 FP8 通过 FP16 C/D 与 MXFP8 区分，不设置 A/B_SCALE_POINTER；普通类型均要求
+这两个指针为空。普通 FP8 支持任意正 K，沿用 N/T、ROW、单 batch 和 DEFAULT
+epilogue 约束。C/D 可分开，也可在有效 leading dimension 相同时原地累加；
+非零 beta 时 C 不可为空。各矩阵的 padding 保持不变。
+
+普通类型的 M/N/K 和有效 leading dimension 必须能用 int32 表示，输出 tile 总数
+不得超过 uint32 范围。INT8 还要求 A/B 地址及 leading dimension 为 4 的倍数、
+K <= 131071，以使原始 INT32 点积的最坏情况不溢出。整数系数与输出不经 FP32 转换。
+K=0 仍返回 `ACLBLAS_STATUS_INVALID_VALUE`。
+
+普通类型仅提供默认算法：AlgoInit 接受 0 或 AlgoGetIds 返回的唯一 ID，其他 ID 或
+修改后的 tiling 配置不能用于该路径。Heuristic/AlgoCheck 校验实际后端可处理的布局，
+并报告 `M*N*sizeof(float)` 字节的最坏情况工作区，覆盖非单位 alpha、非零 beta 及 C/D
+别名。AlgoInit 不掌握形状，其初始工作区大小为 0，应通过查询获取具体需求。
+不传 algo 且 alpha=1、beta=0 时可直接写 D，无需工作区。计算在 stream 上异步执行，
+读取 D 或释放矩阵、工作区前须同步该 stream。
 
 #### 调用示例
 

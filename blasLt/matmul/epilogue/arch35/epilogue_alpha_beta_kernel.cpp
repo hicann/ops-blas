@@ -19,6 +19,7 @@
 #include "epilogue_alpha_beta_kernel.h"
 #include "kernel_operator.h"
 #include "simt_api/asc_bf16.h"
+#include "simt_api/asc_fp16.h"
 #include "simt_api/asc_simt.h"
 
 namespace {
@@ -47,18 +48,19 @@ __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void EpilogueAlp
 
         float rawVal = RAW_BF16 ? __bfloat162float(dRawGm[rawIdx]) : static_cast<float>(dRawGm[rawIdx]);
         float cVal = 0.0f;
-        if constexpr (DEVICE_SCALAR) {
-            if (useC && beta != 0.0f) {
-                const uint64_t cIdx = row * ldc + col;
+        if (useC && (!DEVICE_SCALAR || beta != 0.0f)) {
+            const uint64_t cIdx = row * ldc + col;
+            if constexpr (AscendC::IsSameType<TC, half>::value) {
+                cVal = __half2float(cGm[cIdx]);
+            } else {
                 cVal = C_BF16 ? __bfloat162float(cGm[cIdx]) : static_cast<float>(cGm[cIdx]);
             }
-        } else if (useC) {
-            const uint64_t cIdx = row * ldc + col;
-            cVal = C_BF16 ? __bfloat162float(cGm[cIdx]) : static_cast<float>(cGm[cIdx]);
         }
         const float result = alpha * rawVal + beta * cVal;
         if constexpr (D_BF16) {
             dGm[outIdx] = __float2bfloat16_rn_sat(result);
+        } else if constexpr (AscendC::IsSameType<TD, half>::value) {
+            dGm[outIdx] = __float2half_rn(result);
         } else {
             dGm[outIdx] = static_cast<TD>(result);
         }
@@ -100,6 +102,10 @@ __aicore__ inline void LaunchEpilogueAlphaBetaMode(
 __aicore__ inline void DispatchEpilogueAlphaBeta(
     const EpilogueAlphaBetaTilingData& tiling, GM_ADDR dRaw, GM_ADDR c, GM_ADDR d, GM_ADDR alpha, GM_ADDR beta)
 {
+    if (tiling.dtypeD == EPILOGUE_DTYPE_FP16) {
+        LaunchEpilogueAlphaBetaTyped<float, half, half, false>(tiling, dRaw, c, d, alpha, beta);
+        return;
+    }
     const bool rawBf16 = tiling.dtypeDRaw != 0U;
     const bool cBf16 = tiling.dtypeC != 0U;
     const bool dBf16 = tiling.dtypeD != 0U;

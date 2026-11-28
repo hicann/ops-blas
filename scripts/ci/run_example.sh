@@ -171,13 +171,21 @@ while IFS= read -r filepath || [ -n "$filepath" ]; do
         include_ops="${include_ops}${header_ops}"
         continue
     fi
-    # BLASLt API、公共头和内核位于独立源码树，目录名不能直接映射测试名。
-    # 保守回退全仓选测，避免默认追加的 Matmul 掩盖 MatrixTransform 漏测。
-    if [[ "$filepath" =~ ^blasLt/ ]]; then
-        echo "Warning: BLASLt code changed ($filepath), fallback to run all."
-        run_all=true
-        break
-    fi
+    # BLASLt API、公共头和内核由 Matmul 与 MatrixTransform 两个测试消费。
+    # 已知源码子树选择这两个测试；其他 BLASLt 路径仍保守回退全仓。
+    case "$filepath" in
+        blasLt/api/*|blasLt/common/*|blasLt/internal/*|blasLt/matmul/*|blasLt/matrix_transform/*)
+            ops+=("blasLtMatmul" "blasLtMatrixTransform")
+            op_cases[blasLtMatmul]="ALL"
+            op_cases[blasLtMatrixTransform]="ALL"
+            continue
+            ;;
+        blasLt/*)
+            echo "Warning: BLASLt code changed ($filepath), fallback to run all."
+            run_all=true
+            break
+            ;;
+    esac
     if [[ "$filepath" == extensions/* ]]; then
         extension_path=${filepath#extensions/}
         extension_op=${extension_path%%/*}

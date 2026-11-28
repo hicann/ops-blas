@@ -198,6 +198,7 @@ if("arch22" IN_LIST SOC_ARCH_DIRS)
     target_compile_definitions(${OPS_BLASLT} PRIVATE OPS_BLASLT_ARCH22=1)
 elseif("arch35" IN_LIST SOC_ARCH_DIRS)
     target_include_directories(${OPS_BLASLT} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}/blas
         ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/fp32/arch35
         ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/mxfp8/arch35
         ${CMAKE_CURRENT_LIST_DIR}/blasLt/matmul/mxfp4/arch35

@@ -22,6 +22,9 @@
 #include "aclblaslt_matmul_problem.h"
 #include "host_utils.h"
 #include "matmul_engine.h"
+#ifndef OPS_BLASLT_ARCH22
+#include "matmul_regular_host.h"
+#endif
 #ifdef OPS_BLASLT_ARCH22
 #include "lt_matmul_host.h"
 #endif
@@ -44,6 +47,12 @@ bool HasSupportedDtypes(
     const aclDataType dtypeA = a->type;
     const aclDataType dtypeB = b->type;
     const aclDataType dtypeD = d->type;
+#ifndef OPS_BLASLT_ARCH22
+    const auto regular = GetRegularMatmulType(dtypeA, dtypeB, c->type, dtypeD);
+    if (regular != LtRegularMatmulType::NONE) {
+        return HasRegularMatmulScalars(desc, regular) && CanTileRegularMatmulLayouts(regular, desc, a, b, c, d);
+    }
+#endif
     // C 白名单与 MXFP 输出 dtype 规则与 AlgoCheck 共享（host_utils.h）；
     // FP32 分支两处有意分叉——本侧能看到运行时 alpha/beta（epilogueRuns）。
     switch (CheckCAndMxDtypeRules(dtypeA, dtypeB, c->type, dtypeD)) {
@@ -108,10 +117,13 @@ aclblasStatus_t aclblasLtMatmul(
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
 
-    // issue #594: HOST 指针模式下 alpha/beta 按 float 解引用、DEVICE 模式下 epilogue 内核按
-    // float 读取标量，scaleType 非 ACL_FLOAT 时继续会按 4 字节误读 2 字节标量（主机越界读 +
-    // 错误系数），此处显式拒绝。
-    if (desc->scaleType != ACL_FLOAT) {
+    // Regular INT8 parses Host INT32 scalars; the floating paths parse FP32.
+    // Reject mismatched storage before either scalar is dereferenced.
+    const auto regular = GetRegularMatmulType(ALayout->type, BLayout->type, CLayout->type, DLayout->type);
+    if (regular != LtRegularMatmulType::NONE && !HasRegularMatmulScalars(desc, regular)) {
+        return ACLBLAS_STATUS_NOT_SUPPORTED;
+    }
+    if (desc->scaleType != ACL_FLOAT && regular != LtRegularMatmulType::INT8) {
         AclBlasLt::LoggerManager::GetInstance().Log(
             ACLBLASLT_LOG_MASK_ERROR, "aclblasLtMatmul",
             "scaleType %d is not supported, only ACL_FLOAT scalars are parsed", static_cast<int>(desc->scaleType));

@@ -40,6 +40,9 @@ void BuildMatmulProblem(
     if (out.devicePointerMode) {
         out.alphaDevice = alpha;
         out.betaDevice = beta;
+    } else if (desc->scaleType == ACL_INT32) {
+        out.alphaInt = *static_cast<const int32_t*>(alpha);
+        out.betaInt = *static_cast<const int32_t*>(beta);
     } else {
         out.alpha = *reinterpret_cast<const float*>(alpha);
         out.beta = *reinterpret_cast<const float*>(beta);

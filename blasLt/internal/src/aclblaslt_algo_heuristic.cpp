@@ -215,6 +215,15 @@ bool DecodeAlgo(const aclblasLtMatmulAlgo_t& algo, PackedAlgo* packed)
     return packed->magic == ACLBLASLT_ALGO_MAGIC;
 }
 
+bool IsDefaultRegularMatmulAlgo(const aclblasLtMatmulAlgo_t& algo)
+{
+    PackedAlgo packed{};
+    return DecodeAlgo(algo, &packed) && packed.algoId == DEFAULT_ALGO_ID &&
+        packed.l1mDiv16 == DEFAULT_L1_M / 16 && packed.l1nDiv16 == DEFAULT_L1_N / 16 &&
+        packed.policy == DISPATCH_POLICY_MMAD_SYNC && packed.numBuffers == 1 && packed.splitK == 1 &&
+        packed.flags == EncodeL1KToFlags(0, DEFAULT_L1_K);
+}
+
 // Apply the decoded algorithm's L1 tile onto the FP32 kernel tiling. The FP32 tiling payload only
 // exposes base tiles (baseM/baseN/baseK) and the L1 K depth (kL1); dispatch policy and pipeline
 // stages have no corresponding field, so they are decoded and recorded but do not alter this path.

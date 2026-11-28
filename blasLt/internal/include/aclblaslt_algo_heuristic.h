@@ -98,6 +98,7 @@ uint32_t GenerateAlgoId(DispatchPolicyType policy, uint32_t l1m, uint32_t l1n, u
 // ---- PackedAlgo (de)serialization ----
 aclblasLtMatmulAlgo_t BuildAlgoFromCandidate(const AlgoCandidate& cand);
 bool DecodeAlgo(const aclblasLtMatmulAlgo_t& algo, PackedAlgo* packed);
+bool IsDefaultRegularMatmulAlgo(const aclblasLtMatmulAlgo_t& algo);
 
 // Apply the decoded algorithm's L1 tile onto the FP32 kernel tiling (N and K tiles only take effect;
 // see the definition for the rationale).

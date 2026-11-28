@@ -19,6 +19,8 @@
 #include <cstdint>
 #endif
 
+constexpr uint8_t EPILOGUE_DTYPE_FP16 = 2U;
+
 #pragma pack(push, 8)
 struct alignas(8) EpilogueAlphaBetaTilingData {
     uint32_t m{0};
@@ -31,8 +33,8 @@ struct alignas(8) EpilogueAlphaBetaTilingData {
     uint32_t usedCoreNum{0};
     uint32_t numThreads{0};
     uint8_t dtypeDRaw{0}; // 0: FP32, 1: BF16
-    uint8_t dtypeC{0};    // 0: FP32, 1: BF16
-    uint8_t dtypeD{0};    // 0: FP32, 1: BF16
+    uint8_t dtypeC{0};    // 0: FP32, 1: BF16, 2: FP16
+    uint8_t dtypeD{0};    // 0: FP32, 1: BF16, 2: FP16
     uint8_t useC{0};
     uint8_t deviceScalarMode{0};
 };

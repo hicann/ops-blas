@@ -41,6 +41,8 @@ struct MatmulProblem {
     // scalars
     float alpha = 1.0f;
     float beta = 0.0f;
+    int32_t alphaInt = 1;
+    int32_t betaInt = 0;
     const void* alphaDevice = nullptr;
     const void* betaDevice = nullptr;
     bool devicePointerMode = false;
