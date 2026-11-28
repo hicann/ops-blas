@@ -118,14 +118,24 @@ static void TestNormalPath(const ScasumParam& p, aclblasHandle_t handle)
         for (int i = 0; i < 10; i++) {
             aclblasScasum(handle, p.n, dX, p.incx, dR);
         }
-        aclrtSynchronizeDevice();
+        if (aclrtSynchronizeDevice() != ACL_SUCCESS) {
+            printf("[ERROR] aclrtSynchronizeDevice warmup failed\n");
+            aclrtFree(dR);
+            aclrtFree(dX);
+            return;
+        }
 
         const int samples = 100;
         auto t0 = std::chrono::high_resolution_clock::now();
         for (int i = 0; i < samples; i++) {
             aclblasScasum(handle, p.n, dX, p.incx, dR);
         }
-        aclrtSynchronizeDevice();
+        if (aclrtSynchronizeDevice() != ACL_SUCCESS) {
+            printf("[ERROR] aclrtSynchronizeDevice sampling failed\n");
+            aclrtFree(dR);
+            aclrtFree(dX);
+            return;
+        }
         auto t1 = std::chrono::high_resolution_clock::now();
         double avgUs = std::chrono::duration<double, std::micro>(t1 - t0).count() / samples;
         printf("[PERF] case=%s avg_single_us=%.2f\n", p.caseName.c_str(), avgUs);
