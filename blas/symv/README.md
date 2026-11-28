@@ -130,6 +130,8 @@ struct AclrtMemDeleter {
 };
 
 struct AclblasHandleDeleter {
+    using pointer = aclblasHandle_t;
+
     void operator()(aclblasHandle_t handle) const
     {
         if (handle != nullptr) {
@@ -357,6 +359,8 @@ struct AclrtMemDeleter {
 };
 
 struct AclblasHandleDeleter {
+    using pointer = aclblasHandle_t;
+
     void operator()(aclblasHandle_t handle) const
     {
         if (handle != nullptr) {
