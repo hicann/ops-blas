@@ -16,9 +16,8 @@
 #include "cann_ops_blas.h"
 
 static inline aclblasStatus_t SdgmmValidateParams(
-    aclblasHandle_t handle, aclblasSideMode_t mode,
-    int m, int n, const float* A, int lda,
-    const float* x, int incx, float* C, int ldc)
+    aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n, const float* A, int lda, const float* x, int incx,
+    float* C, int ldc)
 {
     if (handle == nullptr) {
         return ACLBLAS_STATUS_HANDLE_IS_NULLPTR;
@@ -32,6 +31,9 @@ static inline aclblasStatus_t SdgmmValidateParams(
     if (lda < std::max(1, m) || ldc < std::max(1, m)) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
+    if (incx == 0 || incx == INT32_MIN) {
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     if (m > 0 && n > 0 && (x == nullptr || A == nullptr || C == nullptr)) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
@@ -43,11 +45,7 @@ static inline aclblasStatus_t SdgmmValidateParams(
 //   mode = RIGHT: C[i,j] = A[i,j] * x[j]   (C = A * diag(x))
 // Column-major storage. incx stride: x_k = x[(incx<0) ? (len-1-k)*|incx| : k*incx]
 inline aclblasStatus_t aclblasSdgmm_cpu(
-    aclblasHandle_t handle,
-    aclblasSideMode_t mode,
-    int m, int n,
-    const float* A, int lda,
-    const float* x, int incx,
+    aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n, const float* A, int lda, const float* x, int incx,
     float* C, int ldc)
 {
     aclblasStatus_t st = SdgmmValidateParams(handle, mode, m, n, A, lda, x, incx, C, ldc);
@@ -59,15 +57,12 @@ inline aclblasStatus_t aclblasSdgmm_cpu(
     }
 
     const int xLen = (mode == ACLBLAS_SIDE_LEFT) ? m : n;
-    const int64_t absIncx = (incx >= 0) ? static_cast<int64_t>(incx)
-                                        : -static_cast<int64_t>(incx);
+    const int64_t absIncx = (incx >= 0) ? static_cast<int64_t>(incx) : -static_cast<int64_t>(incx);
 
     for (int j = 0; j < n; j++) {
         for (int i = 0; i < m; i++) {
             int k = (mode == ACLBLAS_SIDE_LEFT) ? i : j;
-            int64_t xIdx = (incx < 0)
-                ? static_cast<int64_t>(xLen - 1 - k) * absIncx
-                : static_cast<int64_t>(k) * incx;
+            int64_t xIdx = (incx < 0) ? static_cast<int64_t>(xLen - 1 - k) * absIncx : static_cast<int64_t>(k) * incx;
             float xVal = x[xIdx];
             float aVal = A[i + static_cast<int64_t>(j) * lda];
             C[i + static_cast<int64_t>(j) * ldc] = xVal * aVal;

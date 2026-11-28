@@ -57,8 +57,8 @@ aclblasStatus_t aclblasAxpyEx(aclblasHandle_t handle, int n, const void *alpha, 
 #### 约束说明
 
 - n >= 0（n < 0 返回 ACLBLAS_STATUS_INVALID_VALUE；n == 0 为 no-op，直接返回 ACLBLAS_STATUS_SUCCESS）
-- incx != 0（incx == 0 返回 ACLBLAS_STATUS_INVALID_VALUE；支持负步长，表示反向遍历）
-- incy != 0（incy == 0 返回 ACLBLAS_STATUS_INVALID_VALUE；支持负步长，表示反向遍历）
+- incx != 0（incx == 0 或 INT32_MIN 返回 ACLBLAS_STATUS_INVALID_VALUE；支持负步长，表示反向遍历；issue #1326：arch35 对齐 arch22 拒绝 INT32_MIN）
+- incy != 0（incy == 0 或 INT32_MIN 返回 ACLBLAS_STATUS_INVALID_VALUE；支持负步长，表示反向遍历）
 - alphaType 固定为 ACL_FLOAT（否则返回 ACLBLAS_STATUS_NOT_SUPPORTED）
 - executionType 固定为 ACL_FLOAT（否则返回 ACLBLAS_STATUS_NOT_SUPPORTED）
 - xType 必须为 ACL_FLOAT、ACL_FLOAT16 或 ACL_BF16（否则返回 ACLBLAS_STATUS_NOT_SUPPORTED）

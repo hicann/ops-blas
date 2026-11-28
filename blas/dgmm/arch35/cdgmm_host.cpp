@@ -4,7 +4,7 @@
  * CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
@@ -27,7 +27,9 @@ extern "C" aclblasStatus_t aclblasCdgmm(
     if (mode != ACLBLAS_SIDE_LEFT && mode != ACLBLAS_SIDE_RIGHT) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (m < 0 || n < 0 || incx == 0) {
+    // issue #1326: 对齐 arch22 cdgmm（#780 scnrm2 口径）显式拒绝 INT32_MIN，
+    // 消除同一调用跨架构接受/拒绝行为分裂
+    if (m < 0 || n < 0 || incx == 0 || incx == INT32_MIN) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     if (lda < std::max(1, m) || ldc < std::max(1, m)) {

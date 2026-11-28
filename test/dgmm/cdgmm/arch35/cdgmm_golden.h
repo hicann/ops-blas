@@ -57,7 +57,7 @@ static inline aclblasStatus_t CdgmmValidateParams(
     if (n < 0) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
-    if (incx == 0) {
+    if (incx == 0 || incx == INT32_MIN) {
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
     // Leading-dimension checks precede the m==0 / n==0 early return (§2.5).

@@ -9,6 +9,7 @@
  */
 
 #include <algorithm>
+#include <cstdint>
 #include <vector>
 
 #include "verify.h"
@@ -20,36 +21,47 @@
 #include "sdgmm_npu_wrapper.h"
 
 // ── Test fixture ─────────────────────────────────────────────────────────────
-class SdgmmArch35Test : public BlasTest<SdgmmParam> { };
+class SdgmmTest : public BlasTest<SdgmmParam> {};
 
 // ── TEST_F: null handle (not in CSV) ─────────────────────────────────────────
-TEST_F(SdgmmArch35Test, NullHandle) {
-    aclblasStatus_t ret = aclblasSdgmm_npu(
-        nullptr, ACLBLAS_SIDE_LEFT, 4, 4,
-        nullptr, 4, nullptr, 1, nullptr, 4);
+TEST_F(SdgmmTest, NullHandle)
+{
+    aclblasStatus_t ret = aclblasSdgmm_npu(nullptr, ACLBLAS_SIDE_LEFT, 4, 4, nullptr, 4, nullptr, 1, nullptr, 4);
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_HANDLE_IS_NULLPTR));
 }
 
 // ── Helper: shared dX/dAC malloc + memcpy for in-place tests ──────────────────
-static bool SdgmmInPlaceSetup(void** dX, void** dAC,
-    const std::vector<float>& xHost, const std::vector<float>& aHost,
-    size_t xBytes, size_t acBytes, size_t aCopyBytes)
+static bool SdgmmInPlaceSetup(
+    void** dX, void** dAC, const std::vector<float>& xHost, const std::vector<float>& aHost, size_t xBytes,
+    size_t acBytes, size_t aCopyBytes)
 {
     aclError ret = aclrtMalloc(dX, xBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     EXPECT_EQ(ret, ACL_SUCCESS) << "aclrtMalloc dX failed";
-    if (ret != ACL_SUCCESS) return false;
+    if (ret != ACL_SUCCESS)
+        return false;
 
     ret = aclrtMalloc(dAC, acBytes, ACL_MEM_MALLOC_HUGE_FIRST);
     EXPECT_EQ(ret, ACL_SUCCESS) << "aclrtMalloc dAC failed";
-    if (ret != ACL_SUCCESS) { aclrtFree(*dX); return false; }
+    if (ret != ACL_SUCCESS) {
+        aclrtFree(*dX);
+        return false;
+    }
 
     ret = aclrtMemcpy(*dX, xBytes, xHost.data(), xBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     EXPECT_EQ(ret, ACL_SUCCESS) << "aclrtMemcpy H2D failed for dX";
-    if (ret != ACL_SUCCESS) { aclrtFree(*dX); aclrtFree(*dAC); return false; }
+    if (ret != ACL_SUCCESS) {
+        aclrtFree(*dX);
+        aclrtFree(*dAC);
+        return false;
+    }
 
     ret = aclrtMemcpy(*dAC, acBytes, aHost.data(), aCopyBytes, ACL_MEMCPY_HOST_TO_DEVICE);
     EXPECT_EQ(ret, ACL_SUCCESS) << "aclrtMemcpy H2D failed for dAC";
-    if (ret != ACL_SUCCESS) { aclrtFree(*dX); aclrtFree(*dAC); return false; }
+    if (ret != ACL_SUCCESS) {
+        aclrtFree(*dX);
+        aclrtFree(*dAC);
+        return false;
+    }
 
     return true;
 }
@@ -59,7 +71,8 @@ static bool SdgmmInPlaceSetup(void** dX, void** dAC,
 // A==C overlap check (sdgmm_host.cpp:63-66) can never trigger through it.
 // This test bypasses the wrapper and calls aclblasSdgmm directly, passing the
 // same device pointer for A and C to verify the overlap rejection.
-TEST_F(SdgmmArch35Test, InPlaceLdaNeLdc) {
+TEST_F(SdgmmTest, InPlaceLdaNeLdc)
+{
     constexpr int m = 4, n = 4, lda = 4, ldc = 5, incx = 1;
     const int maxLd = std::max(lda, ldc);
     const size_t acElems = static_cast<size_t>(maxLd) * static_cast<size_t>(n);
@@ -73,14 +86,13 @@ TEST_F(SdgmmArch35Test, InPlaceLdaNeLdc) {
     void* dX = nullptr;
     void* dAC = nullptr;
     // Only lda*n elements of A are valid; the rest of dAC is padding for ldc.
-    if (!SdgmmInPlaceSetup(&dX, &dAC, xHost, aHost, xBytes, acBytes, aBytes)) return;
+    if (!SdgmmInPlaceSetup(&dX, &dAC, xHost, aHost, xBytes, acBytes, aBytes))
+        return;
 
     // A and C point to the same device buffer; lda != ldc must be rejected.
     aclblasStatus_t dgmmRet = aclblasSdgmm(
-        SdgmmArch35Test::handle_, ACLBLAS_SIDE_LEFT, m, n,
-        static_cast<const float*>(dAC), lda,
-        static_cast<const float*>(dX), incx,
-        static_cast<float*>(dAC), ldc);
+        SdgmmTest::handle_, ACLBLAS_SIDE_LEFT, m, n, static_cast<const float*>(dAC), lda, static_cast<const float*>(dX),
+        incx, static_cast<float*>(dAC), ldc);
     EXPECT_EQ(static_cast<int>(dgmmRet), static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
 
     aclrtFree(dX);
@@ -90,7 +102,8 @@ TEST_F(SdgmmArch35Test, InPlaceLdaNeLdc) {
 // ── TEST_F: in-place A==C, lda == ldc → SUCCESS ───────────────────────────────
 // Verifies that in-place execution (A==C, lda==ldc) succeeds and produces
 // correct results. Bypasses the wrapper to pass the same device pointer.
-TEST_F(SdgmmArch35Test, InPlaceLdaEqLdc) {
+TEST_F(SdgmmTest, InPlaceLdaEqLdc)
+{
     constexpr int m = 4, n = 4, lda = 4, ldc = 4, incx = 1;
     const size_t acElems = static_cast<size_t>(lda) * static_cast<size_t>(n);
     const size_t acBytes = acElems * sizeof(float);
@@ -102,14 +115,13 @@ TEST_F(SdgmmArch35Test, InPlaceLdaEqLdc) {
 
     void* dX = nullptr;
     void* dAC = nullptr;
-    if (!SdgmmInPlaceSetup(&dX, &dAC, xHost, aHost, xBytes, acBytes, acBytes)) return;
+    if (!SdgmmInPlaceSetup(&dX, &dAC, xHost, aHost, xBytes, acBytes, acBytes))
+        return;
 
     // A and C point to the same device buffer; lda == ldc allows in-place execution.
     aclblasStatus_t dgmmRet = aclblasSdgmm(
-        SdgmmArch35Test::handle_, ACLBLAS_SIDE_LEFT, m, n,
-        static_cast<const float*>(dAC), lda,
-        static_cast<const float*>(dX), incx,
-        static_cast<float*>(dAC), ldc);
+        SdgmmTest::handle_, ACLBLAS_SIDE_LEFT, m, n, static_cast<const float*>(dAC), lda, static_cast<const float*>(dX),
+        incx, static_cast<float*>(dAC), ldc);
     EXPECT_EQ(static_cast<int>(dgmmRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
 
     if (dgmmRet != ACLBLAS_STATUS_SUCCESS) {
@@ -119,22 +131,20 @@ TEST_F(SdgmmArch35Test, InPlaceLdaEqLdc) {
     }
 
     // Sync and copy in-place result back to host.
-    EXPECT_EQ(aclrtSynchronizeStream(SdgmmArch35Test::stream_), ACL_SUCCESS);
+    EXPECT_EQ(aclrtSynchronizeStream(SdgmmTest::stream_), ACL_SUCCESS);
     std::vector<float> cHost(acElems, kBlasSentinel);
     EXPECT_EQ(aclrtMemcpy(cHost.data(), acBytes, dAC, acBytes, ACL_MEMCPY_DEVICE_TO_HOST), ACL_SUCCESS);
 
     // Golden computed from original aHost (not modified by NPU).
     std::vector<float> goldenC(acElems, kBlasSentinel);
     aclblasStatus_t cpuRet = aclblasSdgmm_cpu(
-        SdgmmArch35Test::handle_, ACLBLAS_SIDE_LEFT, m, n,
-        aHost.data(), lda, xHost.data(), incx, goldenC.data(), ldc);
+        SdgmmTest::handle_, ACLBLAS_SIDE_LEFT, m, n, aHost.data(), lda, xHost.data(), incx, goldenC.data(), ldc);
     EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
 
     // Precision verification — mixed tolerance (ops-precision-standard).
     VerifyConfig cfg;
     applyMixedTolerance(cfg, ACL_FLOAT, goldenC.data(), goldenC.size());
-    EXPECT_TRUE(Verifier::verifyVector(
-        cHost.data(), goldenC.data(), cHost.size(), 1, cfg, "InPlaceLdaEqLdc"));
+    EXPECT_TRUE(Verifier::verifyVector(cHost.data(), goldenC.data(), cHost.size(), 1, cfg, "InPlaceLdaEqLdc"));
 
     aclrtFree(dX);
     aclrtFree(dAC);
@@ -142,13 +152,39 @@ TEST_F(SdgmmArch35Test, InPlaceLdaEqLdc) {
 
 // ── CSV parameterised test suite ─────────────────────────────────────────────
 INSTANTIATE_TEST_SUITE_P(
-    Sdgmm, SdgmmArch35Test,
-    ::testing::ValuesIn(GetCasesFromCsv<SdgmmParam>(ReplaceFileExtension2Csv(__FILE__))),
+    Sdgmm, SdgmmTest, ::testing::ValuesIn(GetCasesFromCsv<SdgmmParam>(ReplaceFileExtension2Csv(__FILE__))),
     PrintCaseInfoString<SdgmmParam>);
 
+// ── issue #1326 负例特例：incx = INT32_MIN 的 host 校验短路验证 ──────────────
+// 绕过 npu 包装（x 设备缓冲按 (xLen-1)*|incx|+1 分配，该步长下不可达），以最小
+// 哑设备缓冲直调公开接口；期望值写死 INVALID_VALUE，保证该校验被移除时用例失败
+static void RunSdgmmInt32MinCase(aclblasHandle_t handle, const SdgmmParam& p)
+{
+    const size_t dummyBytes = 8 * sizeof(float);
+    void* dA = nullptr;
+    void* dX = nullptr;
+    void* dC = nullptr;
+    ASSERT_EQ(aclrtMalloc(&dA, dummyBytes, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+    ASSERT_EQ(aclrtMalloc(&dX, dummyBytes, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+    ASSERT_EQ(aclrtMalloc(&dC, dummyBytes, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+    aclblasStatus_t ret = aclblasSdgmm(
+        handle, p.mode, p.m, p.n, static_cast<const float*>(dA), p.lda, static_cast<const float*>(dX), p.incx,
+        static_cast<float*>(dC), p.ldc);
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+    aclrtFree(dA);
+    aclrtFree(dX);
+    aclrtFree(dC);
+}
+
 // ── TEST_P: 5-step CSV-driven flow ───────────────────────────────────────────
-TEST_P(SdgmmArch35Test, CsvDriven) {
+TEST_P(SdgmmTest, CsvDriven)
+{
     const auto& p = GetParam();
+
+    if (p.incx == INT32_MIN) {
+        RunSdgmmInt32MinCase(SdgmmTest::handle_, p);
+        return;
+    }
 
     // Step 1: Generate host data
     // x length: mode=L -> m, mode=R -> n
@@ -180,27 +216,27 @@ TEST_P(SdgmmArch35Test, CsvDriven) {
 
     const float* xPtr = xHost.empty() ? nullptr : xHost.data();
     const float* aPtr = aHost.empty() ? nullptr : aHost.data();
-    float*       cPtr = cHost.empty() ? nullptr : cHost.data();
+    float* cPtr = cHost.empty() ? nullptr : cHost.data();
 
     // Step 2: Execute on NPU (wrapper handles nullptr passthrough, device memory)
-    aclblasStatus_t ret = aclblasSdgmm_npu(
-        SdgmmArch35Test::handle_, p.mode, p.m, p.n,
-        aPtr, p.lda, xPtr, p.incx, cPtr, p.ldc);
+    aclblasStatus_t ret =
+        aclblasSdgmm_npu(SdgmmTest::handle_, p.mode, p.m, p.n, aPtr, p.lda, xPtr, p.incx, cPtr, p.ldc);
 
     // Step 3: Verify expected return code
     EXPECT_EQ(static_cast<int>(ret), static_cast<int>(p.expectResult));
-    if (p.expectResult != ACLBLAS_STATUS_SUCCESS) return;
+    if (p.expectResult != ACLBLAS_STATUS_SUCCESS)
+        return;
 
     // m==0 or n==0: operator returns SUCCESS without computing; no output to verify
-    if (p.m == 0 || p.n == 0) return;
+    if (p.m == 0 || p.n == 0)
+        return;
 
     // Step 4: Compute golden on CPU
     // xHost and aHost are not modified by the NPU wrapper (only cHost is written
     // via D2H), so they remain valid for golden computation.
     std::vector<float> goldenC(cHost.size(), kBlasSentinel);
-    aclblasStatus_t cpuRet = aclblasSdgmm_cpu(
-        SdgmmArch35Test::handle_, p.mode, p.m, p.n,
-        aPtr, p.lda, xPtr, p.incx, goldenC.data(), p.ldc);
+    aclblasStatus_t cpuRet =
+        aclblasSdgmm_cpu(SdgmmTest::handle_, p.mode, p.m, p.n, aPtr, p.lda, xPtr, p.incx, goldenC.data(), p.ldc);
     EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
 
     // Step 5: Precision verification — mixed tolerance (ops-precision-standard).
@@ -209,6 +245,5 @@ TEST_P(SdgmmArch35Test, CsvDriven) {
 
     // Compare entire C storage (ldc * n elements, stride 1).
     // Padding rows (if lda/ldc > m) are sentinel in both cHost and goldenC.
-    EXPECT_TRUE(Verifier::verifyVector(
-        cPtr, goldenC.data(), cHost.size(), 1, cfg, p.caseName));
+    EXPECT_TRUE(Verifier::verifyVector(cPtr, goldenC.data(), cHost.size(), 1, cfg, p.caseName));
 }

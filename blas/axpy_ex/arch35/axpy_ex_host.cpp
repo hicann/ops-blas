@@ -17,6 +17,7 @@
  */
 
 #include <algorithm>
+#include <cstdint>
 #include "log/log.h"
 #include "cann_ops_blas.h"
 #include "common/helper/aclblas_handle_internal.h"
@@ -44,9 +45,8 @@ static uint32_t GetAlignUnit(uint32_t xType)
     return 32 / 2;
 }
 
-static aclblasStatus_t ValidateAxpyExParams(
-    const void* alpha, aclDataType alphaType, const void* x, aclDataType xType, int incx, void* y, aclDataType yType,
-    int incy, aclDataType executionType)
+static aclblasStatus_t ValidateAxpyExDataTypes(
+    aclDataType alphaType, aclDataType xType, aclDataType yType, aclDataType executionType)
 {
     if (alphaType != ACL_FLOAT) {
         OP_LOGE("aclblasAxpyEx", "alphaType must be ACL_FLOAT(0), got %d", static_cast<int>(alphaType));
@@ -72,6 +72,12 @@ static aclblasStatus_t ValidateAxpyExParams(
         OP_LOGE("aclblasAxpyEx", "xType(%d) must equal yType(%d)", static_cast<int>(xType), static_cast<int>(yType));
         return ACLBLAS_STATUS_NOT_SUPPORTED;
     }
+    return ACLBLAS_STATUS_SUCCESS;
+}
+
+static aclblasStatus_t ValidateAxpyExPointersAndStrides(
+    const void* alpha, const void* x, const void* y, int incx, int incy)
+{
     if (alpha == nullptr) {
         OP_LOGE("aclblasAxpyEx", "alpha must not be nullptr");
         return ACLBLAS_STATUS_INVALID_VALUE;
@@ -92,7 +98,24 @@ static aclblasStatus_t ValidateAxpyExParams(
         OP_LOGE("aclblasAxpyEx", "incy must not be zero");
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
+    // issue #1326: 对齐 arch22 axpy_ex 显式拒绝 INT32_MIN（步长无合法使用场景），
+    // 消除同一调用跨架构接受/拒绝行为分裂
+    if (incx == INT32_MIN || incy == INT32_MIN) {
+        OP_LOGE("aclblasAxpyEx", "incx/incy must not be INT32_MIN, got incx=%d incy=%d", incx, incy);
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     return ACLBLAS_STATUS_SUCCESS;
+}
+
+static aclblasStatus_t ValidateAxpyExParams(
+    const void* alpha, aclDataType alphaType, const void* x, aclDataType xType, int incx, void* y, aclDataType yType,
+    int incy, aclDataType executionType)
+{
+    aclblasStatus_t st = ValidateAxpyExDataTypes(alphaType, xType, yType, executionType);
+    if (st != ACLBLAS_STATUS_SUCCESS) {
+        return st;
+    }
+    return ValidateAxpyExPointersAndStrides(alpha, x, y, incx, incy);
 }
 
 static AxpyExTilingData CalAxpyExTilingDataContiguous(uint32_t totalN, uint32_t coreNum, uint32_t xType)

@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 #include "verify.h"
@@ -20,10 +21,10 @@
 #include "axpy_ex_npu_wrapper.h"
 
 // ── Test fixture ─────────────────────────────────────────────────────────────
-class AxpyExArch35Test : public BlasTest<AxpyExParam> {};
+class AxpyExTest : public BlasTest<AxpyExParam> {};
 
 // ── TEST_F: null handle (TF_01, not in CSV) ─────────────────────────────────
-TEST_F(AxpyExArch35Test, NullHandle)
+TEST_F(AxpyExTest, NullHandle)
 {
     float alphaVal = 2.5f;
     std::vector<float> xHost = makeBlasStrided(5, 1, "RANDOM_1_1", 42);
@@ -35,13 +36,39 @@ TEST_F(AxpyExArch35Test, NullHandle)
 
 // ── CSV parameterised test suite ─────────────────────────────────────────────
 INSTANTIATE_TEST_SUITE_P(
-    AxpyEx, AxpyExArch35Test, ::testing::ValuesIn(GetCasesFromCsv<AxpyExParam>(ReplaceFileExtension2Csv(__FILE__))),
+    AxpyEx, AxpyExTest, ::testing::ValuesIn(GetCasesFromCsv<AxpyExParam>(ReplaceFileExtension2Csv(__FILE__))),
     PrintCaseInfoString<AxpyExParam>);
 
+// ── issue #1326 负例特例：incx/incy = INT32_MIN 的 host 校验短路验证 ──────────
+// 绕过 npu 包装（设备缓冲按 (n-1)*|inc|+1 分配且 std::abs 对 INT32_MIN 为 UB，
+// 该步长下不可达），以最小哑设备缓冲直调公开接口；期望值写死 INVALID_VALUE，
+// 保证该校验被移除时用例失败
+static void RunAxpyExInt32MinCase(aclblasHandle_t handle, const AxpyExParam& p, bool incxIsMin)
+{
+    const size_t dummyBytes = 8 * sizeof(float);
+    void* dX = nullptr;
+    void* dY = nullptr;
+    float alphaLocal = p.alphaVal();
+    ASSERT_EQ(aclrtMalloc(&dX, dummyBytes, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+    ASSERT_EQ(aclrtMalloc(&dY, dummyBytes, ACL_MEM_MALLOC_HUGE_FIRST), ACL_SUCCESS);
+    aclblasStatus_t ret = aclblasAxpyEx(
+        handle, p.n, &alphaLocal, static_cast<aclDataType>(p.alphaType), dX, static_cast<aclDataType>(p.xType),
+        incxIsMin ? INT32_MIN : p.incx, dY, static_cast<aclDataType>(p.yType), incxIsMin ? p.incy : INT32_MIN,
+        static_cast<aclDataType>(p.executionType));
+    EXPECT_EQ(static_cast<int>(ret), static_cast<int>(ACLBLAS_STATUS_INVALID_VALUE));
+    aclrtFree(dX);
+    aclrtFree(dY);
+}
+
 // ── TEST_P: 5-step CSV-driven flow ───────────────────────────────────────────
-TEST_P(AxpyExArch35Test, CsvDriven)
+TEST_P(AxpyExTest, CsvDriven)
 {
     const auto& p = GetParam();
+
+    if (p.incx == INT32_MIN || p.incy == INT32_MIN) {
+        RunAxpyExInt32MinCase(AxpyExTest::handle_, p, p.incx == INT32_MIN);
+        return;
+    }
 
     // Step 1: Generate host data (x and y independently)
     std::vector<float> xHost = makeBlasStrided(p.n, p.incx, p.x, p.randomSeed);
@@ -60,7 +87,7 @@ TEST_P(AxpyExArch35Test, CsvDriven)
 
     // Step 3: Execute NPU (wrapper handles nullptrs, dtype packing, device memory)
     aclblasStatus_t ret = aclblasAxpyEx_npu(
-        AxpyExArch35Test::handle_, p.n, alphaPtr, static_cast<aclDataType>(p.alphaType), xPtr,
+        AxpyExTest::handle_, p.n, alphaPtr, static_cast<aclDataType>(p.alphaType), xPtr,
         static_cast<aclDataType>(p.xType), p.incx, yPtr, static_cast<aclDataType>(p.yType), p.incy,
         static_cast<aclDataType>(p.executionType), p.alphaOnDevice);
 
@@ -73,7 +100,7 @@ TEST_P(AxpyExArch35Test, CsvDriven)
 
     // Step 4: Compute golden (in-place on saved copy)
     aclblasStatus_t cpuRet = aclblasAxpyEx_cpu(
-        AxpyExArch35Test::handle_, p.n, alphaPtr, static_cast<aclDataType>(p.alphaType), xGolden.data(),
+        AxpyExTest::handle_, p.n, alphaPtr, static_cast<aclDataType>(p.alphaType), xGolden.data(),
         static_cast<aclDataType>(p.xType), p.incx, yGolden.data(), static_cast<aclDataType>(p.yType), p.incy,
         static_cast<aclDataType>(p.executionType));
     EXPECT_EQ(static_cast<int>(cpuRet), static_cast<int>(ACLBLAS_STATUS_SUCCESS));
@@ -83,8 +110,7 @@ TEST_P(AxpyExArch35Test, CsvDriven)
     applyMixedTolerance(cfg, static_cast<aclDataType>(p.yType), yGolden.data(), static_cast<size_t>(std::max(0, p.n)));
 
     int absIncy = std::abs(p.incy);
-    EXPECT_TRUE(
-        Verifier::verifyVector(
-            static_cast<const float*>(yPtr), yGolden.data(), static_cast<size_t>(std::max(0, p.n)), absIncy, cfg,
-            p.caseName));
+    EXPECT_TRUE(Verifier::verifyVector(
+        static_cast<const float*>(yPtr), yGolden.data(), static_cast<size_t>(std::max(0, p.n)), absIncy, cfg,
+        p.caseName));
 }

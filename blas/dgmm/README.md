@@ -74,7 +74,7 @@ aclblasStatus_t aclblasSdgmm(aclblasHandle_t handle, aclblasSideMode_t mode, int
 - m >= 0, n >= 0，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - m == 0 或 n == 0 时为 no-op，直接返回 ACLBLAS_STATUS_SUCCESS（跳过以下所有校验）
 - 以下约束仅在 m > 0 且 n > 0 时生效：
-- incx 不可为 0（incx==0 返回 ACLBLAS_STATUS_INVALID_VALUE），可为负数表示反向访问 x
+- incx 不可为 0 或 INT32_MIN（返回 ACLBLAS_STATUS_INVALID_VALUE），可为负数表示反向访问 x（issue #1326：arch35 对齐 arch22 拒绝 INT32_MIN）
 - lda >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - ldc >= max(1, m)，否则返回 ACLBLAS_STATUS_INVALID_VALUE
 - A、x、C 不能为 nullptr，否则返回 ACLBLAS_STATUS_INVALID_VALUE
@@ -306,7 +306,7 @@ aclblasStatus_t aclblasCdgmm(aclblasHandle_t handle, aclblasSideMode_t mode, int
 - handle 不能为 nullptr，否则返回 `ACLBLAS_STATUS_HANDLE_IS_NULLPTR`
 - mode 必须为 `ACLBLAS_SIDE_LEFT` 或 `ACLBLAS_SIDE_RIGHT`，否则返回 `ACLBLAS_STATUS_INVALID_ENUM`
 - m >= 0, n >= 0，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
-- incx != 0（可为负数，表示反向访问 x），否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
+- incx != 0 且不为 INT32_MIN（可为负数，表示反向访问 x；INT32_MIN 步长无合法使用场景，对齐 scnrm2 口径显式拒绝），否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
 - lda >= max(1, n)，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
 - ldc >= max(1, n)，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
 - 当 m > 0 且 n > 0 时，A、x、C 不能为 nullptr，否则返回 `ACLBLAS_STATUS_INVALID_VALUE`
@@ -352,14 +352,14 @@ aclblasStatus_t aclblasCdgmm(
 | A | complex64 输入，列主序地址 A[i+j*lda]，Device 内存 |
 | lda | 输入前导维，至少 max(1,m) |
 | x | LEFT 逻辑长度 m，RIGHT 逻辑长度 n，Device 内存 |
-| incx | 非零正负步长；正数取 x[k*incx]，负数取 x[(L-1-k)*abs(incx)] |
+| incx | 非零正负步长；正数取 x[k*incx]，负数取 x[(L-1-k)*abs(incx)]；不可为 0 或 INT32_MIN（返回 INVALID_VALUE，issue #1326） |
 | C | complex64 输出，列主序地址 C[i+j*ldc]，Device 内存 |
 | ldc | 输出前导维，至少 max(1,m) |
 
 #### 950PR 约束与错误码
 
 - 校验顺序：handle、mode、m、n、incx、lda、ldc；随后处理空矩阵，再检查 A/x/C 指针及原地条件。
-- 空 handle 返回 HANDLE_IS_NULLPTR；非法 mode、负维度、incx=0、非法前导维及非空矩阵的空指针返回 INVALID_VALUE。
+- 空 handle 返回 HANDLE_IS_NULLPTR；非法 mode、负维度、incx=0 或 INT32_MIN、非法前导维及非空矩阵的空指针返回 INVALID_VALUE。
 - m=0 或 n=0 时，A/x/C 可以为空，仍须通过前述标量校验。例如 n=0、lda=0 返回 INVALID_VALUE。
 - A==C 支持原地计算，必须 lda==ldc；否则返回 INVALID_VALUE。C 不与 x 共享存储，部分重叠不在支持契约内。
 - 仅写 C 的 m*n 逻辑元素，保留 ldc padding；A 和 x 只读。

@@ -4,7 +4,7 @@
  * CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
@@ -27,13 +27,10 @@
 #include "common/helper/kernel_constant.h"
 
 static aclblasStatus_t ValidateSdgmmParams(
-    aclblasSideMode_t mode, int m, int n,
-    const float* A, int lda, const float* x, int incx,
-    float* C, int ldc)
+    aclblasSideMode_t mode, int m, int n, const float* A, int lda, const float* x, int incx, float* C, int ldc)
 {
     if (mode != ACLBLAS_SIDE_LEFT && mode != ACLBLAS_SIDE_RIGHT) {
-        OP_LOGE("aclblasSdgmm", "mode must be SIDE_LEFT(141) or SIDE_RIGHT(142), got %d",
-                static_cast<int>(mode));
+        OP_LOGE("aclblasSdgmm", "mode must be SIDE_LEFT(141) or SIDE_RIGHT(142), got %d", static_cast<int>(mode));
         return ACLBLAS_STATUS_INVALID_ENUM;
     }
     if (m < 0) {
@@ -58,6 +55,12 @@ static aclblasStatus_t ValidateSdgmmParams(
         OP_LOGE("aclblasSdgmm", "incx must not be zero, got incx=%d", incx);
         return ACLBLAS_STATUS_INVALID_VALUE;
     }
+    // issue #1326: 对齐 arch22 sdgmm 显式拒绝 INT32_MIN（步长无合法使用场景），
+    // 消除同一调用跨架构接受/拒绝行为分裂
+    if (incx == INT32_MIN) {
+        OP_LOGE("aclblasSdgmm", "incx must not be INT32_MIN, got incx=%d", incx);
+        return ACLBLAS_STATUS_INVALID_VALUE;
+    }
     if (m > 0 && n > 0 && (x == nullptr || A == nullptr || C == nullptr)) {
         OP_LOGE("aclblasSdgmm", "A/x/C must not be nullptr when m>0 and n>0");
         return ACLBLAS_STATUS_INVALID_VALUE;
@@ -74,8 +77,7 @@ static aclblasStatus_t ValidateSdgmmParams(
 // mBlocks > 1 only when n < aivCoreNum (tall-skinny): splits along m to
 // utilize idle cores. Each block handles [startCol,endCol) × [startM,endM).
 static SdgmmTilingData CalSdgmmTilingData(
-    uint32_t mode, uint32_t m, uint32_t n, int32_t incx,
-    uint32_t lda, uint32_t ldc, uint32_t aivCoreNum)
+    uint32_t mode, uint32_t m, uint32_t n, int32_t incx, uint32_t lda, uint32_t ldc, uint32_t aivCoreNum)
 {
     SdgmmTilingData tiling{};
     tiling.mode = mode;
@@ -85,7 +87,7 @@ static SdgmmTilingData CalSdgmmTilingData(
     tiling.lda = lda;
     tiling.ldc = ldc;
 
-    constexpr uint32_t ALIGN_UNIT = 32 / sizeof(float);  // = 8
+    constexpr uint32_t ALIGN_UNIT = 32 / sizeof(float); // = 8
     constexpr uint32_t UB_RESERVE = 256;
 
     // Both modes use 3 UB buffers (A + C + X). mode=R batch-copies an x segment
@@ -124,20 +126,16 @@ static SdgmmTilingData CalSdgmmTilingData(
 }
 
 static aclblasStatus_t LaunchSdgmmKernel(
-    aclblasSideMode_t mode, int m, int n,
-    const float* A, int lda, const float* x, int incx,
-    float* C, int ldc, uint32_t aivCoreNum, aclrtStream stream)
+    aclblasSideMode_t mode, int m, int n, const float* A, int lda, const float* x, int incx, float* C, int ldc,
+    uint32_t aivCoreNum, aclrtStream stream)
 {
     uint32_t modeNorm = (mode == ACLBLAS_SIDE_LEFT) ? SDGMM_MODE_LEFT : SDGMM_MODE_RIGHT;
 
     SdgmmTilingData tiling = CalSdgmmTilingData(
-        modeNorm, static_cast<uint32_t>(m), static_cast<uint32_t>(n), incx,
-        static_cast<uint32_t>(lda), static_cast<uint32_t>(ldc), aivCoreNum);
-
+        modeNorm, static_cast<uint32_t>(m), static_cast<uint32_t>(n), incx, static_cast<uint32_t>(lda),
+        static_cast<uint32_t>(ldc), aivCoreNum);
     if (tiling.tileM == 0) {
-        OP_LOGE("aclblasSdgmm",
-                "tileM is 0 (UB too small for %u buffers), cannot compute",
-                3u);
+        OP_LOGE("aclblasSdgmm", "tileM is 0 (UB too small for %u buffers), cannot compute", 3u);
         return ACLBLAS_STATUS_INTERNAL_ERROR;
     }
 
@@ -147,33 +145,32 @@ static aclblasStatus_t LaunchSdgmmKernel(
     }
     uint32_t numBlocks = colBlocks * tiling.mBlocks;
 
-    OP_LOGD("aclblasSdgmm",
-            "params: mode=%d, m=%d, n=%d, incx=%d, lda=%d, ldc=%d, numBlocks=%u",
-            static_cast<int>(mode), m, n, incx, lda, ldc, numBlocks);
+    OP_LOGD(
+        "aclblasSdgmm", "params: mode=%d, m=%d, n=%d, incx=%d, lda=%d, ldc=%d, numBlocks=%u", static_cast<int>(mode), m,
+        n, incx, lda, ldc, numBlocks);
 
-    OP_LOGD("aclblasSdgmm", "tiling: mode=%u, perCoreN=%u, remainder=%u, mBlocks=%u, tileM=%u",
-            tiling.mode, tiling.perCoreN, tiling.remainder, tiling.mBlocks, tiling.tileM);
+    OP_LOGD(
+        "aclblasSdgmm", "tiling: mode=%u, perCoreN=%u, remainder=%u, mBlocks=%u, tileM=%u", tiling.mode,
+        tiling.perCoreN, tiling.remainder, tiling.mBlocks, tiling.tileM);
 
-    OP_LOGI("aclblasSdgmm",
-            "launch kernel: m=%d, n=%d, incx=%d, numBlocks=%u, aivCoreNum=%u",
-            m, n, incx, numBlocks, aivCoreNum);
+    OP_LOGI(
+        "aclblasSdgmm", "launch kernel: m=%d, n=%d, incx=%d, numBlocks=%u, aivCoreNum=%u", m, n, incx, numBlocks,
+        aivCoreNum);
 
     // The kernel handles negative incx internally by computing non-negative
     // indices (same formula as the CPU golden), so we pass the original x
     // pointer without pre-offsetting. This avoids tensor negative-index access
     // and the -incx overflow risk that the pre-offset approach had.
 
-    sdgmm_kernel_do(reinterpret_cast<const GM_ADDR>(x),
-                    reinterpret_cast<const GM_ADDR>(A),
-                    reinterpret_cast<GM_ADDR>(C),
-                    tiling, numBlocks, stream);
+    sdgmm_kernel_do(
+        reinterpret_cast<const GM_ADDR>(x), reinterpret_cast<const GM_ADDR>(A), reinterpret_cast<GM_ADDR>(C), tiling,
+        numBlocks, stream);
     return ACLBLAS_STATUS_SUCCESS;
 }
 
 extern "C" aclblasStatus_t aclblasSdgmm(
-    aclblasHandle_t handle, aclblasSideMode_t mode,
-    int m, int n, const float* A, int lda,
-    const float* x, int incx, float* C, int ldc)
+    aclblasHandle_t handle, aclblasSideMode_t mode, int m, int n, const float* A, int lda, const float* x, int incx,
+    float* C, int ldc)
 {
     if (handle == nullptr) {
         OP_LOGE("aclblasSdgmm", "handle is nullptr");

@@ -4,7 +4,7 @@
  * CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
  * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
@@ -345,11 +345,13 @@ TEST_F(CdgmmArch35Test, InPlaceMismatchedLeadingDimensions)
 
 TEST_F(CdgmmArch35Test, IntMinIncrementWithOneElement)
 {
+    // issue #1326: incx=INT32_MIN 统一拒绝（对齐 arch22 #780 口径），单元素场景同样拒绝
     auto p = ManualCase(ACLBLAS_SIDE_RIGHT, INT_MIN);
     p.m = 1;
     p.n = 1;
     p.lda = 1;
     p.ldc = 1;
+    p.expected = ACLBLAS_STATUS_INVALID_VALUE;
     RunCase(p);
 }
 
