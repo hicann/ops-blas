@@ -116,7 +116,7 @@ __simt_callee__ inline void StrsvSimtProcess(
     __ubuf__ float* xUb)
 {
     uint32_t ldaU32 = static_cast<uint32_t>(lda);
-    uint32_t absIncx = static_cast<uint32_t>(incx >= 0 ? incx : -incx);
+    uint32_t absIncx = static_cast<uint32_t>(incx >= 0 ? static_cast<int64_t>(incx) : -static_cast<int64_t>(incx));
 
     if constexpr (!TILED) {
         StrsvSimtLoadX(n, incx, absIncx, xGm, xUb);
