@@ -362,14 +362,22 @@ inline aclblasStatus_t aclblasLtMatrixTransform_npu(
         if (aclrtMalloc(&ctx.dA, aBytes.size(), ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
             ltDestroyNpuCtx(ctx); return ACLBLAS_STATUS_ALLOC_FAILED;
         }
-        aclrtMemcpy(ctx.dA, aBytes.size(), aBytes.data(), aBytes.size(), ACL_MEMCPY_HOST_TO_DEVICE);
+        if (aclrtMemcpy(ctx.dA, aBytes.size(), aBytes.data(), aBytes.size(), ACL_MEMCPY_HOST_TO_DEVICE) !=
+            ACL_SUCCESS) {
+            ltDestroyNpuCtx(ctx);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
     }
     if (!emptyMat && hasB && !physB.empty()) {
         bBytes = packBuf(physB, p.dtypeB, p.orderB, physRowsB, physColsB, p.ldb);
         if (aclrtMalloc(&ctx.dB, bBytes.size(), ACL_MEM_MALLOC_HUGE_FIRST) != ACL_SUCCESS) {
             ltDestroyNpuCtx(ctx); return ACLBLAS_STATUS_ALLOC_FAILED;
         }
-        aclrtMemcpy(ctx.dB, bBytes.size(), bBytes.data(), bBytes.size(), ACL_MEMCPY_HOST_TO_DEVICE);
+        if (aclrtMemcpy(ctx.dB, bBytes.size(), bBytes.data(), bBytes.size(), ACL_MEMCPY_HOST_TO_DEVICE) !=
+            ACL_SUCCESS) {
+            ltDestroyNpuCtx(ctx);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
     }
     int64_t cCount = emptyMat ? 0 : ltTransformPhysCount(p.orderC, p.rowsC, p.colsC, p.ldc);
     // FP4 output byte size = numBlocks * packedLd(ldc); other dtypes = cCount * elemSize.
@@ -406,12 +414,24 @@ inline aclblasStatus_t aclblasLtMatrixTransform_npu(
         betaPtr, Bdev, ctx.Bdesc,
         ctx.dC, ctx.Cdesc, stream);
 
-    if (stream != nullptr) aclrtSynchronizeStream(stream);
-    else aclrtSynchronizeDevice();
+    if (stream != nullptr) {
+        if (aclrtSynchronizeStream(stream) != ACL_SUCCESS) {
+            ltDestroyNpuCtx(ctx);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+    } else {
+        if (aclrtSynchronizeDevice() != ACL_SUCCESS) {
+            ltDestroyNpuCtx(ctx);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
+    }
 
     if (ret == ACLBLAS_STATUS_SUCCESS && !emptyMat && ctx.dC != nullptr) {
         std::vector<uint8_t> cHost(cBytes);
-        aclrtMemcpy(cHost.data(), cBytes, ctx.dC, cBytes, ACL_MEMCPY_DEVICE_TO_HOST);
+        if (aclrtMemcpy(cHost.data(), cBytes, ctx.dC, cBytes, ACL_MEMCPY_DEVICE_TO_HOST) != ACL_SUCCESS) {
+            ltDestroyNpuCtx(ctx);
+            return ACLBLAS_STATUS_INTERNAL_ERROR;
+        }
         std::vector<float> physC;
         if (isFp4TransformDtype(p.dtypeC)) {
             int cBlocks = ltTransformNumBlocks(p.orderC, p.rowsC, p.colsC);
