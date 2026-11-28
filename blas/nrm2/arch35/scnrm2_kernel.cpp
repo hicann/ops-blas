@@ -327,7 +327,7 @@ __simt_callee__ inline void Scnrm2SimtMerge(
 __simt_vf__ __aicore__ LAUNCH_BOUND(SIMT_MAX_THREAD_NUM) inline void Scnrm2Simt(
     uint32_t calNum, uint32_t elemStart, int32_t incx, uint32_t n, __gm__ const float* xGm, __gm__ float* wsOut)
 {
-    uint32_t absInc = static_cast<uint32_t>((incx > 0) ? incx : -incx);
+    uint32_t absInc = static_cast<uint32_t>((incx > 0) ? static_cast<int64_t>(incx) : -static_cast<int64_t>(incx));
     float scale = 0.0f;
     float ssq = 0.0f;
 
